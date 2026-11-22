@@ -1259,6 +1259,7 @@ version = "0.0.1"
 dependencies = [
  "dirs 6.0.0",
  "glance-imaging",
+ "libc",
  "objc2",
  "objc2-foundation",
  "serde",

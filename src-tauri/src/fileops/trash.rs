@@ -46,7 +46,9 @@ pub fn restore(handle: &TrashHandle) -> Result<(), TrashError> {
 mod platform {
     use super::{TrashError, TrashHandle};
     use objc2_foundation::{NSFileManager, NSString, NSURL};
+    use std::ffi::CString;
     use std::io::ErrorKind;
+    use std::os::unix::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
 
     /// NSCocoaErrorDomain 里的"无写权限"。
@@ -82,10 +84,28 @@ mod platform {
         if trashed.symlink_metadata().is_err() {
             return Err(TrashError::NotInTrash(trashed.clone()));
         }
-        std::fs::rename(trashed, &handle.original).map_err(|e| match e.kind() {
-            ErrorKind::PermissionDenied => TrashError::Denied,
-            _ => TrashError::Io(e),
+        rename_excl(trashed, &handle.original).map_err(|e| {
+            if e.raw_os_error() == Some(libc::EEXIST) {
+                TrashError::Occupied(handle.original.clone())
+            } else if e.kind() == ErrorKind::PermissionDenied {
+                TrashError::Denied
+            } else {
+                TrashError::Io(e)
+            }
         })
+    }
+
+    /// 原子改名；目标已存在时失败（EEXIST），绝不覆盖。
+    fn rename_excl(from: &Path, to: &Path) -> std::io::Result<()> {
+        let from = CString::new(from.as_os_str().as_bytes())?;
+        let to = CString::new(to.as_os_str().as_bytes())?;
+        // SAFETY: 两个指针来自存活的 CString，以 NUL 结尾，调用期间有效。
+        let rc = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
     }
 }
 
