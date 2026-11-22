@@ -1,4 +1,5 @@
 mod catalog;
+pub mod fileops;
 #[cfg(debug_assertions)]
 mod lab;
 mod protocol;
@@ -24,7 +25,9 @@ pub fn run() {
     #[cfg(debug_assertions)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         lab::lab_register_dir,
-        lab::lab_protocol_hits
+        lab::lab_protocol_hits,
+        lab::lab_trash,
+        lab::lab_restore
     ]);
 
     builder

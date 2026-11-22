@@ -1,6 +1,7 @@
 //! 开发期实验命令，仅 debug 构建编译。
 
 use crate::catalog::registry::Registry;
+use crate::fileops::trash::{self, TrashHandle};
 use crate::protocol::HITS;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -45,4 +46,14 @@ pub async fn lab_register_dir(
 #[tauri::command]
 pub fn lab_protocol_hits() -> u64 {
     HITS.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+pub fn lab_trash(path: String) -> Result<TrashHandle, String> {
+    trash::move_to_trash(&PathBuf::from(path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn lab_restore(handle: TrashHandle) -> Result<(), String> {
+    trash::restore(&handle).map_err(|e| e.to_string())
 }
