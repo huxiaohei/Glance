@@ -4,3 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+# 默认特性含 nasm_simd（需要 nasm）；这里关掉它，只保留 unwinding（错误转 panic，供 catch_unwind 捕获）
+# 与 with_simd（arm64 走 NEON；x86 没有 nasm 时 build.rs 自动退回无 SIMD 实现）。
+mozjpeg = { version = "0.10.13", default-features = false }
+mozjpeg-sys = { version = "2.2.3", default-features = false, features = ["unwinding", "with_simd"] }
+# 去掉 binary（命令行）、parallel、zopfli 默认特性，保持依赖精简。
+oxipng = { version = "10.2.1", default-features = false }
+thiserror = "2.0.21"
+webp = { version = "0.3.1", default-features = false }
