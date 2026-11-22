@@ -22,7 +22,7 @@
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' glance: http://glance.localhost data: blob:; connect-src 'self' ipc: http://ipc.localhost glance: http://glance.localhost; style-src 'self' 'unsafe-inline'",
-      "devCsp": "default-src 'self'; img-src 'self' glance: http://glance.localhost data: blob:; connect-src 'self' ipc: http://ipc.localhost glance: http://glance.localhost ws://localhost:1420; style-src 'self' 'unsafe-inline'"
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' glance: http://glance.localhost data: blob:; connect-src 'self' ipc: http://ipc.localhost glance: http://glance.localhost ws://localhost:1420; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {
