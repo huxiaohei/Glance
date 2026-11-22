@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/glance-imaging"]
+members = ["src-tauri", "crates/glance-imaging", "tools/gen-fixtures"]
 
 [profile.release]
 lto = "thin"
