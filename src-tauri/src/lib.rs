@@ -11,6 +11,7 @@ use tauri::Manager;
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_drag::init())
         .manage(Registry::default())
         .register_asynchronous_uri_scheme_protocol("glance", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -25,6 +26,7 @@ pub fn run() {
     #[cfg(debug_assertions)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         lab::lab_register_dir,
+        lab::lab_paths,
         lab::lab_protocol_hits,
         lab::lab_trash,
         lab::lab_restore
