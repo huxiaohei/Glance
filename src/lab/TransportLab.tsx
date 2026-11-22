@@ -17,6 +17,7 @@ export default function TransportLab() {
 
   async function run() {
     setError(null);
+    setResult(null);
     setBusy(true);
     try {
       const entries = await pickAndRegisterDir();
@@ -29,7 +30,11 @@ export default function TransportLab() {
         const url = glanceUrl(`image/${entry.id}?run=${i}`);
         const t0 = performance.now();
         const res = await fetch(url);
-        await res.arrayBuffer();
+        if (!res.ok) throw new Error(`传输失败：${entry.name} 返回 HTTP ${res.status}`);
+        const body = await res.arrayBuffer();
+        if (body.byteLength !== entry.size) {
+          throw new Error(`传输不完整：收到 ${body.byteLength} 字节，期望 ${entry.size} 字节`);
+        }
         transfer.push(performance.now() - t0);
       }
       for (let i = 0; i < RUNS; i++) {
