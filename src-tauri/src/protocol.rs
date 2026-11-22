@@ -33,6 +33,8 @@ fn content_type(path: &std::path::Path) -> Option<&'static str> {
 fn not_found() -> http::Response<Vec<u8>> {
     http::Response::builder()
         .status(404)
+        // 与 200 一致地放行跨源读取，否则 fetch() 只能看到网络错误，读不到 404。
+        .header("access-control-allow-origin", "*")
         .body(Vec::new())
         .expect("static 404 response")
 }
@@ -106,7 +108,10 @@ mod tests {
     #[test]
     fn unknown_id_and_deleted_file_are_404() {
         let r = Registry::default();
-        assert_eq!(respond(&r, "/image/7").status(), 404);
+        let missing = respond(&r, "/image/7");
+        assert_eq!(missing.status(), 404);
+        // 404 也要放行跨源读取，否则 fetch() 只会报网络错误。
+        assert_eq!(missing.headers()["access-control-allow-origin"], "*");
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("gone.png");
         std::fs::write(&file, b"x").unwrap();

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { glanceUrl } from "../lib/glanceUrl";
-import { median, pickAndRegisterDir, type LabEntry } from "./labApi";
+import { isImageName, median, pickAndRegisterDir, type LabEntry } from "./labApi";
 
 interface Result {
   entry: LabEntry;
@@ -20,8 +20,12 @@ export default function TransportLab() {
     setResult(null);
     setBusy(true);
     try {
-      const entries = await pickAndRegisterDir();
-      if (!entries || entries.length === 0) return;
+      const picked = await pickAndRegisterDir();
+      if (!picked) return;
+      const entries = picked.filter((e) => isImageName(e.name));
+      if (entries.length === 0) {
+        throw new Error("这个目录的第一层没有图片（子目录不会被扫描），请直接选择放图片的目录");
+      }
       const entry = entries.reduce((a, b) => (b.size > a.size ? b : a));
       const transfer: number[] = [];
       const decode: number[] = [];
