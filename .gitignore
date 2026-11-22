@@ -6,3 +6,5 @@ fixtures/
 *.key
 .env*
 .superpowers/
+src-tauri/gen/
+*.log
