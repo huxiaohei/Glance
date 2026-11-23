@@ -36,16 +36,17 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 - 缩略图地址的 `?v=` 取自就绪状态（ready），不取自条目。
 - 单张视图（V0.1-B）：`stores/{nav,singleUi}.ts`、`lib/{viewport,preloadPlan,currentImage,stripLayout,formatBytes,perfMarks}.ts`、`views/single/`（SingleView、Stage + useStageViewport、preloader、Filmstrip、TopBar、InfoBar、DetailsPanel、useIdle、singleCommands）、`app/fullscreen.ts`；后端 `src-tauri/src/catalog/details.rs`（按 EXIF 方向换算的显示尺寸、`image_details`）；缩略图队列里有“进行中”集合；实验面板有“切图”页（P50 / P95）。
 - 前端新增：`app/{commands,keys,useKeyboard,appCommands,useImageList}.ts`、`stores/{selection,gridCtx}.ts`、`lib/{selection,marquee}.ts`、`views/help/`（快捷键一览）、`views/grid/{gridCommands,useMarquee}.ts`、`test/setup.ts`。
+- 文件操作（V0.1-C）：后端 `src-tauri/src/fileops/{fsx,ops,undo,commands,trash}.rs`（`fsx` 是唯一改名 / 复制的地方，`ops` 是操作与撤销的主体，`undo` 是只记一步的撤销日志，`commands` 是 `fs_*` 命令与最近目标）、`src-tauri/src/system.rs`（剪贴板与“在访达中显示”）；前端 `app/{fileOps,fileCommands,contextMenu,nativeMenu}.ts`、`stores/{toast,rename}.ts`、`views/{toast,common}/`（提示条、重命名输入、名字对话框）、`lib/{lastSegment,menuLabel}.ts`。操作完成后后端把路径提示（`FsHint`）直接投递给会话线程，不等监听器。
 - 后端事件可能先于命令应答到达前端，也可能有上一次打开的迟到事件：前端按 `generation` 丢弃过期事件，`openSession` 负责缓冲。
 - 包管理器只用 npm；Tauri CLI 通过 `npm run tauri` 调用。
 
 ## 硬性约束
 
-- **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令，以及仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`。
+- **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令，以及三处：仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`，和移动 / 复制的目标目录（来自系统对话框或最近目标，含 `OpReport.dest`）。撤销失败只返回文件名，不返回路径。
 - **不向前端开放通用文件系统权限。** 文件访问集中在 `catalog` 和 `fileops`，不在别处直接碰磁盘（也是为将来上架 Mac App Store 的沙盒预留）。
 - **内容安全策略禁止一切远程资源**；图片只允许 `glance:` 与 `http://glance.localhost`。只有 `devCsp` 为开发热更新放宽，正式 `csp` 不得放宽。
 - **读文件和 CPU 密集任务不上主线程。**
-- **所有写文件的操作先写同目录临时文件，再原子改名。** 任何情况下不静默覆盖用户文件。
+- **所有写文件的操作先写同目录临时文件，再原子改名。** 任何情况下不静默覆盖用户文件；改名、移动、复制只在 `fileops/fsx.rs` 里做（目标已存在即失败，不“先检查再改名”）。
 - **第三方依赖只用宽松许可**（MIT、Apache-2.0、BSD、ISC、Zlib、IJG 等），不引入 GPL / LGPL / AGPL。新增依赖时核对许可证。
 - **所有快捷键都登记在 `src/app/commands.ts` 的命令表里**，不要另外加零散的 keydown 监听。输入控件聚焦时只有标了 `allowInInput` 的命令响应。
 - **界面文字一律走 `src/i18n/`**，不在组件里写死中文或英文；`zh-CN.ts` 与 `en.ts` 必须同步。实验面板除外。
@@ -69,4 +70,5 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 - V0.1-A1 完成：打开目录、分组缩略图网格、排序筛选、目录树。
 - V0.1-A2 完成：目录监听、选中与多选、键盘导航、命令表、快捷键一览。合并前须手动运行 `watch_live`（见上）。
 - V0.1-B 完成：单张视图（缩放平移、预加载切图、缩略图条、详情面板、全屏）。
-- 下一步：V0.1-C（文件操作与撤销）。写计划前先读 `docs/plans/后续事项.md`。
+- V0.1-C 完成：删除（可撤销）、重命名、移动 / 复制（含新建子目录、重名跳过与“保留两者”）、右键菜单、剪贴板与在访达中显示、提示条。Windows 分支未编译，界面未目视确认（清单见后续事项）。
+- 下一步：V0.1-C2（拖拽）或 V0.1-D（入口与设置），由用户决定。写计划前先读 `docs/plans/后续事项.md`。
