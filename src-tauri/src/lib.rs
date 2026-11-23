@@ -14,6 +14,7 @@ use fileops::commands::RecentTargets;
 use fileops::undo::UndoLog;
 use std::sync::Arc;
 use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
 use thumbs::{ThumbCache, Thumbs};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -23,10 +24,16 @@ pub fn run() {
         .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         .manage(Arc::new(Registry::default()))
         .manage(Sessions::default())
         .manage(UndoLog::default())
-        .manage(RecentTargets::default())
         .setup(|app| {
             let registry = app.state::<Arc<Registry>>().inner().clone();
             let cache = ThumbCache::new(app.path().app_cache_dir()?.join("thumbs"));
@@ -46,6 +53,7 @@ pub fn run() {
             let settings = state::settings::SettingsState::load(&app.path().app_config_dir()?);
             let theme = settings.get().theme;
             app.manage(settings);
+            app.manage(RecentTargets::load(&app.path().app_config_dir()?));
             app.manage(state::recents::RecentsState::load(
                 &app.path().app_config_dir()?,
             ));

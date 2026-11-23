@@ -1,7 +1,7 @@
 //! 面向界面的文件操作与撤销命令。命令本身只取出状态，主体在不依赖 tauri 的 `run_*` 函数里。
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,8 @@ use super::ops::{self, Conflict};
 use super::undo::{OpKind, Step, UndoLog};
 use crate::catalog::registry::{FileId, Registry};
 use crate::catalog::session::Sessions;
+use crate::state::session::SessionFile;
+use crate::state::store;
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,20 +58,45 @@ pub struct UndoFailure {
 
 const RECENT_LIMIT: usize = 5;
 
-/// 最近用过的目标目录，最新的在前，最多 5 个，只在内存里。
+/// 最近用过的目标目录，最新的在前，最多 5 个；有落盘路径时写进 `session.json`。
 #[derive(Default)]
-pub struct RecentTargets(Mutex<Vec<String>>);
+pub struct RecentTargets {
+    list: Mutex<Vec<String>>,
+    path: Option<PathBuf>,
+}
 
 impl RecentTargets {
+    /// 读 `<config_dir>/session.json`；读不出就是空列表。
+    pub fn load(config_dir: &Path) -> Self {
+        let path = config_dir.join("session.json");
+        let file: SessionFile = store::load(&path);
+        let mut list: Vec<String> = file
+            .recent_targets
+            .into_iter()
+            .filter(|d| !d.is_empty())
+            .collect();
+        list.truncate(RECENT_LIMIT);
+        Self {
+            list: Mutex::new(list),
+            path: Some(path),
+        }
+    }
+
     fn remember(&self, dir: String) {
-        let mut list = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut list = self.list.lock().unwrap_or_else(|e| e.into_inner());
         list.retain(|d| *d != dir);
         list.insert(0, dir);
         list.truncate(RECENT_LIMIT);
+        if let Some(path) = &self.path {
+            let file = SessionFile {
+                recent_targets: list.clone(),
+            };
+            let _ = store::save(path, &file);
+        }
     }
 
     pub fn list(&self) -> Vec<String> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.list.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -970,5 +997,46 @@ mod tests {
         assert_eq!(child, Dest::NewChild { name: "n".into() });
         let conflict: Conflict = serde_json::from_value(serde_json::json!("keepBoth")).unwrap();
         assert_eq!(conflict, Conflict::KeepBoth);
+    }
+
+    #[test]
+    fn recent_targets_survive_a_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = RecentTargets::load(dir.path());
+        r.remember("/a".into());
+        r.remember("/b".into());
+        let again = RecentTargets::load(dir.path());
+        assert_eq!(again.list(), vec!["/b".to_string(), "/a".to_string()]);
+    }
+
+    #[test]
+    fn recent_targets_load_truncates_to_five_and_drops_empty_strings() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("session.json"),
+            r#"{"recentTargets":["1","","2","3","4","5","6","7"]}"#,
+        )
+        .unwrap();
+        let r = RecentTargets::load(dir.path());
+        assert_eq!(r.list(), vec!["1", "2", "3", "4", "5"]);
+    }
+
+    #[test]
+    fn recent_targets_tolerate_a_garbage_session_file() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("session.json"), "{not json").unwrap();
+        let r = RecentTargets::load(dir.path());
+        assert!(r.list().is_empty());
+        r.remember("/x".into());
+        let again = RecentTargets::load(dir.path());
+        assert_eq!(again.list(), vec!["/x".to_string()]);
+    }
+
+    #[test]
+    fn default_recent_targets_do_not_touch_the_disk() {
+        let r = RecentTargets::default();
+        r.remember("/x".into());
+        assert_eq!(r.list(), vec!["/x".to_string()]);
+        assert!(r.path.is_none());
     }
 }
