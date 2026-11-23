@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+fast_image_resize = { version = "6.2.0", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 # 默认特性含 nasm_simd（需要 nasm）；这里关掉它，只保留 unwinding（错误转 panic，供 catch_unwind 捕获）
 # 与 with_simd（arm64 走 NEON；x86 没有 nasm 时 build.rs 自动退回无 SIMD 实现）。

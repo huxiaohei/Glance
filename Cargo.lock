@@ -972,6 +972,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast_image_resize"
+version = "6.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f056f6b866ac980e0ebf973c6579170fa03285cb79d448435bd4d8fa2a74b511"
+dependencies = [
+ "cfg-if",
+ "num-traits",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1342,6 +1353,7 @@ dependencies = [
 name = "glance-imaging"
 version = "0.1.0"
 dependencies = [
+ "fast_image_resize",
  "image",
  "mozjpeg",
  "mozjpeg-sys",

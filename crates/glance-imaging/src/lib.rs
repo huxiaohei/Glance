@@ -2,6 +2,8 @@
 
 mod encode;
 mod error;
+mod thumb;
 
 pub use encode::{RgbaView, encode_jpeg, encode_png_lossless, encode_webp};
 pub use error::ImagingError;
+pub use thumb::{Thumbnail, make_thumbnail};

@@ -7,4 +7,8 @@ pub enum ImagingError {
     InvalidQuality(u8),
     #[error("编码失败：{0}")]
     Encode(String),
+    #[error("无法解码图片：{0}")]
+    Decode(String),
+    #[error("缩略图边长必须大于 0")]
+    InvalidMaxEdge,
 }
