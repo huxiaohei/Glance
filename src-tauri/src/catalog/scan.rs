@@ -93,6 +93,10 @@ pub fn scan(
         if cancel.load(Ordering::Relaxed) {
             return total;
         }
+        if !pending.is_empty() && last_emit.elapsed() >= BATCH_INTERVAL {
+            on_batch(std::mem::take(&mut pending));
+            last_emit = Instant::now();
+        }
         let Ok(entry) = entry else { continue };
         if !entry.file_type().is_file() || !is_image_path(entry.path()) {
             continue;
