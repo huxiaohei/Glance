@@ -139,10 +139,18 @@ pub struct RecentsState {
 }
 
 impl RecentsState {
-    /// 读 `<config_dir>/recents.json`；读不出或不合法时为空表。
+    /// 读 `<config_dir>/recents.json`；读不出或不是数组时为空表。
+    /// 逐项宽松解析：某一项读不出（例如将来版本写入的新排序值）只丢这一项，
+    /// 不连累整个文件，否则下一次写盘会把其余各项（含固定项）一并清掉。
     pub fn load(config_dir: &Path) -> Self {
         let path = config_dir.join("recents.json");
-        let mut list: RecentList = store::load(&path);
+        let items: Vec<serde_json::Value> = store::load(&path);
+        let mut list = RecentList(
+            items
+                .into_iter()
+                .filter_map(|v| serde_json::from_value::<Recent>(v).ok())
+                .collect(),
+        );
         list.sanitise();
         Self {
             path,
@@ -452,5 +460,43 @@ mod tests {
             got,
             vec![("/a".into(), true, Some(4)), ("/b".into(), false, None)]
         );
+    }
+
+    #[test]
+    fn load_drops_only_the_entries_that_do_not_parse() {
+        let cfg = tempfile::tempdir().unwrap();
+        let items = json!([
+            {"path": "/a", "name": "a", "pinned": true, "sort": "mtime"},
+            {"path": "/b", "name": "b", "sort": "future"},
+            {"path": "/c", "name": "c", "includeSubdirs": false},
+        ]);
+        std::fs::write(
+            cfg.path().join("recents.json"),
+            serde_json::to_vec(&items).unwrap(),
+        )
+        .unwrap();
+        let st = RecentsState::load(cfg.path());
+        let got: Vec<(String, bool)> = st
+            .entries()
+            .into_iter()
+            .map(|e| (e.path, e.pinned))
+            .collect();
+        assert_eq!(got, vec![("/a".into(), true), ("/c".into(), false)]);
+        // 下一次写盘也保留它们（固定项不被清掉）
+        st.update(|l| l.touch("/d", "d"));
+        let again = RecentsState::load(cfg.path());
+        let paths: Vec<String> = again.entries().into_iter().map(|e| e.path).collect();
+        assert_eq!(paths, vec!["/a", "/d", "/c"]);
+    }
+
+    #[test]
+    fn file_that_is_not_an_array_loads_empty() {
+        let cfg = tempfile::tempdir().unwrap();
+        std::fs::write(
+            cfg.path().join("recents.json"),
+            br#"{"path":"/a","name":"a"}"#,
+        )
+        .unwrap();
+        assert!(RecentsState::load(cfg.path()).entries().is_empty());
     }
 }

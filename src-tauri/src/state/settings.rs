@@ -224,4 +224,20 @@ mod tests {
         }
         assert_eq!(SettingsState::load(dir.path()).get(), st.get());
     }
+
+    #[test]
+    fn set_that_fails_to_write_returns_err_and_keeps_the_old_value() {
+        let cfg = tempfile::tempdir().unwrap();
+        let st = SettingsState::load(cfg.path());
+        let before = st.get();
+        let file = cfg.path().join("settings.json");
+        std::fs::create_dir(&file).unwrap();
+        std::fs::write(file.join("keep"), b"x").unwrap();
+        let next = Settings {
+            loop_at_end: !before.loop_at_end,
+            ..before.clone()
+        };
+        assert!(st.set(next).is_err());
+        assert_eq!(st.get(), before);
+    }
 }

@@ -106,4 +106,20 @@ mod tests {
         save(&p, &v).unwrap();
         assert_eq!(load::<Settings>(&p), v);
     }
+
+    #[test]
+    fn save_failing_at_rename_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("settings.json");
+        // 目标位置是个非空目录：临时文件写得出来，改名替换会失败
+        std::fs::create_dir(&p).unwrap();
+        std::fs::write(p.join("keep"), b"x").unwrap();
+        assert!(save(&p, &Settings::default()).is_err());
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["settings.json".to_string()]);
+        assert!(p.is_dir());
+    }
 }

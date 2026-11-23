@@ -92,16 +92,16 @@ impl ThumbCache {
     }
 }
 
+/// 先只读元数据；使用时间确实过旧才以写方式打开并更新（绝大多数读取不打开写句柄）。
 fn touch_if_stale(path: &Path) {
-    let Ok(file) = std::fs::File::options().write(true).open(path) else {
-        return;
-    };
     let now = SystemTime::now();
-    let stale = file
-        .metadata()
+    let stale = std::fs::metadata(path)
         .and_then(|m| m.modified())
         .is_ok_and(|m| now.duration_since(m).is_ok_and(|age| age > TOUCH_AFTER));
-    if stale {
+    if !stale {
+        return;
+    }
+    if let Ok(file) = std::fs::File::options().write(true).open(path) {
         let _ = file.set_modified(now);
     }
 }
@@ -195,5 +195,27 @@ mod tests {
         cache.get(&key).unwrap();
         let age = age_of(&file);
         assert!(age >= Duration::from_secs(3600) && age < Duration::from_secs(3700));
+    }
+
+    #[test]
+    fn get_returns_the_bytes_of_a_fresh_read_only_file() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = ThumbCache::new(root.path().to_path_buf());
+        let key = format!("ab{}", "0".repeat(30));
+        cache.put(&key, b"x").unwrap();
+        let file = cache.file_for(&key);
+        let mut perms = std::fs::metadata(&file).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&file, perms.clone()).unwrap();
+        let before = std::fs::metadata(&file).unwrap().modified().unwrap();
+        assert_eq!(cache.get(&key), Some(b"x".to_vec()));
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().modified().unwrap(),
+            before
+        );
+        // 恢复可写，临时目录才能删干净（Windows 上只读文件删不掉）
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        std::fs::set_permissions(&file, perms).unwrap();
     }
 }
