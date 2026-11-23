@@ -148,6 +148,39 @@ describe("单张视图", () => {
     expect(topView().kind).toBe("grid");
   });
 
+  it("网格工具栏的下拉框有焦点时打开单张视图：网格设为 inert、焦点移走，Esc 仍能返回", () => {
+    open(null);
+    const { container } = render(<App />);
+    add(1, 1, 2);
+    const select = container.querySelector(".grid-toolbar select") as HTMLSelectElement;
+    select.focus();
+    expect(document.activeElement).toBe(select);
+    act(() => useNav.getState().openSingle(2));
+    expect(gridView(container).hasAttribute("inert")).toBe(true);
+    expect(gridView(container).contains(document.activeElement)).toBe(false);
+    act(() => {
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    });
+    expect(topView()).toEqual({ kind: "grid" });
+    expect(gridView(container).hasAttribute("inert")).toBe(false);
+  });
+
+  it("按住 Esc：返回网格后，自动重复的 Esc 不清空选中；单张视图里重复的 Esc 也不返回", () => {
+    open(null);
+    render(<App />);
+    add(1, 1, 2);
+    act(() => useSelection.getState().set(selectOnly(2)));
+    act(() => useNav.getState().openSingle(2));
+    key("Escape", { repeat: true });
+    expect(topView().kind).toBe("single");
+    key("Escape");
+    expect(topView().kind).toBe("grid");
+    key("Escape", { repeat: true });
+    expect([...useSelection.getState().ids]).toEqual([2]);
+    key("Escape");
+    expect(useSelection.getState().ids.size).toBe(0);
+  });
+
   it("当前图内容变化（size 或 mtime 变了）后图片地址随之变化", () => {
     open(null);
     const { container } = render(<App />);

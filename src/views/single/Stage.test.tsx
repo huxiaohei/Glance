@@ -1,0 +1,310 @@
+// @vitest-environment jsdom
+import { act, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { handleKeyDown } from "../../app/useKeyboard";
+import { wheelFactor } from "../../lib/viewport";
+import { useCatalog } from "../../stores/catalog";
+import { useNav } from "../../stores/nav";
+import Stage, { useStageApi } from "./Stage";
+import { registerSingleCommands } from "./singleCommands";
+
+vi.mock("../../ipc/api");
+vi.mock("../../app/keys", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../app/keys")>()),
+  IS_MAC: true,
+}));
+
+// 容器尺寸与位置：jsdom 不做布局，全部打桩
+let boxW = 800;
+let boxH = 600;
+const LEFT = 100;
+const TOP = 50;
+let restore: (() => void)[] = [];
+const stubProp = (proto: object, prop: string, desc: PropertyDescriptor) => {
+  const old = Object.getOwnPropertyDescriptor(proto, prop);
+  Object.defineProperty(proto, prop, { configurable: true, ...desc });
+  restore.push(() => (old ? Object.defineProperty(proto, prop, old) : delete (proto as Record<string, unknown>)[prop]));
+};
+
+// 可手动触发的 ResizeObserver
+let observers: { cb: ResizeObserverCallback; targets: Element[] }[] = [];
+class ManualRO {
+  rec: { cb: ResizeObserverCallback; targets: Element[] };
+  constructor(cb: ResizeObserverCallback) {
+    this.rec = { cb, targets: [] };
+    observers.push(this.rec);
+  }
+  observe(t: Element) { this.rec.targets.push(t); }
+  unobserve() {}
+  disconnect() { observers = observers.filter((o) => o !== this.rec); }
+}
+const resizeTo = (w: number, h: number) => {
+  boxW = w;
+  boxH = h;
+  act(() => {
+    for (const o of observers) o.cb([], o as unknown as ResizeObserver);
+  });
+};
+
+// 手动推进的 requestAnimationFrame
+let frames: FrameRequestCallback[] = [];
+const flush = () => {
+  act(() => {
+    const fs = frames;
+    frames = [];
+    for (const f of fs) f(0);
+  });
+};
+
+beforeEach(() => {
+  boxW = 800;
+  boxH = 600;
+  frames = [];
+  observers = [];
+  stubProp(HTMLElement.prototype, "clientWidth", { get: () => boxW });
+  stubProp(HTMLElement.prototype, "clientHeight", { get: () => boxH });
+  stubProp(Element.prototype, "getBoundingClientRect", {
+    value: () => ({ left: LEFT, top: TOP, x: LEFT, y: TOP, width: boxW, height: boxH, right: LEFT + boxW, bottom: TOP + boxH }),
+  });
+  vi.stubGlobal("ResizeObserver", ManualRO);
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+  vi.stubGlobal("cancelAnimationFrame", () => {});
+  useCatalog.getState().reset();
+  useNav.getState().reset();
+  act(() => {
+    useCatalog.getState().begin({ generation: 1, path: "/p", name: "p", recursive: true, focus: null });
+    useCatalog.getState().apply({
+      type: "batch",
+      generation: 1,
+      entries: [1, 2, 3].map((id) => ({ id, relPath: `${id}.jpg`, size: 1, mtimeMs: 1 })),
+    });
+    useCatalog.getState().apply({
+      type: "dims",
+      generation: 1,
+      items: [
+        { id: 1, w: 2000, h: 1000 },
+        { id: 2, w: 1000, h: 2000 },
+      ],
+    });
+  });
+});
+afterEach(() => {
+  for (const r of restore.reverse()) r();
+  restore = [];
+  vi.unstubAllGlobals();
+});
+
+const img = (c: HTMLElement) => c.querySelector(".stage img") as HTMLImageElement;
+const box = (c: HTMLElement) => c.querySelector(".stage") as HTMLElement;
+const percent = (c: HTMLElement) => c.querySelector(".stage-percent")?.textContent ?? null;
+function vp(c: HTMLElement) {
+  // 样式序列化会把 translate(0px, 0px) 化简成 translate(0px)
+  const m = /translate\((\S+?)px(?:, (\S+?)px)?\) scale\((\S+)\)/.exec(img(c).style.transform);
+  if (!m) return null;
+  return { x: Number(m[1]), y: Number(m[2] ?? 0), scale: Number(m[3]) };
+}
+const api = () => useStageApi.getState().api!;
+
+describe("Stage", () => {
+  it("初始为适应窗口并居中，百分比正确", () => {
+    const { container } = render(<Stage id={1} />);
+    expect(img(container).getAttribute("src")).toBe("glance://localhost/image/1?v=1-1");
+    expect(img(container).style.width).toBe("2000px");
+    expect(img(container).style.height).toBe("1000px");
+    const v = vp(container)!;
+    expect(v.scale).toBeCloseTo(0.4);
+    expect(v.x).toBeCloseTo(0);
+    expect(v.y).toBeCloseTo(100);
+    flush();
+    expect(percent(container)).toBe("40%");
+  });
+
+  it("滚轮以鼠标位置为中心放大，并阻止默认行为", () => {
+    const { container } = render(<Stage id={1} />);
+    const px = 200;
+    const py = 300;
+    const notPrevented = fireEvent.wheel(box(container), { deltaY: -100, clientX: LEFT + px, clientY: TOP + py });
+    expect(notPrevented).toBe(false);
+    const v = vp(container)!;
+    expect(v.scale).toBeCloseTo(0.4 * wheelFactor(-100, false));
+    // 鼠标下的图片点不动（横向未触到边界）
+    expect((px - v.x) / v.scale).toBeCloseTo(500);
+    // 纵向仍不大于容器：居中
+    expect(v.y).toBeCloseTo((600 - 1000 * v.scale) / 2);
+    // 每帧最多更新一次百分比
+    fireEvent.wheel(box(container), { deltaY: -100, clientX: LEFT + px, clientY: TOP + py });
+    expect(frames.length).toBe(1);
+    flush();
+    expect(percent(container)).toBe(`${Math.round(vp(container)!.scale * 100)}%`);
+    // 触控板捏合（ctrlKey）用更大的系数
+    const before = vp(container)!.scale;
+    fireEvent.wheel(box(container), { deltaY: -10, ctrlKey: true, clientX: LEFT + px, clientY: TOP + py });
+    expect(vp(container)!.scale).toBeCloseTo(before * wheelFactor(-10, true));
+  });
+
+  it("拖拽平移；图片不大于容器时拖拽不改变位置", () => {
+    const { container } = render(<Stage id={1} />);
+    const b = box(container);
+    expect(b.style.cursor).toBe("");
+    const before = vp(container);
+    fireEvent.pointerDown(b, { button: 0, buttons: 1, clientX: 300, clientY: 300 });
+    fireEvent.pointerMove(b, { buttons: 1, clientX: 250, clientY: 330 });
+    fireEvent.pointerUp(b, { button: 0, clientX: 250, clientY: 330 });
+    expect(vp(container)).toEqual(before);
+
+    act(() => api().actual());
+    let v = vp(container)!;
+    expect(v.scale).toBe(1);
+    expect(v.x).toBeCloseTo(-600);
+    expect(v.y).toBeCloseTo(-200);
+    expect(b.style.cursor).toBe("grab");
+
+    fireEvent.pointerDown(b, { button: 0, buttons: 1, clientX: 300, clientY: 300 });
+    expect(b.style.cursor).toBe("grabbing");
+    fireEvent.pointerMove(b, { buttons: 1, clientX: 250, clientY: 330 });
+    v = vp(container)!;
+    expect(v.x).toBeCloseTo(-650);
+    expect(v.y).toBeCloseTo(-170);
+    fireEvent.pointerUp(b, { button: 0, clientX: 250, clientY: 330 });
+    expect(b.style.cursor).toBe("grab");
+    // 抬起后移动不再平移
+    fireEvent.pointerMove(b, { buttons: 0, clientX: 100, clientY: 100 });
+    expect(vp(container)!.x).toBeCloseTo(-650);
+
+    // 主键已松开时到达的移动结束拖拽
+    fireEvent.pointerDown(b, { button: 0, buttons: 1, clientX: 300, clientY: 300 });
+    fireEvent.pointerMove(b, { buttons: 0, clientX: 280, clientY: 300 });
+    expect(b.style.cursor).toBe("grab");
+    fireEvent.pointerMove(b, { buttons: 1, clientX: 260, clientY: 300 });
+    expect(vp(container)!.x).toBeCloseTo(-650);
+
+    // pointercancel 结束拖拽
+    fireEvent.pointerDown(b, { button: 0, buttons: 1, clientX: 300, clientY: 300 });
+    fireEvent.pointerCancel(b, {});
+    fireEvent.pointerMove(b, { buttons: 1, clientX: 200, clientY: 300 });
+    expect(vp(container)!.x).toBeCloseTo(-650);
+
+    // 拖过头被夹住
+    fireEvent.pointerDown(b, { button: 0, buttons: 1, clientX: 300, clientY: 300 });
+    fireEvent.pointerMove(b, { buttons: 1, clientX: 3000, clientY: 3000 });
+    v = vp(container)!;
+    expect(v.x).toBe(0);
+    expect(v.y).toBe(0);
+    fireEvent.pointerUp(b, { button: 0 });
+
+    // 非主键不拖
+    fireEvent.pointerDown(b, { button: 2, buttons: 2, clientX: 300, clientY: 300 });
+    fireEvent.pointerMove(b, { buttons: 2, clientX: 200, clientY: 200 });
+    expect(vp(container)!.x).toBe(0);
+  });
+
+  it("双击在适应与 100% 之间切换", () => {
+    const { container } = render(<Stage id={1} />);
+    const b = box(container);
+    fireEvent.doubleClick(b, { clientX: LEFT + 400, clientY: TOP + 300 });
+    let v = vp(container)!;
+    expect(v.scale).toBe(1);
+    expect(v.x).toBeCloseTo(-600);
+    fireEvent.doubleClick(b, { clientX: LEFT + 400, clientY: TOP + 300 });
+    v = vp(container)!;
+    expect(v.scale).toBeCloseTo(0.4);
+    // 按下到抬起移动不足 4 像素仍算单击
+    fireEvent.pointerDown(b, { button: 0, buttons: 1, clientX: 300, clientY: 300 });
+    fireEvent.pointerMove(b, { buttons: 1, clientX: 303, clientY: 300 });
+    fireEvent.pointerUp(b, { button: 0, clientX: 303, clientY: 300 });
+    fireEvent.doubleClick(b, { clientX: 303, clientY: 300 });
+    expect(vp(container)!.scale).toBe(1);
+    // 拖动了 4 像素以上的那次不算双击
+    fireEvent.pointerDown(b, { button: 0, buttons: 1, clientX: 300, clientY: 300 });
+    fireEvent.pointerMove(b, { buttons: 1, clientX: 310, clientY: 300 });
+    fireEvent.pointerUp(b, { button: 0, clientX: 310, clientY: 300 });
+    fireEvent.doubleClick(b, { clientX: 310, clientY: 300 });
+    expect(vp(container)!.scale).toBe(1);
+  });
+
+  it("换图后回到适应窗口", () => {
+    const { container, rerender } = render(<Stage id={1} />);
+    act(() => api().actual());
+    expect(vp(container)!.scale).toBe(1);
+    rerender(<Stage id={2} />);
+    expect(img(container).getAttribute("src")).toBe("glance://localhost/image/2?v=1-1");
+    const v = vp(container)!;
+    expect(v.scale).toBeCloseTo(0.3);
+    expect(v.x).toBeCloseTo(250);
+    expect(v.y).toBeCloseTo(0);
+    flush();
+    expect(percent(container)).toBe("30%");
+  });
+
+  it("条目没有宽高时，图片 load 之后按自然尺寸适应", () => {
+    const { container } = render(<Stage id={3} />);
+    const el = img(container);
+    expect(vp(container)).toBeNull();
+    expect(el.style.visibility).toBe("hidden");
+    flush();
+    expect(percent(container)).toBeNull();
+    // 尺寸未知时命令不出错也不生效
+    act(() => api().zoomBy(2));
+    expect(vp(container)).toBeNull();
+    Object.defineProperty(el, "naturalWidth", { configurable: true, value: 400 });
+    Object.defineProperty(el, "naturalHeight", { configurable: true, value: 200 });
+    fireEvent.load(el);
+    const v = vp(container)!;
+    expect(v).toEqual({ x: 200, y: 200, scale: 1 });
+    expect(el.style.visibility).toBe("");
+    expect(el.style.width).toBe("400px");
+    flush();
+    expect(percent(container)).toBe("100%");
+  });
+
+  it("容器变小：适应状态下重新适应；已放大时保持倍率且位置合法", () => {
+    const { container } = render(<Stage id={1} />);
+    resizeTo(400, 300);
+    let v = vp(container)!;
+    expect(v.scale).toBeCloseTo(0.2);
+    expect(v.x).toBeCloseTo(0);
+    expect(v.y).toBeCloseTo(50);
+
+    act(() => api().actual());
+    resizeTo(200, 150);
+    v = vp(container)!;
+    expect(v.scale).toBe(1);
+    expect(v.x).toBeLessThanOrEqual(0);
+    expect(v.x).toBeGreaterThanOrEqual(200 - 2000);
+    expect(v.y).toBeLessThanOrEqual(0);
+    expect(v.y).toBeGreaterThanOrEqual(150 - 1000);
+    expect([v.x, v.y, v.scale].every(Number.isFinite)).toBe(true);
+  });
+
+  it("+ - 0 1 四个命令生效", () => {
+    act(() => useNav.getState().openSingle(1));
+    const off = registerSingleCommands();
+    window.addEventListener("keydown", handleKeyDown);
+    try {
+      const { container } = render(<Stage id={1} />);
+      const press = (key: string, shiftKey = false) => act(() => void fireEvent.keyDown(document.body, { key, shiftKey }));
+      press("+", true);
+      expect(vp(container)!.scale).toBeCloseTo(0.5);
+      press("=");
+      expect(vp(container)!.scale).toBeCloseTo(0.625);
+      press("-");
+      expect(vp(container)!.scale).toBeCloseTo(0.5);
+      press("1");
+      expect(vp(container)!.scale).toBe(1);
+      // 以容器中心为准
+      expect(vp(container)!.x).toBeCloseTo(-600);
+      press("0");
+      expect(vp(container)!.scale).toBeCloseTo(0.4);
+    } finally {
+      window.removeEventListener("keydown", handleKeyDown);
+      off();
+    }
+  });
+
+  it("卸载后清除命令用的接口", () => {
+    const { unmount } = render(<Stage id={1} />);
+    expect(useStageApi.getState().api).not.toBeNull();
+    unmount();
+    expect(useStageApi.getState().api).toBeNull();
+  });
+});

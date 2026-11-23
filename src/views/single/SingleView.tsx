@@ -2,16 +2,10 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useImageList } from "../../app/useImageList";
 import type { FileId } from "../../ipc/types";
 import { resolveCurrent } from "../../lib/currentImage";
-import { glanceUrl } from "../../lib/glanceUrl";
-import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
+import Stage from "./Stage";
 import { registerSingleCommands } from "./singleCommands";
 import "./single.css";
-
-/** 当前图本身。后续任务换成基于 transform 的缩放视口。 */
-function SingleImage({ src }: { src: string }) {
-  return <img className="single-img" src={src} alt="" draggable={false} />;
-}
 
 /** 单张视图骨架：显示栈顶 single 的那张图；列表变化时修正当前图，列表空了回到网格。 */
 export default function SingleView() {
@@ -19,7 +13,6 @@ export default function SingleView() {
     const top = s.stack[s.stack.length - 1];
     return top.kind === "single" ? top.id : null;
   });
-  const entry = useCatalog((s) => (id === null ? undefined : s.entries.get(id)));
   const list = useImageList();
 
   useEffect(() => registerSingleCommands(), []);
@@ -37,7 +30,7 @@ export default function SingleView() {
 
   return (
     <div className="single-view">
-      {entry && <SingleImage src={glanceUrl(`image/${entry.id}?v=${entry.mtimeMs}-${entry.size}`)} />}
+      {id !== null && <Stage id={id} />}
     </div>
   );
 }

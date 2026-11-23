@@ -4,7 +4,8 @@ import { topView } from "../stores/nav";
 import { matchKey, type KeyLike } from "./keys";
 
 export type ViewId = "start" | "grid" | "single" | "compare" | "edit";
-export interface CommandCtx { shift: boolean }
+/** repeat：按住不放的自动重复。绑在 Esc 上的命令应忽略它，免得一次长按连退几层。 */
+export interface CommandCtx { shift: boolean; repeat: boolean }
 export interface Command {
   id: string;
   title: MessageKey;

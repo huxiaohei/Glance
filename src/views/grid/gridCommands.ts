@@ -49,7 +49,9 @@ const gridCommands: Command[] = [
     category: "cmd.cat.select",
     keys: ["Escape"],
     views: ["grid"],
-    run: () => useSelection.getState().clear(),
+    run: ({ repeat }) => {
+      if (!repeat) useSelection.getState().clear();
+    },
   },
   {
     id: "grid.open",

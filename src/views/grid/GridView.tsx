@@ -159,6 +159,15 @@ export default function GridView({ hidden = false }: { hidden?: boolean }) {
     return () => scroller.removeEventListener("wheel", onWheel);
   }, [scroller]);
 
+  // 隐藏时焦点若还留在网格里（例如工具栏的下拉框），按键会被当成在输入框里、回车空格会触发看不见的按钮：
+  // 网格设为 inert，并把焦点移走
+  const viewRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!hidden) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && viewRef.current?.contains(active)) active.blur();
+  }, [hidden]);
+
   const openOther = useCallback(() => void pickAndOpenFolder(), []);
 
   // 绝对定位的虚拟行里 sticky 不起作用：用一个零高度的 sticky 容器承载"当前分组标题"浮层，
@@ -180,7 +189,7 @@ export default function GridView({ hidden = false }: { hidden?: boolean }) {
     (dirFilter === null ? tree.length > 0 : tree.some((n) => n.dir === dirFilter && n.total > n.count));
 
   return (
-    <div className={hidden ? "grid-view grid-hidden" : "grid-view"}>
+    <div ref={viewRef} className={hidden ? "grid-view grid-hidden" : "grid-view"} inert={hidden}>
       <GridToolbar />
       <div className="grid-progress">{scanning && <div className="grid-progress-bar" />}</div>
       <div className="grid-body">

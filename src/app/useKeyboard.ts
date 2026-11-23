@@ -34,7 +34,7 @@ export function handleKeyDown(e: KeyboardEvent): void {
   const cmd = findCommand(e, view, inInput, IS_MAC);
   if (!cmd) return;
   e.preventDefault();
-  cmd.run({ shift: e.shiftKey });
+  cmd.run({ shift: e.shiftKey, repeat: e.repeat });
 }
 
 export function useKeyboard(): void {

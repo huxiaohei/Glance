@@ -20,10 +20,10 @@ const list: ImageList = {
 const layout = layoutGrid(list, 208, 100);
 const reveal = vi.fn();
 
-const run = (id: string, shift = false) => {
+const run = (id: string, shift = false, repeat = false) => {
   const cmd = allCommands().find((c) => c.id === id);
   if (!cmd) throw new Error(`no command ${id}`);
-  cmd.run({ shift });
+  cmd.run({ shift, repeat });
 };
 const ids = () => [...useSelection.getState().ids].sort((a, b) => a - b);
 
@@ -122,5 +122,11 @@ describe("gridCommands", () => {
     expect(s.ids.size).toBe(0);
     expect(s.focus).toBeNull();
     expect(allCommands().find((c) => c.id === "select.clear")!.keys).toEqual(["Escape"]);
+  });
+
+  it("按住 Esc 的自动重复不清空选中", () => {
+    useSelection.getState().set(selectOnly(2));
+    run("select.clear", false, true);
+    expect(ids()).toEqual([2]);
   });
 });
