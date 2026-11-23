@@ -1,0 +1,290 @@
+//! 目录扫描：遍历目录，把图片分批交给回调。
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant, UNIX_EPOCH};
+
+use walkdir::{DirEntry, WalkDir};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScanEntry {
+    pub path: PathBuf,
+    pub size: u64,
+    pub mtime_ms: i64,
+}
+
+pub const BATCH_SIZE: usize = 500;
+pub const BATCH_INTERVAL: Duration = Duration::from_millis(50);
+pub const IGNORED_DIRS: [&str; 6] = [
+    ".git",
+    "node_modules",
+    ".svn",
+    "__pycache__",
+    "$RECYCLE.BIN",
+    "System Volume Information",
+];
+
+/// 扩展名为 png / jpg / jpeg / webp / gif / bmp（不分大小写）。
+pub fn is_image_path(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        ["png", "jpg", "jpeg", "webp", "gif", "bmp"]
+            .iter()
+            .any(|x| e.eq_ignore_ascii_case(x))
+    })
+}
+
+/// root 的下级条目是否要跳过：点开头、被忽略的目录、Windows 隐藏属性。
+fn is_skipped(entry: &DirEntry) -> bool {
+    let name = entry.file_name().to_string_lossy();
+    if name.starts_with('.') {
+        return true;
+    }
+    if entry.file_type().is_dir() && IGNORED_DIRS.contains(&name.as_ref()) {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        if let Ok(meta) = entry.metadata() {
+            if meta.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn to_entry(entry: &DirEntry) -> Option<ScanEntry> {
+    let meta = entry.metadata().ok()?;
+    let mtime_ms = match meta.modified().ok()?.duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_millis() as i64,
+        Err(e) => -(e.duration().as_millis() as i64),
+    };
+    Some(ScanEntry {
+        path: entry.path().to_path_buf(),
+        size: meta.len(),
+        mtime_ms,
+    })
+}
+
+/// 遍历 root，把找到的图片分批交给 on_batch；每批至多 BATCH_SIZE 条，
+/// 距上一批超过 BATCH_INTERVAL 且有积压时也会发出。cancel 置位后尽快返回。
+/// 返回找到的图片总数。读不了的目录和文件静默跳过。
+pub fn scan(
+    root: &Path,
+    recursive: bool,
+    cancel: &AtomicBool,
+    on_batch: &mut dyn FnMut(Vec<ScanEntry>),
+) -> usize {
+    let mut walker = WalkDir::new(root).follow_links(false);
+    if !recursive {
+        walker = walker.max_depth(1);
+    }
+    // depth 0 是 root 本身，不受忽略规则约束。
+    let iter = walker
+        .into_iter()
+        .filter_entry(|e| e.depth() == 0 || !is_skipped(e));
+
+    let mut total = 0;
+    let mut pending: Vec<ScanEntry> = Vec::new();
+    let mut last_emit = Instant::now();
+    for entry in iter {
+        if cancel.load(Ordering::Relaxed) {
+            return total;
+        }
+        let Ok(entry) = entry else { continue };
+        if !entry.file_type().is_file() || !is_image_path(entry.path()) {
+            continue;
+        }
+        let Some(item) = to_entry(&entry) else {
+            continue;
+        };
+        pending.push(item);
+        total += 1;
+        if pending.len() >= BATCH_SIZE || last_emit.elapsed() >= BATCH_INTERVAL {
+            on_batch(std::mem::take(&mut pending));
+            last_emit = Instant::now();
+        }
+    }
+    if !pending.is_empty() && !cancel.load(Ordering::Relaxed) {
+        on_batch(pending);
+    }
+    total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::atomic::Ordering;
+
+    fn touch(root: &Path, rel: &str) {
+        let p = root.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, [0u8]).unwrap();
+    }
+
+    fn collect(root: &Path, recursive: bool) -> Vec<String> {
+        let mut out = vec![];
+        scan(root, recursive, &AtomicBool::new(false), &mut |batch| {
+            for e in batch {
+                let rel = e.path.strip_prefix(root).unwrap();
+                let parts: Vec<_> = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect();
+                out.push(parts.join("/"));
+            }
+        });
+        out.sort();
+        out
+    }
+
+    fn awkward_tree(root: &Path) {
+        for rel in [
+            "a.png",
+            "IMG2.PNG",
+            "sub/b.jpeg",
+            "武将 立绘/蜀国#1/赵云 100%.webp",
+            "sub/deep/c.gif",
+            "d.bmp",
+            "e.JPG",
+        ] {
+            touch(root, rel);
+        }
+    }
+
+    #[test]
+    fn finds_images_recursively_with_awkward_names() {
+        let dir = tempfile::tempdir().unwrap();
+        awkward_tree(dir.path());
+        assert_eq!(
+            collect(dir.path(), true),
+            vec![
+                "IMG2.PNG",
+                "a.png",
+                "d.bmp",
+                "e.JPG",
+                "sub/b.jpeg",
+                "sub/deep/c.gif",
+                "武将 立绘/蜀国#1/赵云 100%.webp",
+            ]
+        );
+    }
+
+    #[test]
+    fn non_recursive_sees_only_top_level() {
+        let dir = tempfile::tempdir().unwrap();
+        awkward_tree(dir.path());
+        assert_eq!(
+            collect(dir.path(), false),
+            vec!["IMG2.PNG", "a.png", "d.bmp", "e.JPG"]
+        );
+    }
+
+    #[test]
+    fn skips_non_images_hidden_and_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        for rel in [
+            "keep.png",
+            "notes.txt",
+            "noext",
+            ".hidden.png",
+            ".cache/x.png",
+            "node_modules/y.png",
+            ".git/z.png",
+            "__pycache__/w.png",
+            "ok/.DS_Store",
+            "ok/v.png",
+        ] {
+            touch(dir.path(), rel);
+        }
+        assert_eq!(collect(dir.path(), true), vec!["keep.png", "ok/v.png"]);
+    }
+
+    #[test]
+    fn hidden_root_is_still_scanned() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join(".secret");
+        touch(&root, "a.png");
+        assert_eq!(collect(&root, true), vec!["a.png"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_follow_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        touch(root, "real/a.png");
+        std::os::unix::fs::symlink(root.join("real"), root.join("link")).unwrap();
+        std::os::unix::fs::symlink(root, root.join("loop")).unwrap();
+        assert_eq!(collect(root, true), vec!["real/a.png"]);
+    }
+
+    fn many_images(root: &Path, n: usize) {
+        for i in 0..n {
+            touch(root, &format!("img{i:04}.png"));
+        }
+    }
+
+    #[test]
+    fn batches_are_capped_and_total_is_returned() {
+        let dir = tempfile::tempdir().unwrap();
+        many_images(dir.path(), 1201);
+        let mut sizes = vec![];
+        let total = scan(dir.path(), true, &AtomicBool::new(false), &mut |b| {
+            sizes.push(b.len())
+        });
+        assert_eq!(total, 1201);
+        assert_eq!(sizes.iter().sum::<usize>(), 1201);
+        assert!(sizes.iter().all(|&n| (1..=BATCH_SIZE).contains(&n)));
+    }
+
+    #[test]
+    fn cancel_stops_early() {
+        let dir = tempfile::tempdir().unwrap();
+        many_images(dir.path(), 1201);
+        let cancel = AtomicBool::new(false);
+        let mut batches = 0;
+        let total = scan(dir.path(), true, &cancel, &mut |_| {
+            batches += 1;
+            cancel.store(true, Ordering::Relaxed);
+        });
+        assert_eq!(batches, 1);
+        assert!(total < 1201);
+    }
+
+    #[test]
+    fn records_size_and_mtime() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.png"), [1u8; 5]).unwrap();
+        let mut got = vec![];
+        scan(dir.path(), true, &AtomicBool::new(false), &mut |b| {
+            got.extend(b)
+        });
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].size, 5);
+        let expected = fs::metadata(dir.path().join("a.png"))
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        assert_eq!(got[0].mtime_ms, expected);
+    }
+
+    #[test]
+    fn missing_root_yields_nothing() {
+        assert_eq!(
+            scan(
+                Path::new("/definitely/not/here"),
+                true,
+                &AtomicBool::new(false),
+                &mut |_| panic!()
+            ),
+            0
+        );
+    }
+}
