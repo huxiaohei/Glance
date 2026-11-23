@@ -1,0 +1,49 @@
+import { describe, expect, it } from "vitest";
+import type { ImageList } from "./deriveList";
+import { layoutGrid, visibleIds } from "./gridLayout";
+
+const list: ImageList = {
+  ids: [1, 2, 3, 4, 5, 6, 7],
+  groups: [
+    { dir: "", start: 0, count: 5, total: 5 },
+    { dir: "折叠", start: 5, count: 0, total: 9 },
+    { dir: "蜀国", start: 5, count: 2, total: 2 },
+  ],
+};
+
+describe("layoutGrid", () => {
+  it("列数由宽度和格子大小决定，至少 1 列", () => {
+    expect(layoutGrid(list, 496, 160).columns).toBe(3); // 3×160 + 2×8 = 496
+    expect(layoutGrid(list, 495, 160).columns).toBe(2);
+    expect(layoutGrid(list, 50, 160).columns).toBe(1);
+  });
+
+  it("按组出标题行和图片行，位置连续", () => {
+    expect(layoutGrid(list, 496, 160)).toEqual({
+      columns: 3,
+      totalHeight: 664,
+      rows: [
+        { kind: "header", dir: "", count: 5, total: 5, top: 0, height: 32 },
+        { kind: "images", ids: [1, 2, 3], top: 32, height: 184 },
+        { kind: "images", ids: [4, 5], top: 224, height: 184 },
+        { kind: "header", dir: "折叠", count: 0, total: 9, top: 416, height: 32 },
+        { kind: "header", dir: "蜀国", count: 2, total: 2, top: 448, height: 32 },
+        { kind: "images", ids: [6, 7], top: 480, height: 184 },
+      ],
+    });
+  });
+
+  it("空列表高度为 0", () => {
+    expect(layoutGrid({ ids: [], groups: [] }, 800, 160)).toEqual({ columns: 4, rows: [], totalHeight: 0 });
+  });
+});
+
+describe("visibleIds", () => {
+  it("可见范围按行求交，含 overscan", () => {
+    const layout = layoutGrid(list, 496, 160);
+    expect(visibleIds(layout, 0, 200, 0)).toEqual([1, 2, 3]);
+    expect(visibleIds(layout, 0, 200, 100)).toEqual([1, 2, 3, 4, 5]);
+    expect(visibleIds(layout, 470, 100, 0)).toEqual([6, 7]);
+    expect(visibleIds(layout, 5000, 100, 0)).toEqual([]);
+  });
+});

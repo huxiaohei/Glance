@@ -1,4 +1,15 @@
 export const zhCN = {
-  "app.openFolder": "打开目录",
-  "app.dropHint": "拖入文件夹，或点击选择",
+  "start.dropHint": "拖入文件夹，或点击选择",
+  "start.open": "打开目录",
+  "grid.scanning": "已找到 {n} 张",
+  "grid.count": "{n} 张",
+  "grid.total": "共 {n} 张",
+  "grid.empty": "这个目录里没有图片",
+  "grid.emptyHintSubdirs": "可以打开“包含子目录”",
+  "grid.openOther": "打开其他目录",
+  "grid.rootGroup": "根目录",
+  "grid.unreadable": "无法读取",
+  "error.notFound": "找不到这个位置",
+  "error.notAnImage": "这不是图片或目录",
+  "error.unreadable": "无法读取这个位置",
 } as const;

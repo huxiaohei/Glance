@@ -1,45 +1,39 @@
-import { useState } from "react";
-import { t } from "./i18n";
+import { useEffect, useState } from "react";
+import { pickAndOpenFolder, subscribeThumbs } from "./app/openFolder";
+import { useFolderDrop } from "./app/useFolderDrop";
 import Lab from "./lab/Lab";
-
-const styles = {
-  root: {
-    position: "fixed",
-    inset: 0,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    background: "#1E1E1E",
-    color: "#D4D4D4",
-    fontSize: 13,
-    fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
-  },
-  lab: {
-    position: "fixed",
-    right: 12,
-    bottom: 12,
-    color: "#8A8A8A",
-    background: "none",
-    border: "none",
-  },
-} as const;
+import { useCatalog } from "./stores/catalog";
+import GridView from "./views/grid/GridView";
+import StartView from "./views/start/StartView";
+import "./app/app.css";
 
 export default function App() {
-  const [view, setView] = useState<"start" | "lab">("start");
-  if (import.meta.env.DEV && view === "lab") {
-    return <Lab onBack={() => setView("start")} />;
-  }
+  const hasRoot = useCatalog((s) => s.root !== null);
+  const dragging = useFolderDrop();
+  const [lab, setLab] = useState(false);
+
+  useEffect(() => {
+    subscribeThumbs();
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        void pickAndOpenFolder();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  if (import.meta.env.DEV && lab) return <Lab onBack={() => setLab(false)} />;
   return (
-    <div style={styles.root}>
-      <div>{t("app.dropHint")}</div>
-      <button type="button">{t("app.openFolder")}</button>
+    <>
+      {hasRoot ? <GridView /> : <StartView />}
+      {dragging && <div className="drop-outline" />}
       {import.meta.env.DEV && (
-        <button type="button" style={styles.lab} onClick={() => setView("lab")}>
+        <button type="button" className="lab-entry" onClick={() => setLab(true)}>
           实验面板
         </button>
       )}
-    </div>
+    </>
   );
 }

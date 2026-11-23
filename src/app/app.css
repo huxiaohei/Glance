@@ -1,0 +1,17 @@
+.drop-outline {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+  z-index: 10;
+}
+.lab-entry {
+  position: fixed;
+  right: 12px;
+  bottom: 36px;
+  z-index: 5;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+}
