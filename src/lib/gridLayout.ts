@@ -65,3 +65,40 @@ export function wantedIds(layout: GridLayout, scrollTop: number, viewHeight: num
   }
   return [...inView, ...below, ...above.reverse().flat()];
 }
+
+export type Move = "left" | "right" | "up" | "down" | "home" | "end";
+
+/** id 所在行在 layout.rows 里的下标，不在则 -1。 */
+export function rowIndexOf(layout: GridLayout, id: FileId): number {
+  return layout.rows.findIndex((r) => r.kind === "images" && r.ids.includes(id));
+}
+
+/**
+ * left/right 沿 list.ids 前后移动（跨分组）；up/down 到上一/下一图片行的同一列，
+ * 该行不够长时落到行末；home/end 到第一/最后一张。到头时返回原 id。id 不在布局里返回 null。
+ */
+export function moveInLayout(layout: GridLayout, list: ImageList, id: FileId, move: Move): FileId | null {
+  const r = rowIndexOf(layout, id);
+  if (r < 0) return null;
+  const ids = list.ids;
+  switch (move) {
+    case "home": return ids[0] ?? id;
+    case "end": return ids[ids.length - 1] ?? id;
+    case "left":
+    case "right": {
+      const i = ids.indexOf(id) + (move === "left" ? -1 : 1);
+      return i < 0 || i >= ids.length ? id : ids[i];
+    }
+    case "up":
+    case "down": {
+      const step = move === "up" ? -1 : 1;
+      let j = r + step;
+      while (j >= 0 && j < layout.rows.length && layout.rows[j].kind !== "images") j += step;
+      const target = layout.rows[j];
+      if (!target || target.kind !== "images") return id;
+      const cur = layout.rows[r];
+      const col = cur.kind === "images" ? cur.ids.indexOf(id) : 0;
+      return target.ids[Math.min(col, target.ids.length - 1)];
+    }
+  }
+}

@@ -1,8 +1,9 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { pickAndOpenFolder } from "../../app/openFolder";
+import { useImageList } from "../../app/useImageList";
 import { t } from "../../i18n";
-import { deriveList, dirTree } from "../../lib/deriveList";
+import { dirTree } from "../../lib/deriveList";
 import { layoutGrid, type Row } from "../../lib/gridLayout";
 import { accumulateWheel } from "../../lib/wheelZoom";
 import { pickTier } from "../../lib/pickTier";
@@ -35,19 +36,14 @@ export default function GridView() {
   const entries = useCatalog((s) => s.entries);
   const scanning = useCatalog((s) => s.scanning);
   const listVersion = useCatalog((s) => s.listVersion);
-  const sort = useListView((s) => s.sort);
   const includeSubdirs = useListView((s) => s.includeSubdirs);
   const dirFilter = useListView((s) => s.dirFilter);
-  const collapsed = useListView((s) => s.collapsed);
   const cell = useListView((s) => s.cell);
   const rootPath = root?.path;
   const tier = pickTier(cell, window.devicePixelRatio);
 
-  // 派生列表与目录树按 catalog.listVersion（及各选项）缓存；滚动、缩略图事件和尺寸补全不会触发重算
-  const list = useMemo(
-    () => deriveList(entries.values(), { sort, includeSubdirs, dirFilter, collapsed }),
-    [listVersion, sort, includeSubdirs, dirFilter, collapsed],
-  );
+  // 目录树按 catalog.listVersion 缓存；滚动、缩略图事件和尺寸补全不会触发重算
+  const list = useImageList();
   const tree = useMemo(() => dirTree(entries.values()), [listVersion]);
 
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);

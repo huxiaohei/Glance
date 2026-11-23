@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImageList } from "./deriveList";
-import { layoutGrid, visibleIds, wantedIds } from "./gridLayout";
+import { GAP, layoutGrid, moveInLayout, rowIndexOf, visibleIds, wantedIds } from "./gridLayout";
 
 const list: ImageList = {
   ids: [1, 2, 3, 4, 5, 6, 7],
@@ -77,5 +77,47 @@ describe("wantedIds", () => {
     const layout = layoutGrid(list, 496, 160);
     expect(wantedIds(layout, 0, 200, 0)).toEqual([1, 2, 3]);
     expect(wantedIds(layout, 5000, 100, 0)).toEqual([]);
+  });
+});
+
+describe("moveInLayout / rowIndexOf", () => {
+  // 分组 A 有 5 张（3 列 → 行 [1,2,3] [4,5]），分组 B 有 2 张（行 [6,7]）
+  const nav: ImageList = {
+    ids: [1, 2, 3, 4, 5, 6, 7],
+    groups: [
+      { dir: "A", start: 0, count: 5, total: 5 },
+      { dir: "B", start: 5, count: 2, total: 2 },
+    ],
+  };
+  const lay = layoutGrid(nav, 3 * 100 + 2 * GAP, 100);
+
+  it("right 跨分组：5 → 6", () => {
+    expect(moveInLayout(lay, nav, 5, "right")).toBe(6);
+  });
+  it("down 落到下一行同一列：2 → 5；3 → 5（行不够长时落到行末）", () => {
+    expect(moveInLayout(lay, nav, 2, "down")).toBe(5);
+    expect(moveInLayout(lay, nav, 3, "down")).toBe(5);
+  });
+  it("down 跨过分组标题：4 → 6，5 → 7", () => {
+    expect(moveInLayout(lay, nav, 4, "down")).toBe(6);
+    expect(moveInLayout(lay, nav, 5, "down")).toBe(7);
+  });
+  it("up 从 6 → 4", () => {
+    expect(moveInLayout(lay, nav, 6, "up")).toBe(4);
+  });
+  it("到头时返回原 id：left(1) = 1，down(7) = 7", () => {
+    expect(moveInLayout(lay, nav, 1, "left")).toBe(1);
+    expect(moveInLayout(lay, nav, 7, "down")).toBe(7);
+    expect(moveInLayout(lay, nav, 1, "up")).toBe(1);
+    expect(moveInLayout(lay, nav, 7, "right")).toBe(7);
+  });
+  it("home / end", () => {
+    expect(moveInLayout(lay, nav, 4, "home")).toBe(1);
+    expect(moveInLayout(lay, nav, 4, "end")).toBe(7);
+  });
+  it("id 不在布局里返回 null", () => {
+    expect(moveInLayout(lay, nav, 99, "right")).toBeNull();
+    expect(rowIndexOf(lay, 99)).toBe(-1);
+    expect(rowIndexOf(lay, 4)).toBe(2);
   });
 });
