@@ -30,9 +30,16 @@ export async function initSettings(): Promise<void> {
   }
 }
 
-/** 先改 store（立即生效），再把整份设置交给后端保存；保存失败只提示，不回退。 */
+/** 保存链：每次保存等上一次结束才发出，后端按调用顺序收到，磁盘上留下的总是最后一份。 */
+let saving: Promise<void> = Promise.resolve();
+
+/** 先改 store（立即生效），再把整份设置排进保存链；保存失败只提示，不回退，也不打断后面的保存。 */
 export function updateSettings(patch: Partial<Settings>): void {
   const settings = { ...useSettings.getState().settings, ...patch };
   useSettings.setState({ settings });
-  settingsSet(settings).catch(() => showToast({ text: t("settings.saveFailed") }));
+  saving = saving
+    .then(() => settingsSet(settings))
+    .catch(() => {
+      showToast({ text: t("settings.saveFailed") });
+    });
 }

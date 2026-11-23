@@ -33,11 +33,12 @@ describe("settings store", () => {
     expect(useSettings.getState().settings).toEqual(DEFAULT_SETTINGS);
   });
 
-  it("updateSettings 立刻改 store，并把整份设置发给后端", () => {
+  it("updateSettings 立刻改 store，并把整份设置发给后端", async () => {
     settingsSet.mockResolvedValueOnce();
     updateSettings({ theme: "light" });
     expect(useSettings.getState().settings.theme).toBe("light");
-    expect(settingsSet).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, theme: "light" });
+    // 保存排在保存链上，晚一个微任务才发出
+    await vi.waitFor(() => expect(settingsSet).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, theme: "light" }));
   });
 
   it("保存失败时显示 settings.saveFailed 提示，store 里的值不回退", async () => {
@@ -56,5 +57,29 @@ describe("settings store", () => {
       loopAtEnd: false,
       wheel: "zoom",
     });
+  });
+
+  it("连续两次保存按调用顺序串行，后一次等前一次结束才发出", async () => {
+    let finishFirst!: () => void;
+    settingsSet.mockImplementationOnce(() => new Promise<void>((r) => (finishFirst = r)));
+    settingsSet.mockResolvedValueOnce();
+    updateSettings({ theme: "light" });
+    updateSettings({ wheel: "switch" });
+    await vi.waitFor(() => expect(settingsSet).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settingsSet).toHaveBeenCalledTimes(1);
+    finishFirst();
+    await vi.waitFor(() => expect(settingsSet).toHaveBeenCalledTimes(2));
+    expect(settingsSet.mock.calls[1][0]).toEqual(useSettings.getState().settings);
+    expect(settingsSet.mock.calls[1][0]).toEqual({ ...DEFAULT_SETTINGS, theme: "light", wheel: "switch" });
+  });
+
+  it("前一次保存失败不影响后一次保存", async () => {
+    settingsSet.mockRejectedValueOnce("io");
+    settingsSet.mockResolvedValueOnce();
+    updateSettings({ theme: "light" });
+    updateSettings({ theme: "system" });
+    await vi.waitFor(() => expect(settingsSet).toHaveBeenCalledTimes(2));
+    expect(settingsSet.mock.calls[1][0].theme).toBe("system");
   });
 });
