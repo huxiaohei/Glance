@@ -34,6 +34,9 @@ pub fn run() {
             let settings = state::settings::SettingsState::load(&app.path().app_config_dir()?);
             let theme = settings.get().theme;
             app.manage(settings);
+            app.manage(state::recents::RecentsState::load(
+                &app.path().app_config_dir()?,
+            ));
             state::settings::apply_window_theme(app.handle(), theme);
             Ok(())
         })
@@ -58,6 +61,10 @@ pub fn run() {
         commands::thumbs_subscribe,
         commands::thumbs_want,
         commands::image_details,
+        commands::recents_list,
+        commands::recents_pin,
+        commands::recents_remove,
+        commands::recents_note,
         fileops::commands::fs_trash,
         fileops::commands::fs_rename,
         fileops::commands::fs_move,
@@ -82,6 +89,10 @@ pub fn run() {
         commands::thumbs_subscribe,
         commands::thumbs_want,
         commands::image_details,
+        commands::recents_list,
+        commands::recents_pin,
+        commands::recents_remove,
+        commands::recents_note,
         fileops::commands::fs_trash,
         fileops::commands::fs_rename,
         fileops::commands::fs_move,

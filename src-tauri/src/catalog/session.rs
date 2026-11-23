@@ -249,6 +249,14 @@ impl Sessions {
         cur.attached.as_ref().map(|(root, _)| root.clone())
     }
 
+    /// 当前会话的代号与根目录；没有已 attach 的会话返回 None。
+    pub fn current(&self) -> Option<(u32, PathBuf)> {
+        let cur = self.current.lock().unwrap();
+        cur.attached
+            .as_ref()
+            .map(|(root, _)| (cur.generation, root.clone()))
+    }
+
     /// 把提示投给当前会话；没有会话或会话已结束时什么都不做。
     pub fn hint(&self, hints: Vec<FsHint>) {
         let cur = self.current.lock().unwrap();
@@ -529,6 +537,24 @@ mod tests {
         s.note(7);
         assert!(s.begin(6).is_none());
         assert!(!cancel.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn current_is_none_until_attached_and_after_the_next_begin() {
+        use std::sync::mpsc::channel;
+        let s = Sessions::default();
+        assert_eq!(s.current(), None);
+        s.note(1);
+        let (g1, _) = s.begin(1).unwrap();
+        assert_eq!(s.current(), None, "attach 之前没有当前会话");
+        let (tx, _rx) = channel();
+        s.attach(g1, PathBuf::from("/r"), tx.clone());
+        assert_eq!(s.current(), Some((g1, PathBuf::from("/r"))));
+        s.note(2);
+        let (g2, _) = s.begin(2).unwrap();
+        assert_eq!(s.current(), None, "下一次 begin 清掉上一次的会话");
+        s.attach(g2, PathBuf::from("/r2"), tx);
+        assert_eq!(s.current(), Some((g2, PathBuf::from("/r2"))));
     }
 
     #[test]

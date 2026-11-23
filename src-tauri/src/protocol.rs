@@ -1,4 +1,5 @@
 use crate::catalog::registry::{FileId, Registry};
+use crate::state::recents::is_cache_key;
 use crate::thumbs::{ThumbCache, Tier};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::http;
@@ -10,6 +11,8 @@ pub static HITS: AtomicU64 = AtomicU64::new(0);
 pub enum Route {
     Image(FileId),
     Thumb(FileId, Tier),
+    /// 按缓存键直接读缩略图（最近目录用）。
+    ThumbKey(String),
 }
 
 /// 协议处理所需的共享状态。
@@ -25,8 +28,11 @@ fn parse_u32(s: &str) -> Option<u32> {
     s.parse().ok()
 }
 
-/// 输入是请求 URI 的 path 部分，如 "/image/42"、"/thumb/42/320"。
+/// 输入是请求 URI 的 path 部分，如 "/image/42"、"/thumb/42/320"、"/thumb-key/<32 位小写十六进制>"。
 pub fn parse_route(path: &str) -> Option<Route> {
+    if let Some(key) = path.strip_prefix("/thumb-key/") {
+        return is_cache_key(key).then(|| Route::ThumbKey(key.to_string()));
+    }
     if let Some(id) = path.strip_prefix("/image/") {
         return parse_u32(id).map(|n| Route::Image(FileId(n)));
     }
@@ -87,6 +93,7 @@ pub fn respond(ctx: &Ctx, path: &str) -> http::Response<Vec<u8>> {
     let response = match parse_route(path) {
         Some(Route::Image(id)) => serve_image(ctx, id),
         Some(Route::Thumb(id, tier)) => serve_thumb(ctx, id, tier),
+        Some(Route::ThumbKey(key)) => ctx.thumbs.get(&key).map(|b| ok("image/webp", b)),
         None => None,
     };
     response.unwrap_or_else(not_found)
@@ -196,6 +203,57 @@ mod tests {
         ] {
             assert_eq!(parse_route(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn parses_thumb_key_routes() {
+        let key = "0123456789abcdef0123456789abcdef";
+        assert_eq!(
+            parse_route(&format!("/thumb-key/{key}")),
+            Some(Route::ThumbKey(key.to_string()))
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_thumb_keys() {
+        for bad in [
+            "/thumb-key/0123456789abcdef0123456789abcde",
+            "/thumb-key/0123456789abcdef0123456789abcdef0",
+            "/thumb-key/0123456789ABCDEF0123456789abcdef",
+            "/thumb-key/0123456789abcdef/123456789abcdef",
+            "/thumb-key/..%2f456789abcdef0123456789abcdef",
+            "/thumb-key/",
+            "/thumb-key",
+        ] {
+            assert_eq!(parse_route(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn thumb_key_serves_cached_bytes_and_404s_when_absent() {
+        let r = Registry::default();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let ctx = Ctx {
+            registry: &r,
+            thumbs: &cache,
+        };
+        let key = "0123456789abcdef0123456789abcdef";
+        let url = format!("/thumb-key/{key}");
+        let before = respond(&ctx, &url);
+        assert_eq!(before.status(), 404);
+        assert_eq!(before.headers()["access-control-allow-origin"], "*");
+
+        cache.put(key, b"webp-bytes").unwrap();
+        let resp = respond(&ctx, &url);
+        assert_eq!(resp.status(), 200);
+        assert_eq!(resp.headers()["content-type"], "image/webp");
+        assert_eq!(
+            resp.headers()["cache-control"],
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(resp.headers()["access-control-allow-origin"], "*");
+        assert_eq!(resp.body().as_slice(), b"webp-bytes");
     }
 
     #[test]
