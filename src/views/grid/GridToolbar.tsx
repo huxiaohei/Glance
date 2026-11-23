@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { openFolder, pickAndOpenFolder, useOpenError } from "../../app/openFolder";
 import { t } from "../../i18n";
 import type { SortKey } from "../../lib/deriveList";
@@ -6,7 +7,7 @@ import { CELL_MAX, CELL_MIN, useListView } from "../../stores/listView";
 
 const SORTS: SortKey[] = ["name", "mtime", "size"];
 
-export default function GridToolbar() {
+function GridToolbar() {
   const root = useCatalog((s) => s.root);
   const scanning = useCatalog((s) => s.scanning);
   const found = useCatalog((s) => s.entries.size);
@@ -19,7 +20,12 @@ export default function GridToolbar() {
     const { setIncludeSubdirs } = useListView.getState();
     setIncludeSubdirs(on);
     // 当前根是非递归打开的：下级目录还没扫描，需要重新扫描
-    if (on && root && !root.recursive) void openFolder(root.path, true);
+    if (on && root && !root.recursive) {
+      void openFolder(root.path, true).then((error) => {
+        // 重扫失败：当前仍是非递归的数据，开关恢复成与之一致
+        if (error) useListView.getState().setIncludeSubdirs(root.recursive);
+      });
+    }
   };
 
   return (
@@ -53,3 +59,5 @@ export default function GridToolbar() {
     </div>
   );
 }
+
+export default memo(GridToolbar);
