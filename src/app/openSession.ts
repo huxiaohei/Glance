@@ -30,8 +30,8 @@ function errorCode(err: unknown): OpenErrorCode {
  * - 已 begin 的会话继续接收事件，直到更新的调用真正 begin（新调用失败不影响它）。
  */
 export function createOpener<T = undefined>(deps: OpenerDeps<T>) {
-  let latest = deps.seed ?? Date.now(); // 序号即调用顺序，同时发给后端
-  // 最近一次发起的调用
+  // 最近一次发起的调用；序号即调用顺序，同时发给后端
+  let latest = deps.seed ?? Date.now();
   let current = 0;  // 最近一次真正 begin 的调用
   return async function open(path: string, recursive: boolean, tag?: T): Promise<OpenResult> {
     const mine = ++latest;
