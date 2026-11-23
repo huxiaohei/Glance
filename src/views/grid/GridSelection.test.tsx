@@ -9,6 +9,7 @@ import { selectOnly } from "../../lib/selection";
 import { useCatalog } from "../../stores/catalog";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useListView } from "../../stores/listView";
+import { topView, useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
 import { useThumbs } from "../../stores/thumbs";
 import GridView from "./GridView";
@@ -138,6 +139,7 @@ describe("GridView", () => {
     stubSize("clientWidth", 600);
     stubSize("clientHeight", 400);
     useCatalog.getState().reset();
+    useNav.getState().reset();
     scrollToIndex.mockClear();
   });
   afterEach(() => {
@@ -145,9 +147,9 @@ describe("GridView", () => {
     restore = [];
   });
 
-  const open = (focus: number | null, generation = 1) => {
+  const open = (focus: number | null, generation = 1, restored = false) => {
     act(() => {
-      useCatalog.getState().begin({ generation, path: "/p", name: "p", recursive: true, focus });
+      useCatalog.getState().begin({ generation, path: "/p", name: "p", recursive: true, focus }, { restored });
     });
   };
   const add = (generation: number, ...idList: number[]) => {
@@ -237,6 +239,42 @@ describe("GridView", () => {
     act(() => useSelection.getState().set(selectOnly(30)));
     add(1, 4);
     expect(scrollToIndex).not.toHaveBeenCalled();
+  });
+
+  it("打开图片文件（非恢复）：选中、定位并进入单张视图", () => {
+    open(3);
+    render(<GridView />);
+    add(1, 1, 2, 3);
+    expect(ids()).toEqual([3]);
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 3 });
+  });
+
+  it("从最近目录恢复：只在网格里选中并定位，不进入单张视图", () => {
+    open(3, 1, true);
+    render(<GridView />);
+    add(1, 1, 2, 3);
+    expect(ids()).toEqual([3]);
+    expect(revealedTo(3)).toBe(true);
+    expect(topView().kind).toBe("grid");
+  });
+
+  it("视图重新挂载（例如切换语言）不会把同一次打开的 focus 再处理一遍", () => {
+    open(3);
+    const { rerender } = render(<GridView key="a" />);
+    add(1, 1, 2, 3);
+    expect(topView().kind).toBe("single");
+    act(() => useNav.getState().back());
+    act(() => useSelection.getState().set(selectOnly(1)));
+    scrollToIndex.mockClear();
+    rerender(<GridView key="b" />);
+    expect(topView().kind).toBe("grid");
+    expect(ids()).toEqual([1]);
+    expect(scrollToIndex).not.toHaveBeenCalled();
+    // 新的一次打开（新的 generation）照常处理
+    open(2, 2);
+    add(2, 1, 2);
+    expect(ids()).toEqual([2]);
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
   });
 
   it("打开目录（无 focus）不自动选中", () => {

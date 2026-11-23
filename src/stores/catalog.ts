@@ -10,8 +10,13 @@ export interface CatalogState {
   rootGone: boolean;                    // 根目录已被移走或删除；begin、reset 时清除
   version: number;                      // 每次 entries 变化加一（含尺寸补全），供格子占位比例用
   listVersion: number;                  // 仅在条目集合变化（begin/reset/非空批次/删除/改名）时加一，供列表与目录树派生缓存用
-  /** 进入扫描中。keep 为真（刷新）时保留现有条目，扫描结束时移除没有再出现的。 */
-  begin(root: RootInfo, opts?: { keep?: boolean }): void;
+  /** 本次打开是从最近目录恢复的（root.focus 是上次看到的图片）：网格只选中并定位，不进入单张视图。 */
+  restored: boolean;
+  /**
+   * 进入扫描中。keep 为真（刷新）时保留现有条目，扫描结束时移除没有再出现的。
+   * restored：本次打开是从最近目录恢复的；刷新（keep）不算恢复。
+   */
+  begin(root: RootInfo, opts?: { keep?: boolean; restored?: boolean }): void;
   apply(e: CatalogEvent): void;         // generation 与 root 不符的事件直接丢弃
   reset(): void;
 }
@@ -38,12 +43,13 @@ export const useCatalog = create<CatalogState>((set) => ({
   rootGone: false,
   version: 0,
   listVersion: 0,
+  restored: false,
 
   begin: (root, opts) =>
     set((s) => {
       if (opts?.keep) {
         stale = new Set(s.entries.keys());
-        return { root, scanning: true, watchFailed: false, rootGone: false, version: s.version + 1 };
+        return { root, scanning: true, watchFailed: false, rootGone: false, restored: false, version: s.version + 1 };
       }
       stale = new Set();
       return {
@@ -52,6 +58,7 @@ export const useCatalog = create<CatalogState>((set) => ({
         scanning: true,
         watchFailed: false,
         rootGone: false,
+        restored: opts?.restored === true,
         version: s.version + 1,
         listVersion: s.listVersion + 1,
       };
@@ -131,6 +138,7 @@ export const useCatalog = create<CatalogState>((set) => ({
         scanning: false,
         watchFailed: false,
         rootGone: false,
+        restored: false,
         version: s.version + 1,
         listVersion: s.listVersion + 1,
       };

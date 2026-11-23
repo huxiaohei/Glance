@@ -8,6 +8,7 @@ import { GRID_PAD, HEADER_HEIGHT, layoutGrid, rowIndexOf, type Row } from "../..
 import { selectOnly } from "../../lib/selection";
 import { accumulateWheel } from "../../lib/wheelZoom";
 import { pickTier } from "../../lib/pickTier";
+import type { RootInfo } from "../../ipc/types";
 import { useCatalog } from "../../stores/catalog";
 import { EMPTY_GRID_CTX, useGridCtx } from "../../stores/gridCtx";
 import { useListView } from "../../stores/listView";
@@ -35,6 +36,13 @@ function pinnedHeader(rows: Row[], y: number): number {
   while (found >= 0 && rows[found].kind !== "header") found--;
   return found;
 }
+
+/**
+ * 打开时 focus 的处理记录。放在组件外：切换语言会重新挂载整个视图树，记录若在组件里就会丢失，
+ * 同一次打开的 focus 被再处理一遍（用户被拉回单张视图、选中被改掉）。
+ * 按本次打开的 root 对象记：catalog 每次 begin（即每个 generation）给一个新的 root 对象。
+ */
+let follow: { root: RootInfo; active: boolean } | null = null;
 
 /** hidden：单张视图盖在上面。只隐藏（visibility + pointer-events），不卸载，虚拟器与滚动位置保留。 */
 export default function GridView({ hidden = false }: { hidden?: boolean }) {
@@ -95,13 +103,13 @@ export default function GridView({ hidden = false }: { hidden?: boolean }) {
   useLayoutEffect(() => () => useGridCtx.setState(EMPTY_GRID_CTX), []);
   useEffect(() => registerGridCommands(), []);
 
-  // 打开单张图片：该条目到达且已在布局里后，选中并滚到它，并进入单张视图（每次打开 generation 只做一次）。
+  // 打开带 focus（打开单张图片，或从最近目录恢复上次看到的图片）：该条目到达且已在布局里后，选中并滚到它；
+  // 打开单张图片还进入单张视图，从最近目录恢复则只在网格里选中并定位（见 catalog.restored）。每次打开只做一次。
   // 扫描期间后到的批次可能排在它前面、把它挤出视口：布局每次变化都再滚一次，扫描结束时再滚最后一次。
   // 用户一接手（在滚动区滚轮或按下指针，或选中不再恰好是这张）就停止，本次打开不再跟随。
-  const follow = useRef<{ generation: number; active: boolean } | null>(null);
   useEffect(() => {
     if (!scroller) return;
-    const stop = () => { if (follow.current) follow.current.active = false; };
+    const stop = () => { if (follow) follow.active = false; };
     scroller.addEventListener("wheel", stop, { passive: true });
     scroller.addEventListener("pointerdown", stop);
     return () => {
@@ -113,12 +121,13 @@ export default function GridView({ hidden = false }: { hidden?: boolean }) {
     if (!root || root.focus === null) return;
     const id = root.focus;
     if (size.height === 0 || !entries.has(id) || rowIndexOf(layout, id) < 0) return;
-    const f = follow.current;
-    if (f?.generation !== root.generation) {
-      follow.current = { generation: root.generation, active: scanning };
+    const f = follow;
+    if (f?.root !== root) {
+      follow = { root, active: scanning };
       useSelection.getState().set(selectOnly(id));
       useGridCtx.getState().reveal(id);
-      useNav.getState().openSingle(id);
+      // 从最近目录恢复时不进入单张视图（要恢复到单张视图须另记“上次所在视图”）；打开图片文件（拖入、对话框）才进入
+      if (!useCatalog.getState().restored) useNav.getState().openSingle(id);
       return;
     }
     if (!f.active) return;

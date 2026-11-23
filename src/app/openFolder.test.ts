@@ -70,6 +70,21 @@ describe("openRecent", () => {
     expect(useListView.getState().sort).toBe("size");
   });
 
+  it("openRecent 打开的目录标记为恢复；普通打开（图片文件、对话框）与刷新不标记", async () => {
+    openPath.mockResolvedValueOnce({ ...info(1, "photos"), focus: 5 });
+    await openRecent(recent());
+    expect(useCatalog.getState().restored).toBe(true);
+    openPath.mockResolvedValueOnce({ ...info(2, "dir"), focus: 7 });
+    await openFolder("/real/dir/7.jpg");
+    expect(useCatalog.getState().restored).toBe(false);
+    openPath.mockResolvedValueOnce(info(3, "photos"));
+    await openRecent(recent());
+    expect(useCatalog.getState().restored).toBe(true);
+    openPath.mockResolvedValueOnce(info(4, "photos"));
+    await refreshFolder();
+    expect(useCatalog.getState().restored).toBe(false);
+  });
+
   it("openRecent 的排序在目录开始（事件回放）之前就已生效", async () => {
     const sortAtBegin: string[] = [];
     const off = useCatalog.subscribe((s, prev) => {

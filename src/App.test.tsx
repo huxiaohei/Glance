@@ -19,6 +19,10 @@ const { default: App } = await import("./App");
 const { DEFAULT_SETTINGS, updateSettings, useSettings } = await import("./stores/settings");
 const { startApplyingSettings } = await import("./app/applySettings");
 const { setLanguage } = await import("./i18n");
+const { useCatalog } = await import("./stores/catalog");
+const { useNav, topView } = await import("./stores/nav");
+const { useSelection } = await import("./stores/selection");
+const { selectOnly } = await import("./lib/selection");
 
 let stop = () => {};
 afterEach(() => {
@@ -27,6 +31,9 @@ afterEach(() => {
   stop = () => {};
   setLanguage("zh-CN");
   useSettings.setState({ settings: DEFAULT_SETTINGS, open: false });
+  act(() => useCatalog.getState().reset());
+  useNav.getState().reset();
+  useSelection.getState().clear();
 });
 
 describe("App", () => {
@@ -47,5 +54,33 @@ describe("App", () => {
     const dialog = screen.getByRole("dialog", { name: "Settings" });
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect((screen.getByLabelText("Language") as HTMLSelectElement).value).toBe("en");
+  });
+
+  it("切换语言（视图树重新挂载）不会再次进入打开时的单张视图，也不改选中", () => {
+    // jsdom 不做布局：给滚动区一个尺寸，网格才会排布并处理 focus
+    const descs = (["clientWidth", "clientHeight"] as const).map((p) => [p, Object.getOwnPropertyDescriptor(Element.prototype, p)!] as const);
+    Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get: () => 600 });
+    Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get: () => 400 });
+    try {
+      useSettings.setState({ settings: { ...DEFAULT_SETTINGS, language: "zh-CN" } });
+      stop = startApplyingSettings();
+      act(() => {
+        useCatalog.getState().begin({ generation: 1, path: "/p", name: "p", recursive: true, focus: 3 });
+        useCatalog.getState().apply({
+          type: "batch",
+          generation: 1,
+          entries: [1, 2, 3].map((id) => ({ id, relPath: `${id}.jpg`, size: 1, mtimeMs: 1 })),
+        });
+      });
+      render(<App />);
+      expect(topView().kind).toBe("single");
+      act(() => useNav.getState().back());
+      act(() => useSelection.getState().set(selectOnly(1)));
+      act(() => updateSettings({ language: "en" }));
+      expect(topView().kind).toBe("grid");
+      expect([...useSelection.getState().ids]).toEqual([1]);
+    } finally {
+      for (const [p, d] of descs) Object.defineProperty(Element.prototype, p, d);
+    }
   });
 });

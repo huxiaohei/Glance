@@ -13,8 +13,11 @@ import { t } from "../i18n";
 import { createOpener, type OpenResult } from "./openSession";
 import { flushRecents } from "./recentsSync";
 
-/** keepView：刷新同一目录；sort：新目录开始时就采用的排序（打开最近目录时恢复）。 */
-const opener = createOpener<{ keepView?: boolean; sort?: SortKey }>({
+/**
+ * keepView：刷新同一目录；sort：新目录开始时就采用的排序（打开最近目录时恢复）；
+ * restore：从最近目录打开（网格据此只选中定位上次看到的图片，不进入单张视图）。
+ */
+const opener = createOpener<{ keepView?: boolean; sort?: SortKey; restore?: boolean }>({
   openPath,
   begin: (info, tag) => {
     if (tag?.keepView) {
@@ -30,7 +33,7 @@ const opener = createOpener<{ keepView?: boolean; sort?: SortKey }>({
     useListView.getState().resetForNewRoot(info.recursive);
     // 在条目到达之前定下排序，网格不会先按旧排序显示、定位后再重排
     if (tag?.sort) useListView.getState().setSort(tag.sort);
-    useCatalog.getState().begin(info);
+    useCatalog.getState().begin(info, { restored: tag?.restore === true });
   },
   apply: (e) => {
     // 内容变了的文件、被删除的文件：先清掉损坏标记，缩略图才会重新请求
@@ -57,8 +60,9 @@ async function openWith(
   const turn = (queue = queue.then(() => (keepView ? undefined : flushRecents())));
   try {
     await turn;
-    const tag = keepView ? { keepView } : opts?.sort ? { sort: opts.sort } : undefined;
-    const result = await opener(path, rec, tag, !keepView && opts?.restore === true);
+    const restore = !keepView && opts?.restore === true;
+    const tag = keepView ? { keepView } : { sort: opts?.sort, restore };
+    const result = await opener(path, rec, tag, restore);
     // 打开失败统一在这里用提示条告知；被取代的打开不提示
     if (!result.superseded && result.error) showToast({ text: t(`error.${result.error}`) });
     return result;
