@@ -45,6 +45,8 @@ pub enum OpenError {
     NotFound,
     NotAnImage,
     Unreadable,
+    /// 已有更新的打开请求，本次作废。
+    Superseded,
 }
 
 #[cfg(test)]
@@ -92,6 +94,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&OpenError::NotAnImage).unwrap(),
             r#"{"code":"notAnImage"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&OpenError::Superseded).unwrap(),
+            r#"{"code":"superseded"}"#
         );
     }
 }

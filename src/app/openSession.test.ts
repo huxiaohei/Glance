@@ -8,14 +8,16 @@ const done = (generation: number): CatalogEvent => ({ type: "done", generation, 
 
 function setup() {
   const log: string[] = [];
+  const seqs: number[] = [];
   const pending: { resolve(i: RootInfo): void; reject(e: unknown): void; emit(e: CatalogEvent): void }[] = [];
   const open = createOpener({
-    openPath: (_p, _r, onEvent) =>
-      new Promise<RootInfo>((resolve, reject) => pending.push({ resolve, reject, emit: onEvent })),
+    seed: 100,
+    openPath: (_p, _r, seq, onEvent) =>
+      new Promise<RootInfo>((resolve, reject) => (seqs.push(seq), pending.push({ resolve, reject, emit: onEvent }))),
     begin: (i) => log.push(`begin:${i.generation}`),
     apply: (e) => log.push(`apply:${e.type}:${e.generation}`),
   });
-  return { log, pending, open };
+  return { log, pending, seqs, open };
 }
 
 describe("createOpener", () => {
@@ -95,5 +97,23 @@ describe("createOpener", () => {
     await b;
     pending[0].emit(done(1));
     expect(log).toEqual(["begin:1", "begin:2"]);
+  });
+
+  it("每次调用带上递增的序号", async () => {
+    const { seqs, pending, open } = setup();
+    const a = open("/a", true);
+    const b = open("/b", true);
+    expect(seqs).toEqual([101, 102]);
+    pending[0].reject({ code: "notFound" });
+    pending[1].reject({ code: "notFound" });
+    await Promise.all([a, b]);
+  });
+
+  it("后端答复 superseded 时结果为被取代，不 begin 也不报错", async () => {
+    const { log, pending, open } = setup();
+    const p = open("/a", true);
+    pending[0].reject({ code: "superseded" });
+    expect(await p).toEqual({ superseded: true, error: null });
+    expect(log).toEqual([]);
   });
 });

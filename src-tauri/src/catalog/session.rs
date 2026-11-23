@@ -140,6 +140,8 @@ pub fn run(
 
 struct Current {
     generation: u32,
+    /// 见过的最大请求序号。
+    seen: u64,
     cancel: Option<Arc<AtomicBool>>,
 }
 
@@ -153,6 +155,7 @@ impl Default for Sessions {
         Self {
             current: Mutex::new(Current {
                 generation: 0,
+                seen: 0,
                 cancel: None,
             }),
         }
@@ -160,16 +163,27 @@ impl Default for Sessions {
 }
 
 impl Sessions {
-    /// 取消上一次并返回新的代号与取消标志。
-    pub fn begin(&self) -> (u32, Arc<AtomicBool>) {
+    /// 记下见过的最大序号，不取消任何会话。
+    pub fn note(&self, seq: u64) {
         let mut cur = self.current.lock().unwrap();
+        cur.seen = cur.seen.max(seq);
+    }
+
+    /// `seq` 小于见过的最大序号时返回 `None`（已有更新的请求），不动当前会话；
+    /// 否则取消上一次并返回新的代号与取消标志。
+    pub fn begin(&self, seq: u64) -> Option<(u32, Arc<AtomicBool>)> {
+        let mut cur = self.current.lock().unwrap();
+        if seq < cur.seen {
+            return None;
+        }
+        cur.seen = seq;
         if let Some(prev) = cur.cancel.take() {
             prev.store(true, Ordering::Relaxed);
         }
         cur.generation += 1;
         let cancel = Arc::new(AtomicBool::new(false));
         cur.cancel = Some(cancel.clone());
-        (cur.generation, cancel)
+        Some((cur.generation, cancel))
     }
 }
 
@@ -289,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn run_emits_nothing_after_cancel() {
+    fn run_stops_after_cancel() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         for i in 0..1201 {
@@ -309,12 +323,61 @@ mod tests {
     }
 
     #[test]
+    fn cancel_during_dims_stops_further_dims() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        for i in 0..(DIMS_BATCH * 3) {
+            fs::write(dir.join(format!("{i}.png")), png(1, 1)).unwrap();
+        }
+        let registry = Registry::default();
+        let cancel = AtomicBool::new(false);
+        let after_done_dims = Mutex::new(0usize);
+        let done_seen = AtomicBool::new(false);
+        let target = OpenTarget { root: dir.to_path_buf(), recursive: false, focus_file: None };
+        run(1, &target, &registry, &cancel, &|e| match e {
+            CatalogEvent::Done { .. } => {
+                done_seen.store(true, Ordering::Relaxed);
+                cancel.store(true, Ordering::Relaxed);
+            }
+            CatalogEvent::Dims { .. } => {
+                if done_seen.load(Ordering::Relaxed) {
+                    *after_done_dims.lock().unwrap() += 1;
+                }
+            }
+            _ => {}
+        });
+        assert_eq!(*after_done_dims.lock().unwrap(), 0);
+    }
+
+    #[test]
     fn begin_cancels_the_previous_session() {
         let s = Sessions::default();
-        let (g1, c1) = s.begin();
-        let (g2, c2) = s.begin();
+        s.note(1);
+        let (g1, c1) = s.begin(1).unwrap();
+        s.note(2);
+        let (g2, c2) = s.begin(2).unwrap();
         assert_eq!(g2, g1 + 1);
         assert!(c1.load(Ordering::Relaxed));
         assert!(!c2.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn begin_rejects_an_older_sequence() {
+        let s = Sessions::default();
+        s.note(1);
+        s.note(2);
+        assert!(s.begin(1).is_none());
+        let (g, _) = s.begin(2).unwrap();
+        assert_eq!(g, 1);
+    }
+
+    #[test]
+    fn rejected_begin_does_not_cancel_the_current_session() {
+        let s = Sessions::default();
+        s.note(5);
+        let (_, cancel) = s.begin(5).unwrap();
+        s.note(7);
+        assert!(s.begin(6).is_none());
+        assert!(!cancel.load(Ordering::Relaxed));
     }
 }

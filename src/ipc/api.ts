@@ -7,8 +7,13 @@ function channel<T>(onEvent: (e: T) => void): Channel<T> {
   return ch;
 }
 
-export function openPath(path: string, recursive: boolean, onEvent: (e: CatalogEvent) => void): Promise<RootInfo> {
-  return invoke<RootInfo>("open_path", { path, recursive, onEvent: channel(onEvent) });
+export function openPath(
+  path: string,
+  recursive: boolean,
+  seq: number,
+  onEvent: (e: CatalogEvent) => void,
+): Promise<RootInfo> {
+  return invoke<RootInfo>("open_path", { path, recursive, seq, onEvent: channel(onEvent) });
 }
 
 export function thumbsSubscribe(onEvent: (e: ThumbEvent) => void): Promise<void> {

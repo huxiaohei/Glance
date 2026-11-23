@@ -21,16 +21,25 @@ pub async fn open_path(
     app: AppHandle,
     path: String,
     recursive: bool,
+    seq: u64,
     on_event: Channel<CatalogEvent>,
     registry: State<'_, Arc<Registry>>,
     sessions: State<'_, Sessions>,
 ) -> Result<RootInfo, OpenError> {
-    let target = resolve_open_target(&PathBuf::from(path), recursive)?;
+    // 先登记序号：之后到达的、序号更小的请求即使更晚走到 begin 也会被拒绝。
+    sessions.note(seq);
+    let path = PathBuf::from(path);
+    // stat 可能阻塞（网络盘等），不占异步运行时的核心线程。
+    let target = tauri::async_runtime::spawn_blocking(move || resolve_open_target(&path, recursive))
+        .await
+        .map_err(|_| OpenError::Unreadable)??;
+    let Some((generation, cancel)) = sessions.begin(seq) else {
+        return Err(OpenError::Superseded);
+    };
     let focus = target
         .focus_file
         .as_deref()
         .map(|file| registry.register(file).0);
-    let (generation, cancel) = sessions.begin();
     let info = RootInfo {
         generation,
         path: target.root.to_string_lossy().into_owned(),
