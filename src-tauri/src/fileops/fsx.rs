@@ -114,12 +114,20 @@ fn is_cross_device(err: &io::Error) -> bool {
 /// 跨卷移动：先完整复制，成功后删源。删源失败就把刚复制的删掉，绝不悄悄留下两份。
 pub(crate) fn copy_then_remove(from: &Path, to: &Path) -> Result<(), FsError> {
     copy_noreplace(from, to)?;
-    if let Err(e) = fs::remove_file(from) {
-        // 清理失败也照样报原来的错。
-        let _ = fs::remove_file(to);
-        return Err(FsError::from(&e));
+    after_source_removal(fs::remove_file(from), to)
+}
+
+/// 跨卷移动删源之后的收尾。源在复制后已经不见了（NotFound）时，副本是仅存的一份，留着它、
+/// 当作移动成功；其他删源失败则删掉副本（清理失败也照样报原来的错）。
+fn after_source_removal(removed: io::Result<()>, copy: &Path) -> Result<(), FsError> {
+    match removed {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => {
+            let _ = fs::remove_file(copy);
+            Err(FsError::from(&e))
+        }
     }
-    Ok(())
 }
 
 /// 复制文件：写目标目录的临时文件并 fsync → rename_noreplace；失败时删掉临时文件。保留修改时间。
@@ -202,12 +210,11 @@ fn is_reserved_windows_name(name: &str) -> bool {
         .to_ascii_uppercase();
     match base.as_str() {
         "CON" | "PRN" | "AUX" | "NUL" => true,
-        _ => {
-            let (prefix, digit) = base.split_at(base.len().min(3));
-            matches!(prefix, "COM" | "LPT")
-                && digit.len() == 1
-                && matches!(digit.as_bytes()[0], b'1'..=b'9')
-        }
+        // 只看字节，不按字节下标切字符串：非 ASCII 的名字不会是保留名。
+        _ => matches!(
+            base.as_bytes(),
+            [b'C', b'O', b'M', b'1'..=b'9'] | [b'L', b'P', b'T', b'1'..=b'9']
+        ),
     }
 }
 
@@ -464,6 +471,93 @@ mod tests {
         ] {
             assert_eq!(validate_name(name), Ok(()), "{name:?}");
         }
+    }
+
+    #[test]
+    fn validate_name_handles_non_ascii_and_reserved_device_names() {
+        for name in [
+            "1张.png",
+            "ab赵云.png",
+            "aé.png",
+            "张.png",
+            "COM0",
+            "COM10",
+            "COMA.png",
+            "CONSOLE.png",
+        ] {
+            assert_eq!(validate_name(name), Ok(()), "{name:?}");
+        }
+        for name in ["COM1", "com9.txt", "LPT1.png", "AUX", "nul.jpg"] {
+            assert_eq!(validate_name(name), Err(FsError::InvalidName), "{name:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn case_only_guard_rejects_anything_but_the_same_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("x")).unwrap();
+        fs::create_dir(dir.path().join("y")).unwrap();
+        let a = dir.path().join("a.png");
+        let b = dir.path().join("b.png");
+        fs::write(&a, b"a").unwrap();
+        fs::write(&b, b"b").unwrap();
+        let in_x = dir.path().join("x").join("c.png");
+        let in_y = dir.path().join("y").join("C.png");
+        fs::write(&in_x, b"x").unwrap();
+        fs::write(&in_y, b"y").unwrap();
+
+        assert!(!is_case_only_change(&a, &b));
+        assert!(!is_case_only_change(&in_x, &in_y));
+        assert!(!is_case_only_change(
+            &b,
+            &dir.path().join("x").join("B.png")
+        ));
+        assert!(!is_case_only_change(
+            &a,
+            &dir.path().join("x").join("missing.png")
+        ));
+        // 同一条目、只差大小写：不分大小写的卷上才成立。
+        if dir.path().join("A.png").symlink_metadata().is_ok() {
+            assert!(is_case_only_change(&a, &dir.path().join("A.png")));
+        }
+    }
+
+    #[test]
+    fn cross_volume_cleanup_keeps_the_copy_when_the_source_already_vanished() {
+        let dir = tempfile::tempdir().unwrap();
+        let copy = dir.path().join("a.png");
+        fs::write(&copy, b"pixels").unwrap();
+        let gone = std::io::Error::from(std::io::ErrorKind::NotFound);
+
+        assert_eq!(after_source_removal(Err(gone), &copy), Ok(()));
+        assert_eq!(fs::read(&copy).unwrap(), b"pixels");
+    }
+
+    #[test]
+    fn cross_volume_cleanup_removes_the_copy_when_the_source_cannot_be_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let copy = dir.path().join("a.png");
+        fs::write(&copy, b"pixels").unwrap();
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+
+        assert_eq!(
+            after_source_removal(Err(denied), &copy),
+            Err(FsError::Denied)
+        );
+        assert!(copy.symlink_metadata().is_err());
+    }
+
+    #[test]
+    fn exdev_is_recognised_as_cross_device() {
+        #[cfg(unix)]
+        assert!(is_cross_device(&std::io::Error::from_raw_os_error(18)));
+        assert!(is_cross_device(&std::io::Error::from(
+            std::io::ErrorKind::CrossesDevices
+        )));
+        assert!(!is_cross_device(&std::io::Error::from(
+            std::io::ErrorKind::NotFound
+        )));
     }
 
     #[test]
