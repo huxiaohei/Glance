@@ -8,6 +8,11 @@ export interface ImageEntry {
   size: number; mtimeMs: number; width?: number; height?: number;
 }
 
+/** 宽高都已知且为正：尺寸可以显示。 */
+export function hasSize(e: ImageEntry): e is ImageEntry & { width: number; height: number } {
+  return e.width !== undefined && e.height !== undefined && e.width > 0 && e.height > 0;
+}
+
 export function toImageEntry(w: WireEntry): ImageEntry {
   const i = w.relPath.lastIndexOf("/");
   return {

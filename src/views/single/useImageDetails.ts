@@ -8,28 +8,33 @@ interface Result {
   error: boolean;
 }
 
-/** enabled 为 false（面板关着）时不请求；id 或 version 变化时重新请求；迟到的应答丢弃。 */
-export function useImageDetails(id: FileId, version: string, enabled: boolean): Result {
+/** 连续切图时这么久内只请求最后一张。 */
+const DEBOUNCE_MS = 120;
+
+/** id 或 version 变化时去抖后重新请求；迟到的应答丢弃。只在面板展开（调用方挂载）期间使用。 */
+export function useImageDetails(id: FileId, version: string): Result {
   const [state, setState] = useState<{ key: string; details: ImageDetails | null; error: boolean } | null>(null);
   const key = `${id}|${version}`;
 
   useEffect(() => {
-    if (!enabled) return;
     let stale = false;
-    imageDetails(id).then(
-      (details) => {
-        if (!stale) setState({ key, details, error: false });
-      },
-      () => {
-        if (!stale) setState({ key, details: null, error: true });
-      },
-    );
+    const timer = setTimeout(() => {
+      imageDetails(id).then(
+        (details) => {
+          if (!stale) setState({ key, details, error: false });
+        },
+        () => {
+          if (!stale) setState({ key, details: null, error: true });
+        },
+      );
+    }, DEBOUNCE_MS);
     return () => {
       stale = true;
+      clearTimeout(timer);
     };
-  }, [id, version, enabled, key]);
+  }, [id, key]);
 
   // 只认与当前图对应的结果；换图后旧内容不闪现
-  const cur = enabled && state?.key === key ? state : null;
-  return { details: cur?.details ?? null, loading: enabled && cur === null, error: cur?.error ?? false };
+  const cur = state?.key === key ? state : null;
+  return { details: cur?.details ?? null, loading: cur === null, error: cur?.error ?? false };
 }

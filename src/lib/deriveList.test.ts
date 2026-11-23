@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparePaths, deriveList, dirTree, toImageEntry, type ListOptions } from "./deriveList";
+import { comparePaths, deriveList, dirTree, hasSize, toImageEntry, type ListOptions } from "./deriveList";
 
 const e = (id: number, relPath: string, size = 1, mtimeMs = 0) => toImageEntry({ id, relPath, size, mtimeMs });
 const base: ListOptions = { sort: "name", includeSubdirs: true, dirFilter: null, collapsed: new Set() };
@@ -89,5 +89,14 @@ describe("comparePaths", () => {
     expect(list.groups.map((g) => g.dir)).toEqual(["", "蜀国", "蜀国/五虎", "蜀国 2"]);
     expect(dirTree([e(1, "蜀国 2/a.png"), e(2, "蜀国/五虎/b.png")]).map((n) => n.dir))
       .toEqual(["蜀国", "蜀国/五虎", "蜀国 2"]);
+  });
+});
+
+describe("hasSize", () => {
+  it("宽高都已知且为正才算有尺寸", () => {
+    expect(hasSize(e(1, "a.png"))).toBe(false);
+    expect(hasSize({ ...e(1, "a.png"), width: 0, height: 10 })).toBe(false);
+    expect(hasSize({ ...e(1, "a.png"), width: 10, height: 0 })).toBe(false);
+    expect(hasSize({ ...e(1, "a.png"), width: 10, height: 5 })).toBe(true);
   });
 });

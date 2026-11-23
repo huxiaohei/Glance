@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { imageDetails, thumbsSubscribe, thumbsWant } from "../../ipc/api";
 import type { ImageDetails } from "../../ipc/types";
+import { t } from "../../i18n";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
 import { useNav } from "../../stores/nav";
@@ -18,6 +19,8 @@ vi.mock("@tauri-apps/api/webview", () => ({
 
 let restore: (() => void)[] = [];
 beforeEach(() => {
+  // 详情请求去抖 120 ms：用假定时器推进
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   vi.mocked(thumbsSubscribe).mockResolvedValue();
   vi.mocked(thumbsWant).mockResolvedValue([]);
   vi.mocked(imageDetails).mockReset();
@@ -39,6 +42,7 @@ beforeEach(() => {
   useSingleUi.setState({ infoOpen: false });
 });
 afterEach(() => {
+  vi.useRealTimers();
   for (const r of restore.reverse()) r();
   restore = [];
 });
@@ -71,7 +75,8 @@ function setup() {
 }
 const panel = (c: HTMLElement) => c.querySelector(".details-panel");
 const press = (key: string) => act(() => void fireEvent.keyDown(document.body, { key }));
-const flush = () => act(async () => {});
+/** 走过去抖时间，并让应答落地。 */
+const flush = () => act(async () => void (await vi.advanceTimersByTimeAsync(120)));
 
 describe("详细信息面板", () => {
   it("按 I 展开面板并请求详情；再按收起", async () => {
@@ -127,12 +132,54 @@ describe("详细信息面板", () => {
     vi.mocked(imageDetails).mockImplementation((id) => new Promise((r) => pending.set(id, r)));
     const c = setup();
     press("i");
+    await flush();
     act(() => useNav.getState().setCurrent(2));
     await flush();
     await act(async () => pending.get(2)!(details({ path: "/p/2.png" })));
     await act(async () => pending.get(1)!(details({ path: "/p/1.png" })));
     expect(panel(c)!.textContent).toContain("/p/2.png");
     expect(panel(c)!.textContent).not.toContain("/p/1.png");
+  });
+
+  it("快速连切时去抖：120 ms 内的多次换图只请求最后一张", async () => {
+    vi.mocked(imageDetails).mockImplementation(async (id) => details({ path: `/p/${id}.png` }));
+    const c = setup();
+    press("i");
+    act(() => void vi.advanceTimersByTime(60));
+    act(() => useNav.getState().setCurrent(2));
+    act(() => void vi.advanceTimersByTime(60));
+    act(() => useNav.getState().setCurrent(1));
+    act(() => void vi.advanceTimersByTime(60));
+    act(() => useNav.getState().setCurrent(2));
+    expect(imageDetails).not.toHaveBeenCalled();
+    await flush();
+    expect(imageDetails).toHaveBeenCalledTimes(1);
+    expect(imageDetails).toHaveBeenCalledWith(2);
+    expect(panel(c)!.textContent).toContain("/p/2.png");
+  });
+
+  it("位数与 DPI 的文字走界面文字表", async () => {
+    vi.mocked(imageDetails).mockResolvedValue(details({ dpi: [300, 300] }));
+    const lang = Object.getOwnPropertyDescriptor(Navigator.prototype, "language")!;
+    Object.defineProperty(Navigator.prototype, "language", { configurable: true, get: () => "zh-CN" });
+    restore.push(() => Object.defineProperty(Navigator.prototype, "language", lang));
+    const c = setup();
+    press("i");
+    await flush();
+    expect(panel(c)!.textContent).toContain("RGBA · 8 位");
+    const labels = [...c.querySelectorAll(".details-label")].map((l) => l.textContent);
+    expect(labels).toContain(t("details.dpi"));
+  });
+
+  it("宽或高为 0 时不显示尺寸行，也不漏出字面的 0", async () => {
+    vi.mocked(imageDetails).mockResolvedValue(details());
+    const c = setup();
+    act(() => useCatalog.getState().apply({ type: "dims", generation: 1, items: [{ id: 1, w: 0, h: 30 }] }));
+    press("i");
+    await flush();
+    const image = c.querySelectorAll(".details-group")[1];
+    expect([...image.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent === "0")).toBe(false);
+    expect(panel(c)!.textContent).not.toContain("× 30");
   });
 
   it("没有 EXIF 时不显示拍摄信息一组；缺失的行不显示", async () => {

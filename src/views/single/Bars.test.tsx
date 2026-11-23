@@ -89,6 +89,14 @@ describe("信息条", () => {
     expect(q(c, ".single-infobar .info-index")!.textContent).toBe("1 / 1");
   });
 
+  it("宽或高为 0 时不显示尺寸，也不漏出字面的 0", () => {
+    const c = setup([{ id: 1, relPath: "a.png", dims: [0, 100] }]);
+    openAt(1);
+    const bar = q(c, ".single-infobar")!;
+    expect([...bar.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent === "0")).toBe(false);
+    expect(q(c, ".single-infobar .info-dims")).toBeNull();
+  });
+
   it("长文件名单行显示，完整名字在 title 里", () => {
     const long = `${"x".repeat(200)}.png`;
     const c = setup([{ id: 1, relPath: long }]);
@@ -147,6 +155,23 @@ describe("顶栏", () => {
     act(() => void vi.advanceTimersByTime(600));
     expect(hl()).toBe(true);
     act(() => void vi.advanceTimersByTime(500));
+    expect(hl()).toBe(false);
+  });
+
+  it("目录名一时取不到（条目暂缺）时高亮照常在 1 秒后消失", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const c = setup([
+      { id: 1, relPath: "a/1.png" },
+      { id: 2, relPath: "b/2.png" },
+    ]);
+    openAt(1);
+    const hl = () => q(c, ".single-topbar .topbar-dir.dir-changed") !== null;
+    act(() => useNav.getState().setCurrent(2));
+    expect(hl()).toBe(true);
+    // 当前项的条目一时不在（id 指向还没有条目的文件），随后又回来
+    act(() => useNav.getState().setCurrent(99));
+    act(() => useNav.getState().setCurrent(2));
+    act(() => void vi.advanceTimersByTime(1001));
     expect(hl()).toBe(false);
   });
 

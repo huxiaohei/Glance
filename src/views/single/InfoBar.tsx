@@ -1,5 +1,6 @@
 import { useImageList } from "../../app/useImageList";
 import type { FileId } from "../../ipc/types";
+import { hasSize } from "../../lib/deriveList";
 import { formatBytes } from "../../lib/formatBytes";
 import { useCatalog } from "../../stores/catalog";
 
@@ -25,7 +26,7 @@ export default function InfoBar({ id }: { id: FileId }) {
           <span className="info-name" title={entry.name}>
             {entry.name}
           </span>
-          {entry.width && entry.height && (
+          {hasSize(entry) && (
             <span className="info-dims">{`${entry.width} × ${entry.height}`}</span>
           )}
           <span className="info-size">{formatBytes(entry.size)}</span>

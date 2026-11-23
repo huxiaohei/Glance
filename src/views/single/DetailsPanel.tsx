@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { t, type MessageKey } from "../../i18n";
 import type { FileId, ImageDetails } from "../../ipc/types";
 import { formatBytes } from "../../lib/formatBytes";
+import { hasSize } from "../../lib/deriveList";
 import { useCatalog } from "../../stores/catalog";
 import { useImageDetails } from "./useImageDetails";
 
@@ -26,7 +27,9 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 const dpiText = ([x, y]: [number, number]) => (x === y ? `${x}` : `${x} × ${y}`);
 
 function colorText(d: ImageDetails): string | null {
-  const parts = [d.color, d.bitDepth !== null ? `${d.bitDepth} bit` : null].filter((x): x is string => x !== null);
+  const parts = [d.color, d.bitDepth !== null ? t("details.bits", { n: d.bitDepth }) : null].filter(
+    (x): x is string => x !== null,
+  );
   return parts.length ? parts.join(" · ") : null;
 }
 
@@ -34,7 +37,7 @@ function colorText(d: ImageDetails): string | null {
 export default function DetailsPanel({ id }: { id: FileId }) {
   const entry = useCatalog((s) => s.entries.get(id));
   const version = entry ? `${entry.mtimeMs}-${entry.size}` : "";
-  const { details, loading, error } = useImageDetails(id, version, true);
+  const { details, loading, error } = useImageDetails(id, version);
   const yesNo = (b: boolean) => t(b ? "details.yes" : "details.no");
   const modified = details
     ? new Intl.DateTimeFormat(navigator.language, { dateStyle: "medium", timeStyle: "short" }).format(details.mtimeMs)
@@ -54,10 +57,10 @@ export default function DetailsPanel({ id }: { id: FileId }) {
         {modified && <Row label={t("details.modified")}>{modified}</Row>}
       </Group>
       <Group title={t("details.group.image")}>
-        {entry?.width && entry.height && <Row label={t("details.dimensions")}>{`${entry.width} × ${entry.height}`}</Row>}
+        {entry && hasSize(entry) && <Row label={t("details.dimensions")}>{`${entry.width} × ${entry.height}`}</Row>}
         {color && <Row label={t("details.color")}>{color}</Row>}
         {details?.hasAlpha != null && <Row label={t("details.alpha")}>{yesNo(details.hasAlpha)}</Row>}
-        {details?.dpi && <Row label="DPI">{dpiText(details.dpi)}</Row>}
+        {details?.dpi && <Row label={t("details.dpi")}>{dpiText(details.dpi)}</Row>}
         {details?.animated && <Row label={t("details.animated")}>{yesNo(true)}</Row>}
       </Group>
       {details && details.exif.length > 0 && (

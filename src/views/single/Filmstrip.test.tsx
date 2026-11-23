@@ -87,6 +87,21 @@ describe("Filmstrip", () => {
     expect(thumbsWant).toHaveBeenLastCalledWith("strip", [], 320);
   });
 
+  it("已有当前版本、档位不低于 320 的缩略图的项不再登记", async () => {
+    useCatalog.getState().begin({ generation: 1, path: "/r", name: "r", recursive: true, focus: null });
+    useCatalog.getState().apply({
+      type: "batch",
+      generation: 1,
+      entries: [1, 2, 3, 4, 5].map((id) => ({ id, relPath: `${id}.jpg`, size: 1, mtimeMs: 1 })),
+    });
+    useThumbs.getState().markReady([{ id: 1, v: "1-1" }], 640);   // 当前版本的 640：跳过
+    useThumbs.getState().markReady([{ id: 2, v: "0-9" }], 640);   // 旧版本：仍要
+    useThumbs.getState().markReady([{ id: 4, v: "1-1" }], 320);   // 当前版本的 320：跳过
+    render(<Filmstrip list={flat(5)} current={1} />);
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    expect(thumbsWant).toHaveBeenCalledWith("strip", [2, 3, 5], 320);
+  });
+
   it("generation 变化时重新登记", async () => {
     const root = (generation: number) => ({ generation, path: "/r", name: "r", recursive: true, focus: null });
     useCatalog.getState().begin(root(1));
@@ -153,6 +168,29 @@ describe("Filmstrip", () => {
       const ids = [-1, 0, ...flat(200).ids];
       rerender(<Filmstrip list={{ ids, groups: [{ dir: "", start: 0, count: 202, total: 202 }] }} current={50} />);
       expect(pos.left).toBe(3060 + 28 - 300);
+    });
+
+    it("视口变窄前当前项完整可见：变窄后仍让它可见", () => {
+      let notify: (() => void) | null = null;
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          constructor(cb: () => void) { notify = cb; }
+          observe() {}
+          disconnect() {}
+        },
+      );
+      try {
+        const { pos } = scrolledAway(flat(200));
+        // 当前项 50 在 [2940, 2996)，视口 [2700, 3300) 里完整可见
+        pos.left = 2700;
+        // 详细信息面板展开，条变窄到 200：[2700, 2900) 里看不见它了
+        viewWidth = 200;
+        act(() => notify!());
+        expect(pos.left).toBe(2940 + 28 - 100);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it("只是视口宽度变化时不动 scrollLeft", () => {

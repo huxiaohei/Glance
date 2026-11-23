@@ -14,16 +14,20 @@ export default function TopBar({ id }: { id: FileId }) {
   const entry = useCatalog((s) => s.entries.get(id));
   const dir = entry?.dir;
 
+  // 目录一时取不到（条目暂缺）时什么都不动：不覆盖上一次的目录，也不清掉正在走的计时
   const [changed, setChanged] = useState(false);
   const prevDir = useRef<string | undefined>(dir);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
+    if (dir === undefined) return;
     const prev = prevDir.current;
     prevDir.current = dir;
-    if (dir === undefined || prev === undefined || prev === dir) return;
+    if (prev === undefined || prev === dir) return;
     setChanged(true);
-    const timer = setTimeout(() => setChanged(false), DIR_HIGHLIGHT_MS);
-    return () => clearTimeout(timer);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setChanged(false), DIR_HIGHLIGHT_MS);
   }, [dir]);
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   const cmd = singleCommand("single.back");
   const tip = cmd ? `${t(cmd.title)} (${formatKey(cmd.keys[0], IS_MAC)})` : t("single.back");

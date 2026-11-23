@@ -5,7 +5,7 @@ import type { FileId } from "../../ipc/types";
 import type { ImageList } from "../../lib/deriveList";
 import { glanceUrl } from "../../lib/glanceUrl";
 import { markSwitchStart } from "../../lib/perfMarks";
-import { layoutStrip, scrollToShow, STRIP_DIVIDER, STRIP_GAP, stripVisible } from "../../lib/stripLayout";
+import { layoutStrip, scrollToShow, STRIP_DIVIDER, STRIP_GAP, STRIP_ITEM, stripVisible } from "../../lib/stripLayout";
 import { useCatalog } from "../../stores/catalog";
 import { topView, useNav } from "../../stores/nav";
 import { useThumbs } from "../../stores/thumbs";
@@ -94,17 +94,22 @@ export default function Filmstrip({ list, current }: { list: ImageList; current:
     };
   }, []);
 
-  // 当前项保持可见：只在当前图换了、当前项的位置被布局挪动了、或第一次量到视口宽度时调整。
-  // 列表刷新（内容未挪动当前项）、窗口缩放、用户自己滚动都不动条。不用平滑滚动，免得跟不上连按
+  // 当前项保持可见：只在当前图换了、当前项的位置被布局挪动了、或第一次量到视口宽度时调整；
+  // 视口宽度变了（如详细信息面板展开）时，只在当前项原先完整可见时调整。
+  // 列表刷新（内容未挪动当前项）、用户已把它滚走时的缩放、用户自己滚动都不动条。不用平滑滚动，免得跟不上连按
   const index = indexOf.get(current) ?? -1;
   const currentLeft = index < 0 ? null : layout.items[index].left;
-  const shownFor = useRef<{ id: FileId; left: number } | null>(null);
+  const shownFor = useRef<{ id: FileId; left: number; view: number } | null>(null);
   useLayoutEffect(() => {
     if (currentLeft === null || view <= 0) return;
-    const last = shownFor.current;
-    if (last && last.id === current && last.left === currentLeft) return;
-    shownFor.current = { id: current, left: currentLeft };
     const el = ref.current!;
+    const last = shownFor.current;
+    shownFor.current = { id: current, left: currentLeft, view };
+    if (last && last.id === current && last.left === currentLeft) {
+      if (last.view === view) return;
+      const wasVisible = currentLeft >= el.scrollLeft && currentLeft + STRIP_ITEM <= el.scrollLeft + last.view;
+      if (!wasVisible) return;
+    }
     const next = Math.round(scrollToShow(layout, index, el.scrollLeft, view));
     if (next !== el.scrollLeft) el.scrollLeft = next;
     setScrollLeft(next);
@@ -113,12 +118,19 @@ export default function Filmstrip({ list, current }: { list: ImageList; current:
   // 可见项（左右各扩一屏）：既是渲染的项，也是登记需求的项
   const shown = useMemo(() => (view > 0 ? stripVisible(layout, scrollLeft, view, view) : []), [layout, scrollLeft, view]);
 
-  // 去抖 50ms 后登记需求，跳过已损坏的；刷新（generation 变化）后重新登记
+  // 去抖 50ms 后登记需求，跳过已损坏的、以及已有当前版本且档位不低于 TIER 的缩略图的
+  // （网格常已备好 640）；刷新（generation 变化）后重新登记
   useEffect(() => {
     if (view <= 0) return;
     const timer = setTimeout(() => {
-      const { broken } = useThumbs.getState();
-      thumbsWant("strip", shown.filter((id) => !broken.has(id)), TIER)
+      const { broken, ready } = useThumbs.getState();
+      const { entries } = useCatalog.getState();
+      const have = (id: FileId) => {
+        const r = ready.get(id);
+        const e = entries.get(id);
+        return !!r && !!e && r.tier >= TIER && r.v === `${e.mtimeMs}-${e.size}`;
+      };
+      thumbsWant("strip", shown.filter((id) => !broken.has(id) && !have(id)), TIER)
         .then((ready) => {
           if (ready.length > 0) useThumbs.getState().markReady(ready, TIER);
         })
