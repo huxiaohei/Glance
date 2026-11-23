@@ -145,7 +145,8 @@ export function useStageViewport(args: {
   }, [st]);
 
   // 换图：清掉旧视口与自然尺寸，回到适应窗口；同一张图的尺寸变化（例如尺寸后补到达）走 resizeViewport。
-  // 须在下面的 img 效果之前
+  // 须在下面的 img 效果之前。自然尺寸只从本次渲染的元素读：元素可能与 imageKey 在同一次提交里替换，
+  // 此时 st.img 还是旧元素
   const sw = size?.w;
   const sh = size?.h;
   useLayoutEffect(() => {
@@ -153,16 +154,17 @@ export function useStageViewport(args: {
     if (st.key !== imageKey) {
       st.key = imageKey;
       st.vp = null;
-      st.natural = st.img ? readNatural(st.img) : null;
+      st.natural = img ? readNatural(img) : null;
     }
     ctl.relayout();
+    // img 只在换图时读取，不作为依赖：元素替换由下面的效果处理
   }, [imageKey, sw, sh, st, ctl]);
 
-  // 图片元素：可能被替换；替换后读一次自然尺寸并写上当前视口
+  // 图片元素：可能被替换；替换后自然尺寸以新元素为准（未加载完则等 load），并写上当前视口
   useLayoutEffect(() => {
     st.img = img;
     if (!img) return;
-    st.natural ??= readNatural(img);
+    st.natural = readNatural(img);
     ctl.relayout();
     const onLoad = () => {
       if (st.img !== img) return;

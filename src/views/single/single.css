@@ -32,3 +32,62 @@
   font-size: 12px;
   pointer-events: none;
 }
+/* 预加载器解码好的原图放在这一层里 */
+.stage-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.stage-unreadable {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+/* 左右边缘的箭头区域：指针进入该区域时显示 */
+.stage-arrow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.stage-arrow:hover {
+  opacity: 1;
+}
+.stage-arrow-left {
+  left: 0;
+}
+.stage-arrow-right {
+  right: 0;
+}
+.stage-arrow svg {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  padding: 8px 4px;
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.single-hint {
+  position: absolute;
+  left: 50%;
+  top: 24px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  pointer-events: none;
+  white-space: nowrap;
+}

@@ -1,13 +1,74 @@
 import { registerCommands, type Command } from "../../app/commands";
-import { useNav } from "../../stores/nav";
+import { getImageList } from "../../app/useImageList";
+import { t } from "../../i18n";
+import { markSwitchStart } from "../../lib/perfMarks";
+import { topView, useNav } from "../../stores/nav";
+import { showHint } from "./Hint";
 import { useStageApi, type StageApi } from "./Stage";
+
+export type Step = "prev" | "next" | "first" | "last";
+
+/**
+ * 在共享的有序列表里切图（折叠的分组不在列表里）。到头不循环，提示“已是第一张 / 最后一张”；
+ * 跨分组时提示新分组的目录（根目录用“根目录”）。
+ */
+export function go(step: Step): void {
+  const top = topView();
+  if (top.kind !== "single") return;
+  const { ids, groups } = getImageList();
+  const i = ids.indexOf(top.id);
+  if (i < 0) return;
+  const j = step === "prev" ? i - 1 : step === "next" ? i + 1 : step === "first" ? 0 : ids.length - 1;
+  if (j < 0 || j >= ids.length || j === i) {
+    showHint(t(step === "prev" || step === "first" ? "hint.first" : "hint.last"));
+    return;
+  }
+  markSwitchStart();
+  useNav.getState().setCurrent(ids[j]);
+  const groupAt = (k: number) => groups.find((g) => k >= g.start && k < g.start + g.count);
+  const to = groupAt(j);
+  if (to && to !== groupAt(i)) showHint(to.dir === "" ? t("grid.rootGroup") : to.dir);
+}
 
 const withStage = (fn: (api: StageApi) => void) => () => {
   const api = useStageApi.getState().api;
   if (api) fn(api);
 };
 
+// 切图命令不忽略自动重复：按住方向键连续切换
 const singleCommands: Command[] = [
+  {
+    id: "single.prev",
+    title: "cmd.single.prev",
+    category: "cmd.cat.nav",
+    keys: ["ArrowLeft"],
+    views: ["single"],
+    run: () => go("prev"),
+  },
+  {
+    id: "single.next",
+    title: "cmd.single.next",
+    category: "cmd.cat.nav",
+    keys: ["ArrowRight"],
+    views: ["single"],
+    run: () => go("next"),
+  },
+  {
+    id: "single.first",
+    title: "cmd.single.first",
+    category: "cmd.cat.nav",
+    keys: ["Home"],
+    views: ["single"],
+    run: () => go("first"),
+  },
+  {
+    id: "single.last",
+    title: "cmd.single.last",
+    category: "cmd.cat.nav",
+    keys: ["End"],
+    views: ["single"],
+    run: () => go("last"),
+  },
   {
     id: "single.back",
     title: "cmd.single.back",

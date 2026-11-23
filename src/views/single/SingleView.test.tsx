@@ -27,10 +27,18 @@ const stubSize = (prop: "clientWidth" | "clientHeight", value: number) => {
   restore.push(() => Object.defineProperty(Element.prototype, prop, desc));
 };
 
+// 单张视图显示预加载器解码好的元素：jsdom 没有 decode()，打桩为立即成功
+const decoded = () => act(async () => {});
+
 beforeEach(() => {
   vi.mocked(thumbsSubscribe).mockResolvedValue();
   stubSize("clientWidth", 600);
   stubSize("clientHeight", 400);
+  const desc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode");
+  Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: () => Promise.resolve() });
+  restore.push(() =>
+    desc ? Object.defineProperty(HTMLImageElement.prototype, "decode", desc) : delete (HTMLImageElement.prototype as Partial<HTMLImageElement>).decode,
+  );
   useCatalog.getState().reset();
   useNav.getState().reset();
   useThumbs.getState().reset();
@@ -72,7 +80,7 @@ const gridView = (c: HTMLElement) => c.querySelector(".grid-view") as HTMLElemen
 const cell = (c: HTMLElement, id: number) => c.querySelector(`[data-id="${id}"]`)!;
 
 describe("单张视图", () => {
-  it("双击格子进入单张视图，Esc 返回，网格仍在文档里", () => {
+  it("双击格子进入单张视图，Esc 返回，网格仍在文档里", async () => {
     open(null);
     const { container } = render(<App />);
     add(1, 1, 2, 3);
@@ -85,6 +93,7 @@ describe("单张视图", () => {
     fireEvent.pointerDown(cell(container, 2), { button: 0, clientX: 10 });
     fireEvent.doubleClick(cell(container, 2), { button: 0 });
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
+    await decoded();
     const img = singleImg(container)!;
     expect(img.getAttribute("src")).toBe("glance://localhost/image/2?v=1-1");
     expect(img.getAttribute("alt")).toBe("");
@@ -103,7 +112,7 @@ describe("单张视图", () => {
     expect(cell(container, 2)).toBeTruthy();
   });
 
-  it("回车打开焦点所在的图；没有焦点时不进入", () => {
+  it("回车打开焦点所在的图；没有焦点时不进入", async () => {
     open(null);
     const { container } = render(<App />);
     add(1, 1, 2, 3);
@@ -114,16 +123,18 @@ describe("单张视图", () => {
     act(() => useSelection.getState().set(selectOnly(3)));
     key("Enter");
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 3 });
+    await decoded();
     expect(singleImg(container)!.getAttribute("src")).toBe("glance://localhost/image/3?v=1-1");
   });
 
-  it("正在看的图被移除后显示下一张；全部移除后回到网格", () => {
+  it("正在看的图被移除后显示下一张；全部移除后回到网格", async () => {
     open(null);
     const { container } = render(<App />);
     add(1, 1, 2, 3, 4);
     act(() => useNav.getState().openSingle(2));
     remove(1, 2);
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 3 });
+    await decoded();
     expect(singleImg(container)!.getAttribute("src")).toBe("glance://localhost/image/3?v=1-1");
     remove(1, 3, 4);
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 1 });
@@ -133,13 +144,14 @@ describe("单张视图", () => {
     expect(gridView(container)).toBeTruthy();
   });
 
-  it("直接打开图片文件时自动进入单张视图，且只进入一次", () => {
+  it("直接打开图片文件时自动进入单张视图，且只进入一次", async () => {
     open(3);
     const { container } = render(<App />);
     add(1, 1, 2);
     expect(topView().kind).toBe("grid");
     add(1, 3);
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 3 });
+    await decoded();
     expect(singleImg(container)!.getAttribute("src")).toBe("glance://localhost/image/3?v=1-1");
     key("Escape");
     expect(topView().kind).toBe("grid");
@@ -148,7 +160,7 @@ describe("单张视图", () => {
     expect(topView().kind).toBe("grid");
   });
 
-  it("网格工具栏的下拉框有焦点时打开单张视图：网格设为 inert、焦点移走，Esc 仍能返回", () => {
+  it("网格工具栏的下拉框有焦点时打开单张视图：网格设为 inert、焦点移走，Esc 仍能返回", async () => {
     open(null);
     const { container } = render(<App />);
     add(1, 1, 2);
@@ -165,7 +177,7 @@ describe("单张视图", () => {
     expect(gridView(container).hasAttribute("inert")).toBe(false);
   });
 
-  it("按住 Esc：返回网格后，自动重复的 Esc 不清空选中；单张视图里重复的 Esc 也不返回", () => {
+  it("按住 Esc：返回网格后，自动重复的 Esc 不清空选中；单张视图里重复的 Esc 也不返回", async () => {
     open(null);
     render(<App />);
     add(1, 1, 2);
@@ -181,13 +193,15 @@ describe("单张视图", () => {
     expect(useSelection.getState().ids.size).toBe(0);
   });
 
-  it("当前图内容变化（size 或 mtime 变了）后图片地址随之变化", () => {
+  it("当前图内容变化（size 或 mtime 变了）后图片地址随之变化", async () => {
     open(null);
     const { container } = render(<App />);
     add(1, 1, 2);
     act(() => useNav.getState().openSingle(2));
+    await decoded();
     expect(singleImg(container)!.getAttribute("src")).toBe("glance://localhost/image/2?v=1-1");
     add(1, { id: 2, size: 5, mtimeMs: 9 });
+    await decoded();
     expect(singleImg(container)!.getAttribute("src")).toBe("glance://localhost/image/2?v=9-5");
   });
 });

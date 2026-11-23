@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render } from "@testing-library/react";
+import { useLayoutEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleKeyDown } from "../../app/useKeyboard";
 import { wheelFactor } from "../../lib/viewport";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
+import { Preloader } from "./preloader";
 import Stage, { useStageApi } from "./Stage";
 import { registerSingleCommands } from "./singleCommands";
+import { useStageViewport } from "./useStageViewport";
 
 vi.mock("../../ipc/api");
 vi.mock("../../app/keys", async (importOriginal) => ({
@@ -56,7 +59,11 @@ const flush = () => {
   });
 };
 
-beforeEach(() => {
+// 预加载器：图片元素来自 jsdom，decode 立即成功；每个用例开始前三张都已就绪
+let preloader: Preloader;
+const url = (id: number) => `glance://localhost/image/${id}?v=1-1`;
+
+beforeEach(async () => {
   boxW = 800;
   boxH = 600;
   frames = [];
@@ -87,6 +94,10 @@ beforeEach(() => {
       ],
     });
   });
+  stubProp(HTMLImageElement.prototype, "decode", { value: () => Promise.resolve() });
+  preloader = new Preloader();
+  preloader.want([1, 2, 3].map((id) => ({ id, url: url(id) })));
+  await new Promise((r) => setTimeout(r, 0));
 });
 afterEach(() => {
   for (const r of restore.reverse()) r();
@@ -107,7 +118,7 @@ const api = () => useStageApi.getState().api!;
 
 describe("Stage", () => {
   it("初始为适应窗口并居中，百分比正确", () => {
-    const { container } = render(<Stage id={1} />);
+    const { container } = render(<Stage id={1} preloader={preloader} />);
     expect(img(container).getAttribute("src")).toBe("glance://localhost/image/1?v=1-1");
     expect(img(container).style.width).toBe("2000px");
     expect(img(container).style.height).toBe("1000px");
@@ -120,7 +131,9 @@ describe("Stage", () => {
   });
 
   it("滚轮以鼠标位置为中心放大，并阻止默认行为", () => {
-    const { container } = render(<Stage id={1} />);
+    const { container } = render(<Stage id={1} preloader={preloader} />);
+    // 先走完挂载时排下的帧
+    flush();
     const px = 200;
     const py = 300;
     const notPrevented = fireEvent.wheel(box(container), { deltaY: -100, clientX: LEFT + px, clientY: TOP + py });
@@ -143,7 +156,7 @@ describe("Stage", () => {
   });
 
   it("拖拽平移；图片不大于容器时拖拽不改变位置", () => {
-    const { container } = render(<Stage id={1} />);
+    const { container } = render(<Stage id={1} preloader={preloader} />);
     const b = box(container);
     expect(b.style.cursor).toBe("");
     const before = vp(container);
@@ -199,7 +212,7 @@ describe("Stage", () => {
   });
 
   it("双击在适应与 100% 之间切换", () => {
-    const { container } = render(<Stage id={1} />);
+    const { container } = render(<Stage id={1} preloader={preloader} />);
     const b = box(container);
     fireEvent.doubleClick(b, { clientX: LEFT + 400, clientY: TOP + 300 });
     let v = vp(container)!;
@@ -223,10 +236,10 @@ describe("Stage", () => {
   });
 
   it("换图后回到适应窗口", () => {
-    const { container, rerender } = render(<Stage id={1} />);
+    const { container, rerender } = render(<Stage id={1} preloader={preloader} />);
     act(() => api().actual());
     expect(vp(container)!.scale).toBe(1);
-    rerender(<Stage id={2} />);
+    rerender(<Stage id={2} preloader={preloader} />);
     expect(img(container).getAttribute("src")).toBe("glance://localhost/image/2?v=1-1");
     const v = vp(container)!;
     expect(v.scale).toBeCloseTo(0.3);
@@ -237,7 +250,7 @@ describe("Stage", () => {
   });
 
   it("条目没有宽高时，图片 load 之后按自然尺寸适应", () => {
-    const { container } = render(<Stage id={3} />);
+    const { container } = render(<Stage id={3} preloader={preloader} />);
     const el = img(container);
     expect(vp(container)).toBeNull();
     expect(el.style.visibility).toBe("hidden");
@@ -258,7 +271,7 @@ describe("Stage", () => {
   });
 
   it("容器变小：适应状态下重新适应；已放大时保持倍率且位置合法", () => {
-    const { container } = render(<Stage id={1} />);
+    const { container } = render(<Stage id={1} preloader={preloader} />);
     resizeTo(400, 300);
     let v = vp(container)!;
     expect(v.scale).toBeCloseTo(0.2);
@@ -281,7 +294,7 @@ describe("Stage", () => {
     const off = registerSingleCommands();
     window.addEventListener("keydown", handleKeyDown);
     try {
-      const { container } = render(<Stage id={1} />);
+      const { container } = render(<Stage id={1} preloader={preloader} />);
       const press = (key: string, shiftKey = false) => act(() => void fireEvent.keyDown(document.body, { key, shiftKey }));
       press("+", true);
       expect(vp(container)!.scale).toBeCloseTo(0.5);
@@ -301,8 +314,36 @@ describe("Stage", () => {
     }
   });
 
+  it("尺寸未知时换图与换元素同时发生：自然尺寸取自新元素", () => {
+    // 已加载完成的图片元素（预加载器交来的那种）
+    const loaded = (w: number, h: number) => {
+      const el = document.createElement("img");
+      Object.defineProperty(el, "complete", { configurable: true, value: true });
+      Object.defineProperty(el, "naturalWidth", { configurable: true, value: w });
+      Object.defineProperty(el, "naturalHeight", { configurable: true, value: h });
+      return el;
+    };
+    function Harness({ el, imageKey }: { el: HTMLImageElement; imageKey: string }) {
+      const [b, setB] = useState<HTMLDivElement | null>(null);
+      useLayoutEffect(() => {
+        b?.replaceChildren(el);
+      }, [b, el]);
+      useStageViewport({ box: b, img: el, size: null, imageKey });
+      return <div ref={setB} />;
+    }
+    const a = loaded(400, 200);
+    const { rerender } = render(<Harness el={a} imageKey="a" />);
+    expect(a.style.width).toBe("400px");
+    const b = loaded(1600, 600);
+    rerender(<Harness el={b} imageKey="b" />);
+    expect(b.style.width).toBe("1600px");
+    expect(b.style.height).toBe("600px");
+    // 800 / 1600 = 0.5
+    expect(b.style.transform).toBe("translate(0px, 150px) scale(0.5)");
+  });
+
   it("卸载后清除命令用的接口", () => {
-    const { unmount } = render(<Stage id={1} />);
+    const { unmount } = render(<Stage id={1} preloader={preloader} />);
     expect(useStageApi.getState().api).not.toBeNull();
     unmount();
     expect(useStageApi.getState().api).toBeNull();

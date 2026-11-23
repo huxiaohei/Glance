@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { create, type StoreApi, type UseBoundStore } from "zustand";
+import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
+import type { ImageEntry } from "../../lib/deriveList";
 import { glanceUrl } from "../../lib/glanceUrl";
+import { markSwitchPainted } from "../../lib/perfMarks";
 import type { Size } from "../../lib/viewport";
 import { useCatalog } from "../../stores/catalog";
+import { useThumbs } from "../../stores/thumbs";
+import type { Loaded, Preloader } from "./preloader";
 import { useStageViewport, type StageApi } from "./useStageViewport";
 
 export type { StageApi };
@@ -13,18 +18,59 @@ export const useStageApi: UseBoundStore<StoreApi<{ api: StageApi | null }>> = cr
   api: null,
 }));
 
-/** 单张视图的画面：图片按视口缩放平移，左下角显示当前比例。children 叠在画面之上。 */
-export default function Stage({ id, children }: { id: FileId; children?: ReactNode }) {
+/** 原图地址：版本取自修改时间与大小，内容变化时地址随之变化。 */
+export function imageUrl(entry: ImageEntry): string {
+  return glanceUrl(`image/${entry.id}?v=${entry.mtimeMs}-${entry.size}`);
+}
+
+/** 预加载器里 (id, url) 这一项的状态；就绪或失败时重新渲染。 */
+function useLoaded(preloader: Preloader, id: FileId, url: string | null): Loaded | null {
+  const subscribe = useCallback(
+    (cb: () => void) => preloader.subscribe((changed) => {
+      if (changed === id) cb();
+    }),
+    [preloader, id],
+  );
+  return useSyncExternalStore(subscribe, () => (url ? preloader.get(id, url) : null));
+}
+
+/**
+ * 单张视图的画面。显示规则：当前图已解码 → 直接把预加载器解码好的元素放进画面；否则先铺它已就绪的
+ * 缩略图（按原图像素尺寸、与原图同一变换，换上原图时不跳），没有缩略图或尺寸未知时画面留空；解码失败 →
+ * “无法读取”占位。旧图不会留在画面上。左下角显示当前比例；children 叠在画面之上。
+ */
+export default function Stage({ id, preloader, children }: { id: FileId; preloader: Preloader; children?: ReactNode }) {
   const entry = useCatalog((s) => s.entries.get(id));
+  const thumb = useThumbs((s) => s.ready.get(id));
   const [box, setBox] = useState<HTMLDivElement | null>(null);
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  const [under, setUnder] = useState<HTMLImageElement | null>(null);
 
   const w = entry?.width;
   const h = entry?.height;
   const size = useMemo<Size | null>(() => (w && h ? { w, h } : null), [w, h]);
-  const version = entry ? `${entry.mtimeMs}-${entry.size}` : "";
-  const imageKey = `${id}?v=${version}`;
-  const { api, percent } = useStageViewport({ box, img, size, imageKey });
+  const url = entry ? imageUrl(entry) : null;
+  const loaded = useLoaded(preloader, id, url);
+  const full = loaded?.state === "ready" ? loaded.img : null;
+  const failed = loaded?.state === "error";
+  // 垫底的缩略图要按原图尺寸铺放：尺寸未知时不垫
+  const thumbUrl = !full && !failed && size && thumb ? glanceUrl(`thumb/${id}/${thumb.tier}?v=${thumb.v}`) : null;
+  const shown = full ?? (thumbUrl ? under : null);
+
+  // 解码好的元素由预加载器持有，直接放进画面（不经过 React 的子节点），换图只是一次替换
+  useLayoutEffect(() => {
+    if (!slot) return;
+    if (!full) {
+      slot.replaceChildren();
+      return;
+    }
+    full.className = "stage-img";
+    full.alt = "";
+    full.draggable = false;
+    slot.replaceChildren(full);
+  }, [slot, full]);
+
+  const { api, percent } = useStageViewport({ box, img: shown, size, imageKey: url ?? "" });
 
   useEffect(() => {
     useStageApi.setState({ api });
@@ -33,10 +79,22 @@ export default function Stage({ id, children }: { id: FileId; children?: ReactNo
     };
   }, [api]);
 
+  // 新内容（原图、缩略图或占位）进入文档后的下一帧记录切图耗时
+  const painted = shown ?? (failed ? url : null);
+  useLayoutEffect(() => {
+    if (painted === null) return;
+    const frame = requestAnimationFrame(() => markSwitchPainted());
+    return () => cancelAnimationFrame(frame);
+  }, [painted]);
+
   return (
     <div className="stage" ref={setBox}>
-      {entry && <img ref={setImg} className="stage-img" src={glanceUrl(`image/${imageKey}`)} alt="" draggable={false} />}
-      {percent > 0 && <div className="stage-percent">{percent}%</div>}
+      <div className="stage-layer" ref={setSlot} />
+      {thumbUrl && (
+        <img key={thumbUrl} ref={setUnder} className="stage-img stage-underlay" src={thumbUrl} alt="" draggable={false} />
+      )}
+      {failed && <div className="stage-unreadable">{t("grid.unreadable")}</div>}
+      {percent > 0 && shown && <div className="stage-percent">{percent}%</div>}
       {children}
     </div>
   );
