@@ -34,6 +34,7 @@ export const zhCN = {
   "cmd.select.clear": "取消选中",
   "cmd.grid.open": "打开",
   "cmd.single.back": "返回网格",
+  "single.back": "返回",
   "cmd.single.zoomIn": "放大",
   "cmd.single.zoomOut": "缩小",
   "cmd.single.fit": "适应窗口",

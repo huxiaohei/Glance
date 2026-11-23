@@ -3,6 +3,96 @@
   inset: 0;
   overflow: hidden;
   background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+/* 画面区：占满顶栏与信息条之间的空间；Stage 在其中绝对定位铺满 */
+.single-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.single-topbar,
+.single-infobar {
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--panel);
+  user-select: none;
+  white-space: nowrap;
+}
+.single-topbar {
+  height: 40px;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.topbar-back {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+.topbar-back svg {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.topbar-path {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.topbar-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+  transition: color 0.2s;
+}
+.topbar-dir.dir-changed {
+  color: var(--accent);
+}
+.topbar-sep {
+  flex: none;
+  color: var(--text-dim);
+}
+.topbar-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.single-infobar {
+  height: 28px;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--text-dim);
+}
+.info-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.info-dims,
+.info-size,
+.info-format {
+  flex: none;
+}
+.info-index {
+  flex: none;
+  margin-left: auto;
 }
 /* 画面：图片放在左上角，按图片像素给宽高，由视口的 transform 缩放平移 */
 .stage {
@@ -82,7 +172,7 @@
 .single-hint {
   position: absolute;
   left: 50%;
-  top: 24px;
+  top: 56px;
   transform: translateX(-50%);
   padding: 6px 14px;
   border-radius: var(--radius);

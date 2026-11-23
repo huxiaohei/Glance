@@ -30,6 +30,11 @@ export function go(step: Step): void {
   if (to && to !== groupAt(i)) showHint(to.dir === "" ? t("grid.rootGroup") : to.dir);
 }
 
+/** 返回网格：Esc 与顶栏返回按钮共用。 */
+export function backToGrid(): void {
+  useNav.getState().back();
+}
+
 const withStage = (fn: (api: StageApi) => void) => () => {
   const api = useStageApi.getState().api;
   if (api) fn(api);
@@ -76,7 +81,7 @@ const singleCommands: Command[] = [
     keys: ["Escape"],
     views: ["single"],
     run: ({ repeat }) => {
-      if (!repeat) useNav.getState().back();
+      if (!repeat) backToGrid();
     },
   },
   {
@@ -112,6 +117,11 @@ const singleCommands: Command[] = [
     run: withStage((api) => api.actual()),
   },
 ];
+
+/** 按 id 取单张视图的命令定义（顶栏按钮的提示用）。 */
+export function singleCommand(id: string): Command | undefined {
+  return singleCommands.find((c) => c.id === id);
+}
 
 /** SingleView 挂载期间注册；返回注销函数。 */
 export function registerSingleCommands(): () => void {

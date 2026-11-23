@@ -8,6 +8,8 @@ import { preloadPlan } from "../../lib/preloadPlan";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
 import Hint from "./Hint";
+import InfoBar from "./InfoBar";
+import TopBar from "./TopBar";
 import { Preloader } from "./preloader";
 import Stage, { imageUrl } from "./Stage";
 import { go, registerSingleCommands } from "./singleCommands";
@@ -93,12 +95,17 @@ export default function SingleView() {
 
   return (
     <div className="single-view">
-      {id !== null && (
-        <Stage id={id} preloader={preloader}>
-          {index > 0 && <ArrowZone side="left" />}
-          {index >= 0 && index < list.ids.length - 1 && <ArrowZone side="right" />}
-        </Stage>
-      )}
+      {id !== null && <TopBar id={id} />}
+      <div className="single-stage">
+        {id !== null && (
+          <Stage id={id} preloader={preloader}>
+            {index > 0 && <ArrowZone side="left" />}
+            {index >= 0 && index < list.ids.length - 1 && <ArrowZone side="right" />}
+          </Stage>
+        )}
+      </div>
+      {/* 缩略图条插在这里（画面与信息条之间） */}
+      {id !== null && <InfoBar id={id} />}
       <Hint />
     </div>
   );

@@ -36,6 +36,7 @@ export const en: Record<MessageKey, string> = {
   "cmd.select.clear": "Deselect All",
   "cmd.grid.open": "Open",
   "cmd.single.back": "Back to grid",
+  "single.back": "Back",
   "cmd.single.zoomIn": "Zoom In",
   "cmd.single.zoomOut": "Zoom Out",
   "cmd.single.fit": "Fit to Window",
