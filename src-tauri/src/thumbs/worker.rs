@@ -285,14 +285,25 @@ mod tests {
         assert_eq!(process((id, Tier::S), &registry, &cache), expect);
     }
 
-    fn png_of_width(w: u32) -> Vec<u8> {
+    /// 纯色 PNG 后面再接 pad 个字节（解码器忽略 IEND 之后的内容）。纯色图压缩后大小
+    /// 往往相同，同一毫秒内改写时修改时间也不变；靠 pad 保证每次改写文件大小都不同。
+    fn png_of_width(w: u32, pad: usize) -> Vec<u8> {
         let data = vec![200u8; (w * 10 * 4) as usize];
-        encode_png_lossless(RgbaView {
+        let mut bytes = encode_png_lossless(RgbaView {
             width: w,
             height: 10,
             data: &data,
         })
-        .unwrap()
+        .unwrap();
+        bytes.extend(std::iter::repeat_n(0u8, pad));
+        bytes
+    }
+
+    #[test]
+    fn trailing_bytes_after_png_still_decode() {
+        let t = glance_imaging::make_thumbnail(&png_of_width(40, 7), 320).unwrap();
+        let size = imagesize::blob_size(&t.webp).unwrap();
+        assert_eq!((size.width, size.height), (40, 10));
     }
 
     #[test]
@@ -300,16 +311,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.png");
-        std::fs::write(&img, png_of_width(40)).unwrap();
+        std::fs::write(&img, png_of_width(40, 0)).unwrap();
         let registry = Registry::default();
         let id = registry.register(&img);
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let mut calls = 0;
-        // 第一次读完之后文件被改写（大小不同，版本必然不同）
+        // 第一次读完之后文件被改写（多接 1 字节，大小必然不同，版本也就不同）
         let event = process_with((id, Tier::S), &registry, &cache, &mut |p| {
             calls += 1;
             if calls == 1 {
-                std::fs::write(p, png_of_width(90)).unwrap();
+                std::fs::write(p, png_of_width(90, 1)).unwrap();
             }
         });
         assert_eq!(calls, 2);
@@ -334,14 +345,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.png");
-        std::fs::write(&img, png_of_width(10)).unwrap();
+        std::fs::write(&img, png_of_width(10, 0)).unwrap();
         let registry = Registry::default();
         let id = registry.register(&img);
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let mut calls = 0u32;
         let event = process_with((id, Tier::S), &registry, &cache, &mut |p| {
             calls += 1;
-            std::fs::write(p, png_of_width(10 + calls)).unwrap();
+            // 每次多接一个字节：大小每次都不同，同一毫秒内的改写也分辨得出
+            std::fs::write(p, png_of_width(10, calls as usize)).unwrap();
         });
         assert_eq!(event, ThumbEvent::Broken { id: id.0 });
         assert_eq!(calls, ATTEMPTS as u32);
