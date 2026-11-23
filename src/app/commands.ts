@@ -13,6 +13,8 @@ export interface Command {
   keys: string[];                   // 第一个用于显示
   views: ViewId[] | "all";
   allowInInput?: boolean;           // 输入控件聚焦时是否仍可触发，默认否
+  /** 返回 false 时这条命令当作不存在：不匹配、不拦默认行为 */
+  when?(): boolean;
   run(ctx: CommandCtx): void;
 }
 
@@ -39,12 +41,14 @@ export function allCommands(): Command[] {
   return [...registry];
 }
 
-/** 找出应执行的命令：适用于 view、按键匹配；inInput 为真时只考虑 allowInInput 的命令。 */
+/** 找出应执行的命令：适用于 view、按键匹配、when（若有）为真；inInput 为真时只考虑 allowInInput 的命令。 */
 export function findCommand(e: KeyLike, view: ViewId, inInput: boolean, isMac: boolean): Command | null {
   for (const c of registry) {
     if (c.views !== "all" && !c.views.includes(view)) continue;
     if (inInput && !c.allowInInput) continue;
-    if (c.keys.some((k) => matchKey(e, k, isMac))) return c;
+    if (!c.keys.some((k) => matchKey(e, k, isMac))) continue;
+    if (c.when && !c.when()) continue;
+    return c;
   }
   return null;
 }

@@ -4,6 +4,7 @@ pub mod fileops;
 #[cfg(debug_assertions)]
 mod lab;
 mod protocol;
+mod system;
 mod thumbs;
 
 use catalog::registry::Registry;
@@ -19,6 +20,8 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_drag::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(Arc::new(Registry::default()))
         .manage(Sessions::default())
         .manage(UndoLog::default())
@@ -56,6 +59,9 @@ pub fn run() {
         fileops::commands::fs_copy,
         fileops::commands::fs_undo,
         fileops::commands::fs_recent_targets,
+        system::clipboard_copy_image,
+        system::clipboard_copy_paths,
+        system::reveal,
         lab::lab_register_dir,
         lab::lab_paths,
         lab::lab_protocol_hits,
@@ -74,7 +80,10 @@ pub fn run() {
         fileops::commands::fs_move,
         fileops::commands::fs_copy,
         fileops::commands::fs_undo,
-        fileops::commands::fs_recent_targets
+        fileops::commands::fs_recent_targets,
+        system::clipboard_copy_image,
+        system::clipboard_copy_paths,
+        system::reveal
     ]);
 
     builder

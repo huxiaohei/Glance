@@ -62,3 +62,16 @@ export function fsUndo(): Promise<UndoReport> {
 export function fsRecentTargets(): Promise<string[]> {
   return invoke<string[]>("fs_recent_targets");
 }
+
+/** 后端失败时以错误码字符串（如 "tooLarge"）拒绝。 */
+export function clipboardCopyImage(id: FileId): Promise<void> {
+  return invoke<void>("clipboard_copy_image", { id });
+}
+
+export function clipboardCopyPaths(ids: FileId[]): Promise<void> {
+  return invoke<void>("clipboard_copy_paths", { ids });
+}
+
+export function reveal(id: FileId): Promise<void> {
+  return invoke<void>("reveal", { id });
+}

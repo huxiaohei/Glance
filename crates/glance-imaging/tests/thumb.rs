@@ -1,4 +1,4 @@
-use glance_imaging::{encode_jpeg, encode_png_lossless, make_thumbnail, ImagingError, RgbaView};
+use glance_imaging::{decode_rgba, encode_jpeg, encode_png_lossless, make_thumbnail, ImagingError, RgbaView};
 
 fn png(w: u32, h: u32, px: [u8; 4]) -> Vec<u8> {
     let data: Vec<u8> = px.iter().copied().cycle().take((w * h * 4) as usize).collect();
@@ -69,4 +69,27 @@ fn bad_input_is_an_error_not_a_panic() {
     truncated.truncate(40);
     assert!(matches!(make_thumbnail(&truncated, 320), Err(ImagingError::Decode(_))));
     assert!(matches!(make_thumbnail(&png(8, 8, [0; 4]), 0), Err(ImagingError::InvalidMaxEdge)));
+}
+
+#[test]
+fn decode_rgba_applies_orientation() {
+    let data = vec![200u8; 40 * 20 * 4];
+    let jpeg = encode_jpeg(RgbaView { width: 40, height: 20, data: &data }, 90, [0; 3]).unwrap();
+    let d = decode_rgba(&with_exif_orientation(&jpeg, 6), u64::MAX).unwrap();
+    assert_eq!((d.width, d.height), (20, 40));
+    assert_eq!(d.rgba.len(), 20 * 40 * 4);
+}
+
+#[test]
+fn decode_rgba_refuses_oversized_images() {
+    assert!(matches!(decode_rgba(&png(20, 20, [1, 2, 3, 255]), 100), Err(ImagingError::TooLarge)));
+    let d = decode_rgba(&png(10, 10, [1, 2, 3, 255]), 100).unwrap();
+    assert_eq!((d.width, d.height), (10, 10));
+    assert_eq!(&d.rgba[..4], &[1, 2, 3, 255]);
+}
+
+#[test]
+fn decode_rgba_of_garbage_is_an_error() {
+    assert!(matches!(decode_rgba(b"not an image at all", u64::MAX), Err(ImagingError::Decode(_))));
+    assert!(matches!(decode_rgba(b"", u64::MAX), Err(ImagingError::Decode(_))));
 }

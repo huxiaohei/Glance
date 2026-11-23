@@ -1,6 +1,6 @@
 import { t } from "../i18n";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { fsCopy, fsMove, fsRename, fsTrash, fsUndo } from "../ipc/api";
+import { clipboardCopyImage, clipboardCopyPaths, fsCopy, fsMove, fsRename, fsTrash, fsUndo, reveal } from "../ipc/api";
 import type { Dest, FileId, FsErrorCode, OpKind, OpReport } from "../ipc/types";
 import { useCatalog } from "../stores/catalog";
 import { topView } from "../stores/nav";
@@ -234,4 +234,46 @@ export async function transferToNewChild(kind: TransferKind): Promise<void> {
   const name = await askName({ title: t("fs.newDir.title"), confirm: t("fs.newDir.confirm") });
   if (name === null) return;
   await transferTo(kind, { kind: "newChild", name });
+}
+
+const ERROR_CODES: readonly FsErrorCode[] = [
+  "notFound", "exists", "invalidName", "readOnly", "diskFull", "denied", "restoreDenied", "notInTrash", "tooLarge", "other",
+];
+
+/** 后端以错误码字符串拒绝；认不出的一律当作 other。 */
+function codeOf(err: unknown): FsErrorCode {
+  return ERROR_CODES.find((c) => c === err) ?? "other";
+}
+
+/** 很快的系统操作：不走“进行中”计数，失败时提示原因。 */
+async function quick(work: () => Promise<void>, doneText: string | null): Promise<void> {
+  try {
+    await work();
+  } catch (err) {
+    showToast({ text: errorText(codeOf(err)) });
+    return;
+  }
+  if (doneText !== null) showToast({ text: doneText });
+}
+
+/** 把操作对象的第一张复制到剪贴板（像素）。没有对象时什么都不做。 */
+export async function copyImage(): Promise<void> {
+  const [id] = opTargets();
+  if (id === undefined) return;
+  await quick(() => clipboardCopyImage(id), t("fs.copiedImage"));
+}
+
+/** 把全部操作对象的路径复制到剪贴板，一行一个。没有对象时什么都不做。 */
+export async function copyPaths(): Promise<void> {
+  const ids = opTargets();
+  if (ids.length === 0) return;
+  const text = ids.length === 1 ? t("fs.copiedPath") : t("fs.copiedPaths", { n: ids.length });
+  await quick(() => clipboardCopyPaths(ids), text);
+}
+
+/** 在访达 / 资源管理器里选中操作对象的第一张；成功时不提示。 */
+export async function revealFirst(): Promise<void> {
+  const [id] = opTargets();
+  if (id === undefined) return;
+  await quick(() => reveal(id), null);
 }

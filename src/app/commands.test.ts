@@ -38,4 +38,11 @@ describe("commands", () => {
     reg(cmd("x", ["F2"]));
     expect(allCommands().map((c) => c.id)).toEqual(["x"]);
   });
+  it("when 返回 false 的命令不被 findCommand 找到", () => {
+    let on = false;
+    reg(cmd("gated", ["Mod+C"], { when: () => on }), cmd("fallback", ["Mod+C"]));
+    expect(findCommand(ev("c", { metaKey: true }), "grid", false, true)?.id).toBe("fallback");
+    on = true;
+    expect(findCommand(ev("c", { metaKey: true }), "grid", false, true)?.id).toBe("gated");
+  });
 });

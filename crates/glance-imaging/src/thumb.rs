@@ -22,15 +22,7 @@ pub fn make_thumbnail(bytes: &[u8], max_edge: u32) -> Result<Thumbnail, ImagingE
     if max_edge == 0 {
         return Err(ImagingError::InvalidMaxEdge);
     }
-    let decode_err = |e: &dyn std::fmt::Display| ImagingError::Decode(e.to_string());
-
-    let reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|e| decode_err(&e))?;
-    let mut decoder = reader.into_decoder().map_err(|e| decode_err(&e))?;
-    let orientation = decoder.orientation().map_err(|e| decode_err(&e))?;
-    let mut img = DynamicImage::from_decoder(decoder).map_err(|e| decode_err(&e))?;
-    img.apply_orientation(orientation);
+    let img = decode_oriented(bytes, u64::MAX)?;
 
     let has_alpha = img.color().has_alpha();
     let src = img.into_rgba8();
@@ -55,6 +47,42 @@ pub fn make_thumbnail(bytes: &[u8], max_edge: u32) -> Result<Thumbnail, ImagingE
         height: th,
         webp,
     })
+}
+
+/// 解码后的图：宽高（像素，已按 EXIF 方向转正）与逐行排列的 RGBA8 像素。
+pub struct Decoded {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// 解码并按 EXIF 方向转正；宽 × 高超过 max_pixels 时返回 ImagingError::TooLarge，不解码。动图取第一帧。
+pub fn decode_rgba(bytes: &[u8], max_pixels: u64) -> Result<Decoded, ImagingError> {
+    let src = decode_oriented(bytes, max_pixels)?.into_rgba8();
+    let (width, height) = src.dimensions();
+    Ok(Decoded {
+        width,
+        height,
+        rgba: src.into_raw(),
+    })
+}
+
+/// 先从文件头取尺寸，超过 max_pixels 就不再解码；再解码（动图取第一帧）并应用 EXIF 方向。
+fn decode_oriented(bytes: &[u8], max_pixels: u64) -> Result<DynamicImage, ImagingError> {
+    let decode_err = |e: &dyn std::fmt::Display| ImagingError::Decode(e.to_string());
+
+    let reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| decode_err(&e))?;
+    let mut decoder = reader.into_decoder().map_err(|e| decode_err(&e))?;
+    let (w, h) = decoder.dimensions();
+    if u64::from(w) * u64::from(h) > max_pixels {
+        return Err(ImagingError::TooLarge);
+    }
+    let orientation = decoder.orientation().map_err(|e| decode_err(&e))?;
+    let mut img = DynamicImage::from_decoder(decoder).map_err(|e| decode_err(&e))?;
+    img.apply_orientation(orientation);
+    Ok(img)
 }
 
 /// 长边缩到 max_edge（不放大），另一边四舍五入且不小于 1。

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../i18n";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { fsCopy, fsMove, fsRename, fsTrash, fsUndo } from "../ipc/api";
+import { clipboardCopyImage, clipboardCopyPaths, fsCopy, fsMove, fsRename, fsTrash, fsUndo, reveal } from "../ipc/api";
 import { askName } from "../views/common/NamePrompt";
 import type { OpReport } from "../ipc/types";
 import { selectOnly, toggle } from "../lib/selection";
@@ -10,9 +10,18 @@ import { useListView } from "../stores/listView";
 import { useNav } from "../stores/nav";
 import { useSelection } from "../stores/selection";
 import { useToast } from "../stores/toast";
-import { errorText, isBusy, opTargets, pickAndTransfer, renameTo, reportOp, transferTo, transferToNewChild, trashTargets, undoLast } from "./fileOps";
+import { copyImage, copyPaths, errorText, isBusy, opTargets, revealFirst, pickAndTransfer, renameTo, reportOp, transferTo, transferToNewChild, trashTargets, undoLast } from "./fileOps";
 
-vi.mock("../ipc/api", () => ({ fsRename: vi.fn(), fsTrash: vi.fn(), fsUndo: vi.fn(), fsMove: vi.fn(), fsCopy: vi.fn() }));
+vi.mock("../ipc/api", () => ({
+  fsRename: vi.fn(),
+  fsTrash: vi.fn(),
+  fsUndo: vi.fn(),
+  fsMove: vi.fn(),
+  fsCopy: vi.fn(),
+  clipboardCopyImage: vi.fn(),
+  clipboardCopyPaths: vi.fn(),
+  reveal: vi.fn(),
+}));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("../views/common/NamePrompt", () => ({ askName: vi.fn() }));
 
@@ -353,5 +362,63 @@ describe("移动与复制", () => {
     vi.mocked(fsMove).mockResolvedValue(report({ kind: "move", done: [1], token: 1, dest: "/r/新目录" }));
     await transferToNewChild("move");
     expect(fsMove).toHaveBeenCalledWith([1], { kind: "newChild", name: "新目录" }, "skip");
+  });
+});
+
+describe("剪贴板与在文件管理器中显示", () => {
+  it("copyImage：复制第一个对象，成功后提示已复制图片", async () => {
+    useSelection.getState().set(toggle(selectOnly(2), 1));
+    vi.mocked(clipboardCopyImage).mockResolvedValue();
+    await copyImage();
+    expect(clipboardCopyImage).toHaveBeenCalledWith(1);
+    expect(toast()?.text).toBe(t("fs.copiedImage"));
+  });
+
+  it("copyImage：tooLarge 时提示图片过大", async () => {
+    useSelection.getState().set(selectOnly(1));
+    vi.mocked(clipboardCopyImage).mockRejectedValue("tooLarge");
+    await copyImage();
+    expect(toast()?.text).toBe(t("fs.err.tooLarge"));
+  });
+
+  it("copyImage：认不出的错误提示操作失败；没有对象时什么都不做", async () => {
+    useSelection.getState().set(selectOnly(1));
+    vi.mocked(clipboardCopyImage).mockRejectedValue(new Error("boom"));
+    await copyImage();
+    expect(toast()?.text).toBe(errorText("other"));
+    useSelection.getState().clear();
+    useToast.setState({ current: null });
+    await copyImage();
+    expect(clipboardCopyImage).toHaveBeenCalledTimes(1);
+    expect(toast()).toBeNull();
+  });
+
+  it("copyPaths：提示里是对象的数量", async () => {
+    useSelection.getState().set(toggle(toggle(selectOnly(3), 1), 2));
+    vi.mocked(clipboardCopyPaths).mockResolvedValue();
+    await copyPaths();
+    expect(clipboardCopyPaths).toHaveBeenCalledWith([1, 2, 3]);
+    expect(toast()?.text).toBe(t("fs.copiedPaths", { n: 3 }));
+    useSelection.getState().set(selectOnly(4));
+    await copyPaths();
+    expect(toast()?.text).toBe(t("fs.copiedPath"));
+  });
+
+  it("copyPaths：失败时提示原因", async () => {
+    useSelection.getState().set(selectOnly(1));
+    vi.mocked(clipboardCopyPaths).mockRejectedValue("notFound");
+    await copyPaths();
+    expect(toast()?.text).toBe(t("fs.err.notFound"));
+  });
+
+  it("revealFirst：显示第一个对象，成功时不提示，失败时提示原因", async () => {
+    useSelection.getState().set(toggle(selectOnly(4), 2));
+    vi.mocked(reveal).mockResolvedValue();
+    await revealFirst();
+    expect(reveal).toHaveBeenCalledWith(2);
+    expect(toast()).toBeNull();
+    vi.mocked(reveal).mockRejectedValue("notFound");
+    await revealFirst();
+    expect(toast()?.text).toBe(t("fs.err.notFound"));
   });
 });

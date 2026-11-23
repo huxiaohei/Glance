@@ -1,7 +1,12 @@
 import { registerCommands, type Command } from "./commands";
-import { pickAndTransfer, transferToNewChild, trashTargets, undoLast } from "./fileOps";
+import { copyImage, copyPaths, pickAndTransfer, revealFirst, transferToNewChild, trashTargets, undoLast } from "./fileOps";
 import { startRename } from "../stores/rename";
 import { IS_MAC } from "./keys";
+
+/** 页面上没有选中的文字：有的话 Mod+C 留给系统复制文字（例如详情面板里的文字）。 */
+function noTextSelected(): boolean {
+  return (window.getSelection()?.toString() ?? "") === "";
+}
 
 /** 文件操作的命令。删除键按平台习惯：macOS 用 ⌘⌫（⌘⌦ 同样可用），其他平台用 Delete。 */
 export function fileCommands(isMac: boolean): Command[] {
@@ -52,6 +57,38 @@ export function fileCommands(isMac: boolean): Command[] {
       views: ["grid", "single"],
       run: (ctx) => {
         if (!ctx.repeat) void transferToNewChild("move");
+      },
+    },
+    {
+      id: "file.copyImage",
+      title: "cmd.file.copyImage",
+      category: "cmd.cat.file",
+      keys: ["Mod+C"],
+      views: ["grid", "single"],
+      when: noTextSelected,
+      run: (ctx) => {
+        if (!ctx.repeat) void copyImage();
+      },
+    },
+    {
+      id: "file.copyPath",
+      title: "cmd.file.copyPath",
+      category: "cmd.cat.file",
+      keys: ["Mod+Shift+C"],
+      views: ["grid", "single"],
+      when: noTextSelected,
+      run: (ctx) => {
+        if (!ctx.repeat) void copyPaths();
+      },
+    },
+    {
+      id: "file.reveal",
+      title: isMac ? "cmd.file.revealMac" : "cmd.file.revealWin",
+      category: "cmd.cat.file",
+      keys: [],
+      views: ["grid", "single"],
+      run: (ctx) => {
+        if (!ctx.repeat) void revealFirst();
       },
     },
     {
