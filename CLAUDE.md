@@ -37,13 +37,14 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 - 单张视图（V0.1-B）：`stores/{nav,singleUi}.ts`、`lib/{viewport,preloadPlan,currentImage,stripLayout,formatBytes,perfMarks}.ts`、`views/single/`（SingleView、Stage + useStageViewport、preloader、Filmstrip、TopBar、InfoBar、DetailsPanel、useIdle、singleCommands）、`app/fullscreen.ts`；后端 `src-tauri/src/catalog/details.rs`（按 EXIF 方向换算的显示尺寸、`image_details`）；缩略图队列里有“进行中”集合；实验面板有“切图”页（P50 / P95）。
 - 前端新增：`app/{commands,keys,useKeyboard,appCommands,useImageList}.ts`、`stores/{selection,gridCtx}.ts`、`lib/{selection,marquee}.ts`、`views/help/`（快捷键一览）、`views/grid/{gridCommands,useMarquee}.ts`、`test/setup.ts`。
 - 文件操作（V0.1-C）：后端 `src-tauri/src/fileops/{fsx,ops,undo,commands,trash}.rs`（`fsx` 是唯一改名 / 复制的地方，`ops` 是操作与撤销的主体，`undo` 是只记一步的撤销日志，`commands` 是 `fs_*` 命令与最近目标）、`src-tauri/src/system.rs`（剪贴板与“在访达中显示”）；前端 `app/{fileOps,fileCommands,contextMenu,nativeMenu}.ts`、`stores/{toast,rename}.ts`、`views/{toast,common}/`（提示条、重命名输入、名字对话框）、`lib/{lastSegment,menuLabel}.ts`。操作完成后后端把路径提示（`FsHint`）直接投递给会话线程，不等监听器。
+- 入口与设置（V0.1-D）：后端 `src-tauri/src/state/{store,settings,recents,session}.rs`（`store` 是唯一读写应用配置目录下小 JSON 的地方，先写临时文件再原子改名；`settings.json` 六项、`recents.json`、`session.json`）、`src-tauri/src/thumbs/sweep.rs`（启动时在后台线程清理缩略图缓存）；前端 `stores/{settings,recents}.ts`、`app/{applySettings,recentsSync,recentsMenu}.ts`、`views/settings/`（设置对话框）、`views/start/RecentList.tsx`（启动页最近目录）、`views/common/useModalFocus.ts`（对话框的焦点陷阱）、`lib/wheelStep.ts`（滚轮切图的累积与节流）。语言切换靠重挂视图树（`App.tsx` 里 `Fragment key={language}`）生效，网格滚动位置和临时界面状态会重置。
 - 后端事件可能先于命令应答到达前端，也可能有上一次打开的迟到事件：前端按 `generation` 丢弃过期事件，`openSession` 负责缓冲。
 - 包管理器只用 npm；Tauri CLI 通过 `npm run tauri` 调用。
 
 ## 硬性约束
 
-- **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令，以及三处：仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`，和移动 / 复制的目标目录（来自系统对话框或最近目标，含 `OpReport.dest`）。撤销失败只返回文件名，不返回路径。
-- **不向前端开放通用文件系统权限。** 文件访问集中在 `catalog` 和 `fileops`，不在别处直接碰磁盘（也是为将来上架 Mac App Store 的沙盒预留）。
+- **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令，以及三处：仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`，、移动 / 复制的目标目录（来自系统对话框或最近目标，含 `OpReport.dest`），以及最近目录的路径（`RecentEntry.path`，只用于显示，并原样传回 `open_path` / `recents_pin` / `recents_remove`）。撤销失败只返回文件名，不返回路径。
+- **不向前端开放通用文件系统权限。** 文件访问集中在 `catalog`、`fileops`、`thumbs` 和 `state`（`state` 只读写应用配置目录下自己的文件），不在别处直接碰磁盘（也是为将来上架 Mac App Store 的沙盒预留）。
 - **内容安全策略禁止一切远程资源**；图片只允许 `glance:` 与 `http://glance.localhost`。只有 `devCsp` 为开发热更新放宽，正式 `csp` 不得放宽。
 - **读文件和 CPU 密集任务不上主线程。**
 - **所有写文件的操作先写同目录临时文件，再原子改名。** 任何情况下不静默覆盖用户文件；改名、移动、复制只在 `fileops/fsx.rs` 里做（目标已存在即失败，不“先检查再改名”）。
@@ -71,4 +72,5 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 - V0.1-A2 完成：目录监听、选中与多选、键盘导航、命令表、快捷键一览。合并前须手动运行 `watch_live`（见上）。
 - V0.1-B 完成：单张视图（缩放平移、预加载切图、缩略图条、详情面板、全屏）。
 - V0.1-C 完成：删除（可撤销）、重命名、移动 / 复制（含新建子目录、重名跳过与“保留两者”）、右键菜单、剪贴板与在访达中显示、提示条。Windows 分支未编译，界面未目视确认（清单见后续事项）。
-- 下一步：V0.1-C2（拖拽）或 V0.1-D（入口与设置），由用户决定。写计划前先读 `docs/plans/后续事项.md`。
+- V0.1-D 完成：启动页（最近目录、固定、移除）、设置（主题、语言、默认排序、包含子目录、滚轮、到头循环）、浅色主题、中英文切换、窗口状态保存、缩略图缓存淘汰、详情与顶栏等细节。界面未目视确认（清单见 `docs/plans/后续事项.md`）。
+- 下一步：V0.1-D2（系统集成，随出包一起做）或 V0.1-C2（拖拽），由用户决定。写计划前先读 `docs/plans/后续事项.md`。
