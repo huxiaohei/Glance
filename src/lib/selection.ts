@@ -70,8 +70,8 @@ export function selectAll(sel: Selection, list: ImageList): Selection {
   });
 }
 
-/** 丢弃不在 alive 里的 id；focus、anchor 不在时置 null。 */
-export function prune(sel: Selection, alive: ReadonlySet<FileId>): Selection {
+/** 丢弃不在 alive 里的 id；focus、anchor 不在时置 null。alive 可以直接传条目表。 */
+export function prune(sel: Selection, alive: { has(id: FileId): boolean }): Selection {
   const focus = sel.focus !== null && alive.has(sel.focus) ? sel.focus : null;
   const anchor = sel.anchor !== null && alive.has(sel.anchor) ? sel.anchor : null;
   let drop = false;

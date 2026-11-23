@@ -223,6 +223,30 @@ describe("catalog store", () => {
       expect(useCatalog.getState().entries.get(1)).toMatchObject({ width: 10, height: 20 });
     });
 
+    it("keep 模式下全部未变的批次不产生新状态，但条目仍算已确认", () => {
+      seed();
+      const s = useCatalog.getState();
+      s.begin(root(2), { keep: true });
+      const before = useCatalog.getState();
+      s.apply({ type: "batch", generation: 2, entries: [{ id: 1, relPath: "a/x.png", size: 1, mtimeMs: 1 }] });
+      expect(useCatalog.getState()).toBe(before);
+      s.apply({ type: "done", generation: 2, total: 1 });
+      expect([...useCatalog.getState().entries.keys()]).toEqual([1]);
+    });
+
+    it("批次里有一条新的或变了的（含改名）就整体更新", () => {
+      seed();
+      const s = useCatalog.getState();
+      const before = useCatalog.getState();
+      s.apply({ type: "batch", generation: 1, entries: [
+        { id: 1, relPath: "a/x.png", size: 1, mtimeMs: 1 },
+        { id: 2, relPath: "moved/y.png", size: 2, mtimeMs: 2 },
+      ] });
+      const after = useCatalog.getState();
+      expect(after.listVersion).toBe(before.listVersion + 1);
+      expect(after.entries.get(2)?.dir).toBe("moved");
+    });
+
     it("不带 keep 的 begin 清空条目，done 不再移除任何东西", () => {
       seed();
       const s = useCatalog.getState();

@@ -25,7 +25,8 @@ export function changedIds(entries: ReadonlyMap<FileId, ImageEntry>, batch: Wire
   return ids;
 }
 
-// keep 模式下尚未被新一轮扫描确认的 id；只在 begin/apply 里读写，不进入状态
+// keep 模式下尚未被新一轮扫描确认的 id；只在 begin/apply/reset 里读写，不进入状态。
+// 因此可以就地修改而不产生新状态（全部未变的批次只从这里确认 id，不让订阅者重算）
 let stale = new Set<FileId>();
 
 export const useCatalog = create<CatalogState>((set) => ({
@@ -58,15 +59,18 @@ export const useCatalog = create<CatalogState>((set) => ({
       if (!s.root || e.generation !== s.root.generation) return s;
       switch (e.type) {
         case "batch": {
-          if (e.entries.length === 0) return s;
-          const entries = new Map(s.entries);
+          // 刷新时大多数条目原样重发：没有新的、也没有变的就返回原状态，不让版本号递增
+          let entries: Map<FileId, ImageEntry> | null = null;
           for (const w of e.entries) {
-            const next = toImageEntry(w);
-            const old = s.entries.get(w.id);
-            const same = old && old.size === w.size && old.mtimeMs === w.mtimeMs;
-            entries.set(w.id, same && old.width !== undefined ? { ...next, width: old.width, height: old.height } : next);
             stale.delete(w.id);
+            const old = (entries ?? s.entries).get(w.id);
+            const same = old && old.size === w.size && old.mtimeMs === w.mtimeMs;
+            if (same && old.relPath === w.relPath) continue;
+            const next = toImageEntry(w);
+            entries ??= new Map(s.entries);
+            entries.set(w.id, same && old.width !== undefined ? { ...next, width: old.width, height: old.height } : next);
           }
+          if (!entries) return s;
           return { entries, version: s.version + 1, listVersion: s.listVersion + 1 };
         }
         case "done": {
