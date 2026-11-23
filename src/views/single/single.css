@@ -334,3 +334,19 @@
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* 沉浸：静止后顶栏和缩略图条只淡出不动布局（仍占着位置，图片不跳）；信息条不淡出 */
+.single-topbar,
+.single-strip {
+  transition: opacity 200ms;
+}
+.single-view.idle .single-topbar,
+.single-view.idle .single-strip {
+  opacity: 0;
+  pointer-events: none;
+}
+/* 画面自己会在内联样式里设 grab 光标，这里必须 !important 才压得住 */
+.single-view.idle .single-stage,
+.single-view.idle .single-stage * {
+  cursor: none !important;
+}

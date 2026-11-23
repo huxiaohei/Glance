@@ -1,6 +1,7 @@
 import { useListView } from "../stores/listView";
 import { pickAndOpenFolder, refreshFolder } from "./openFolder";
 import { registerCommands, type Command } from "./commands";
+import { toggleFullscreen } from "./fullscreen";
 import { useHelp } from "./useKeyboard";
 
 const appCommands: Command[] = [
@@ -29,6 +30,16 @@ const appCommands: Command[] = [
     keys: ["Tab"],
     views: ["grid"],
     run: () => useListView.getState().toggleTree(),
+  },
+  {
+    id: "view.fullscreen",
+    title: "cmd.view.fullscreen",
+    category: "cmd.cat.view",
+    keys: ["F"],
+    views: "all",
+    run: (ctx) => {
+      if (!ctx.repeat) void toggleFullscreen();
+    },
   },
   {
     id: "help.shortcuts",

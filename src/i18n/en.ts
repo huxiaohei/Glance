@@ -25,6 +25,7 @@ export const en: Record<MessageKey, string> = {
   "cmd.app.open": "Open Folder",
   "cmd.view.refresh": "Refresh",
   "cmd.view.toggleSidebar": "Show/Hide Folder Tree",
+  "cmd.view.fullscreen": "Full Screen",
   "cmd.help.shortcuts": "Keyboard Shortcuts",
   "cmd.nav.left": "Move Left",
   "cmd.nav.right": "Move Right",

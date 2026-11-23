@@ -14,9 +14,14 @@ import Hint from "./Hint";
 import InfoBar from "./InfoBar";
 import TopBar from "./TopBar";
 import { Preloader } from "./preloader";
+import { useIdle } from "./useIdle";
 import Stage, { imageUrl } from "./Stage";
 import { go, registerSingleCommands } from "./singleCommands";
 import "./single.css";
+
+/** 鼠标静止这么久后顶栏和缩略图条淡出。 */
+const IDLE_MS = 2000;
+const BARS = ".single-topbar, .single-strip";
 
 /** 画面左右边缘的箭头区域：指针在区域内时显示箭头，点击等同左右键。 */
 function ArrowZone({ side }: { side: "left" | "right" }) {
@@ -58,6 +63,12 @@ export default function SingleView() {
   const infoOpen = useSingleUi((s) => s.infoOpen);
   const [preloader] = useState(() => new Preloader());
 
+  // 沉浸：静止 2 秒淡出顶栏与缩略图条。指针在二者之上、详细信息面板展开、键盘焦点在顶栏内时不淡出
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  const [overBars, setOverBars] = useState(false);
+  const [focusInTop, setFocusInTop] = useState(false);
+  const idle = useIdle(root, IDLE_MS, overBars || focusInTop || infoOpen);
+
   useEffect(() => registerSingleCommands(), []);
   useEffect(
     () => () => {
@@ -98,7 +109,14 @@ export default function SingleView() {
   }, [id, index, list, entries, preloader]);
 
   return (
-    <div className="single-view">
+    <div
+      ref={setRoot}
+      className={`single-view${idle ? " idle" : ""}`}
+      onPointerOver={(e) => setOverBars((e.target as Element).closest(BARS) !== null)}
+      onPointerLeave={() => setOverBars(false)}
+      onFocus={(e) => setFocusInTop((e.target as Element).closest(".single-topbar") !== null)}
+      onBlur={() => setFocusInTop(false)}
+    >
       {id !== null && <TopBar id={id} />}
       <div className="single-middle">
         <div className="single-main">

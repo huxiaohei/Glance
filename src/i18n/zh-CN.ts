@@ -23,6 +23,7 @@ export const zhCN = {
   "cmd.app.open": "打开目录",
   "cmd.view.refresh": "刷新",
   "cmd.view.toggleSidebar": "显示/隐藏目录树",
+  "cmd.view.fullscreen": "全屏",
   "cmd.help.shortcuts": "快捷键一览",
   "cmd.nav.left": "向左移动",
   "cmd.nav.right": "向右移动",
