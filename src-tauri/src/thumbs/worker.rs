@@ -168,6 +168,18 @@ mod tests {
     }
 
     #[test]
+    fn thumb_events_serialize_to_the_agreed_shape() {
+        assert_eq!(
+            serde_json::to_string(&ThumbEvent::Ready { id: 1, tier: 320 }).unwrap(),
+            r#"{"type":"ready","id":1,"tier":320}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&ThumbEvent::Broken { id: 1 }).unwrap(),
+            r#"{"type":"broken","id":1}"#
+        );
+    }
+
+    #[test]
     fn process_generates_caches_and_reports_ready() {
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = tempfile::tempdir().unwrap();

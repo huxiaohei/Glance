@@ -63,7 +63,7 @@ pub fn run(
     cancel: &AtomicBool,
     emit: &(dyn Fn(CatalogEvent) + Sync),
 ) {
-    // 每次发出前检查取消；取消后什么都不发。
+    // 每次发出前检查取消；取消是尽力而为，见上方文档注释
     let send = |event: CatalogEvent| -> bool {
         if cancel.load(Ordering::Relaxed) {
             return false;

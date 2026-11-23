@@ -79,6 +79,17 @@ mod tests {
             r#"{"type":"dims","generation":3,"items":[{"id":7,"w":4,"h":2}]}"#
         );
         assert_eq!(
+            serde_json::to_string(&RootInfo {
+                generation: 3,
+                path: "/r".into(),
+                name: "r".into(),
+                recursive: true,
+                focus: None,
+            })
+            .unwrap(),
+            r#"{"generation":3,"path":"/r","name":"r","recursive":true,"focus":null}"#
+        );
+        assert_eq!(
             serde_json::to_string(&OpenError::NotAnImage).unwrap(),
             r#"{"code":"notAnImage"}"#
         );
