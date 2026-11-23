@@ -2,7 +2,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
-import { thumbsSubscribe } from "../../ipc/api";
+import { thumbsSubscribe, thumbsWant } from "../../ipc/api";
 import { selectOnly } from "../../lib/selection";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
@@ -32,6 +32,7 @@ const decoded = () => act(async () => {});
 
 beforeEach(() => {
   vi.mocked(thumbsSubscribe).mockResolvedValue();
+  vi.mocked(thumbsWant).mockResolvedValue([]);
   stubSize("clientWidth", 600);
   stubSize("clientHeight", 400);
   const desc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode");

@@ -181,3 +181,69 @@
   pointer-events: none;
   white-space: nowrap;
 }
+/* 缩略图条：画面与信息条之间，条高 64 px，横向虚拟滚动 */
+.single-strip {
+  flex: none;
+  height: 64px;
+  padding: 0 4px;
+  background: var(--panel);
+  user-select: none;
+}
+.strip-scroller {
+  position: relative;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.strip-scroller::-webkit-scrollbar {
+  display: none;
+}
+.strip-content {
+  position: relative;
+  height: 100%;
+}
+.strip-item {
+  position: absolute;
+  top: 4px;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-thumb);
+  overflow: hidden;
+  cursor: pointer;
+}
+.strip-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.strip-placeholder,
+.strip-broken {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+}
+.strip-broken {
+  border: 1px dashed var(--text-dim);
+  border-radius: var(--radius-thumb);
+}
+/* 当前项：叠一层内描边，不改变布局，也不会被滚动区裁掉 */
+.strip-current::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-thumb);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  pointer-events: none;
+}
+.strip-divider {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--line);
+}

@@ -7,6 +7,7 @@ import { cancelSwitch } from "../../lib/perfMarks";
 import { preloadPlan } from "../../lib/preloadPlan";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
+import Filmstrip from "./Filmstrip";
 import Hint from "./Hint";
 import InfoBar from "./InfoBar";
 import TopBar from "./TopBar";
@@ -104,7 +105,7 @@ export default function SingleView() {
           </Stage>
         )}
       </div>
-      {/* 缩略图条插在这里（画面与信息条之间） */}
+      {id !== null && <Filmstrip list={list} current={id} />}
       {id !== null && <InfoBar id={id} />}
       <Hint />
     </div>
