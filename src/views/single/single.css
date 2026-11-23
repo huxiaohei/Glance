@@ -1,3 +1,5 @@
+/* 整个单张视图不可选中文字（Mod+A 等不会把界面选成一片蓝），只有详细信息的值与路径可选；
+   WebKit 只认带前缀的写法 */
 .single-view {
   position: fixed;
   inset: 0;
@@ -5,6 +7,8 @@
   background: var(--bg);
   display: flex;
   flex-direction: column;
+  -webkit-user-select: none;
+  user-select: none;
 }
 /* 画面区：占满顶栏与信息条之间的空间；Stage 在其中绝对定位铺满 */
 .single-stage {
@@ -325,7 +329,9 @@
   color: var(--text);
   overflow-wrap: anywhere;
 }
+.details-value,
 .details-path {
+  -webkit-user-select: text;
   user-select: text;
 }
 .details-error,

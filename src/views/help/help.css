@@ -36,3 +36,5 @@
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+.help-view-group + .help-view-group { margin-top: 6px; }
+.help-view { margin: 2px 0; font-size: 11px; color: var(--text-dim); }

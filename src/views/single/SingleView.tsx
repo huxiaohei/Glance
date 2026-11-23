@@ -16,12 +16,25 @@ import TopBar from "./TopBar";
 import { Preloader } from "./preloader";
 import { useIdle } from "./useIdle";
 import Stage, { imageUrl } from "./Stage";
-import { go, registerSingleCommands } from "./singleCommands";
+import { go } from "./singleCommands";
 import "./single.css";
 
 /** 鼠标静止这么久后顶栏和缩略图条淡出。 */
 const IDLE_MS = 2000;
 const BARS = ".single-topbar, .single-strip";
+
+/**
+ * 焦点是否由键盘落在 selector 之内。鼠标点按钮（WebView2 会让按钮保持焦点）不算，否则一次点击就让工具栏
+ * 再也不淡出。不支持 :focus-visible 的旧 WebKit 点按钮本来就不给焦点，按键盘焦点处理。
+ */
+function keyboardFocusIn(el: Element, selector: string): boolean {
+  if (el.closest(selector) === null) return false;
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return true;
+  }
+}
 
 /** 画面左右边缘的箭头区域：指针在区域内时显示箭头，点击等同左右键。 */
 function ArrowZone({ side }: { side: "left" | "right" }) {
@@ -64,12 +77,12 @@ export default function SingleView() {
   const [preloader] = useState(() => new Preloader());
 
   // 沉浸：静止 2 秒淡出顶栏与缩略图条。指针在二者之上、详细信息面板展开、键盘焦点在顶栏内时不淡出
+  // （鼠标点出的焦点不算）
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const [overBars, setOverBars] = useState(false);
   const [focusInTop, setFocusInTop] = useState(false);
   const idle = useIdle(root, IDLE_MS, overBars || focusInTop || infoOpen);
 
-  useEffect(() => registerSingleCommands(), []);
   useEffect(
     () => () => {
       preloader.clear();
@@ -114,7 +127,7 @@ export default function SingleView() {
       className={`single-view${idle ? " idle" : ""}`}
       onPointerOver={(e) => setOverBars((e.target as Element).closest(BARS) !== null)}
       onPointerLeave={() => setOverBars(false)}
-      onFocus={(e) => setFocusInTop((e.target as Element).closest(".single-topbar") !== null)}
+      onFocus={(e) => setFocusInTop(keyboardFocusIn(e.target as Element, ".single-topbar"))}
       onBlur={() => setFocusInTop(false)}
     >
       {id !== null && <TopBar id={id} />}

@@ -2,12 +2,14 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
-import { thumbsSubscribe, thumbsWant } from "../../ipc/api";
+import { allCommands, findCommand } from "../../app/commands";
+import { imageDetails, openPath, thumbsSubscribe, thumbsWant } from "../../ipc/api";
 import { selectOnly } from "../../lib/selection";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
 import { topView, useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
+import { useSingleUi } from "../../stores/singleUi";
 import { useThumbs } from "../../stores/thumbs";
 
 vi.mock("../../ipc/api");
@@ -47,8 +49,10 @@ beforeEach(() => {
   useListView.setState({ collapsed: new Set(), dirFilter: null, includeSubdirs: true, sort: "name", cell: 160 });
 });
 afterEach(() => {
+  vi.useRealTimers();
   for (const r of restore) r();
   restore = [];
+  useSingleUi.setState({ infoOpen: false });
 });
 
 const open = (focus: number | null, generation = 1) => {
@@ -204,5 +208,150 @@ describe("单张视图", () => {
     add(1, { id: 2, size: 5, mtimeMs: 9 });
     await decoded();
     expect(singleImg(container)!.getAttribute("src")).toBe("glance://localhost/image/2?v=9-5");
+  });
+});
+
+describe("单张视图的命令", () => {
+  it("单张视图的命令在应用启动时就已注册：从网格打开的快捷键一览里也有", () => {
+    open(null);
+    render(<App />);
+    add(1, 1, 2);
+    expect(topView().kind).toBe("grid");
+    const prev = allCommands().find((c) => c.id === "single.prev");
+    expect(prev?.views).toEqual(["single"]);
+    // 网格里方向键仍归网格
+    expect(findCommand({ key: "ArrowRight", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false } as KeyboardEvent, "grid", false, true)?.id).toBe("nav.right");
+    // 没有单张视图时直接调用也不出错、不做事
+    allCommands().find((c) => c.id === "single.toggleInfo")!.run({ shift: false, repeat: false });
+    allCommands().find((c) => c.id === "single.back")!.run({ shift: false, repeat: false });
+    allCommands().find((c) => c.id === "single.zoomIn")!.run({ shift: false, repeat: false });
+    expect(useSingleUi.getState().infoOpen).toBe(false);
+    expect(topView().kind).toBe("grid");
+  });
+
+  it("单张视图里 F5 / Mod+R 刷新目录并拦下默认行为，视图栈保留", async () => {
+    vi.mocked(openPath).mockResolvedValue({ generation: 2, path: "/p", name: "p", recursive: true, focus: null });
+    open(null);
+    render(<App />);
+    add(1, 1, 2);
+    act(() => useNav.getState().openSingle(2));
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(document.body, { key: "F5" });
+    });
+    expect(notPrevented).toBe(false);
+    expect(openPath).toHaveBeenCalledWith("/p", true, expect.any(Number), expect.any(Function));
+    await act(async () => {});
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
+    act(() => {
+      notPrevented = fireEvent.keyDown(document.body, { key: "r", metaKey: true });
+    });
+    expect(notPrevented).toBe(false);
+    expect(openPath).toHaveBeenCalledTimes(2);
+    await act(async () => {});
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
+  });
+
+  it("当前图被改名：保留同一个图片元素（不重新解码），顶栏显示新名字", async () => {
+    open(null);
+    const { container } = render(<App />);
+    add(1, 1, 2, 3);
+    act(() => useNav.getState().openSingle(2));
+    await decoded();
+    const before = singleImg(container)!;
+    act(() => useCatalog.getState().apply({ type: "renamed", generation: 1, items: [{ id: 2, relPath: "z.jpg" }] }));
+    await decoded();
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
+    expect(singleImg(container)).toBe(before);
+    expect(container.querySelector(".single-topbar .topbar-name")!.textContent).toBe("z.jpg");
+  });
+});
+
+describe("工具栏淡出", () => {
+  // jsdom 里聚焦的元素总是匹配 :focus-visible：打桩，由用例决定焦点是键盘的还是鼠标的
+  let focusVisible = true;
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.mocked(imageDetails).mockResolvedValue({
+      path: "/p/2.jpg",
+      mtimeMs: 1,
+      color: null,
+      bitDepth: null,
+      hasAlpha: null,
+      dpi: null,
+      animated: false,
+      exif: [],
+    });
+    focusVisible = true;
+    const desc = Object.getOwnPropertyDescriptor(Element.prototype, "matches")!;
+    const orig = Element.prototype.matches;
+    Object.defineProperty(Element.prototype, "matches", {
+      configurable: true,
+      writable: true,
+      value(this: Element, sel: string) {
+        return sel === ":focus-visible" ? focusVisible && document.activeElement === this : orig.call(this, sel);
+      },
+    });
+    restore.push(() => Object.defineProperty(Element.prototype, "matches", desc));
+  });
+
+  function enter() {
+    open(null);
+    const { container } = render(<App />);
+    add(1, 1, 2, 3);
+    act(() => useNav.getState().openSingle(2));
+    return container;
+  }
+  const idle = (c: HTMLElement) => c.querySelector(".single-view")!.classList.contains("idle");
+  const wait = (ms: number) => act(() => void vi.advanceTimersByTime(ms));
+
+  it("鼠标静止 2 秒后淡出", () => {
+    const c = enter();
+    wait(1999);
+    expect(idle(c)).toBe(false);
+    wait(1);
+    expect(idle(c)).toBe(true);
+  });
+
+  it("指针在顶栏或缩略图条上时不淡出", () => {
+    const c = enter();
+    fireEvent.pointerOver(c.querySelector(".single-topbar")!);
+    wait(5000);
+    expect(idle(c)).toBe(false);
+    fireEvent.pointerOver(c.querySelector(".stage")!);
+    wait(2000);
+    expect(idle(c)).toBe(true);
+    fireEvent.pointerOver(c.querySelector(".single-strip")!);
+    expect(idle(c)).toBe(false);
+    wait(5000);
+    expect(idle(c)).toBe(false);
+  });
+
+  it("详细信息面板展开时不淡出", () => {
+    const c = enter();
+    act(() => useSingleUi.setState({ infoOpen: true }));
+    wait(5000);
+    expect(idle(c)).toBe(false);
+    act(() => useSingleUi.setState({ infoOpen: false }));
+    wait(2000);
+    expect(idle(c)).toBe(true);
+  });
+
+  it("键盘焦点在顶栏按钮上时不淡出；鼠标点出的焦点不算", () => {
+    const c = enter();
+    const btn = c.querySelector<HTMLButtonElement>(".single-topbar .topbar-info")!;
+    focusVisible = false;
+    act(() => btn.focus());
+    wait(2000);
+    expect(idle(c)).toBe(true);
+    act(() => btn.blur());
+    focusVisible = true;
+    act(() => btn.focus());
+    expect(idle(c)).toBe(false);
+    wait(5000);
+    expect(idle(c)).toBe(false);
+    act(() => btn.blur());
+    wait(2000);
+    expect(idle(c)).toBe(true);
   });
 });

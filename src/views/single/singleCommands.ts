@@ -1,6 +1,7 @@
 import { registerCommands, type Command } from "../../app/commands";
 import { getImageList } from "../../app/useImageList";
 import { t } from "../../i18n";
+import { neighbor } from "../../lib/currentImage";
 import { markSwitchStart } from "../../lib/perfMarks";
 import { topView, useNav } from "../../stores/nav";
 import { useSingleUi } from "../../stores/singleUi";
@@ -19,26 +20,33 @@ export function go(step: Step): void {
   const { ids, groups } = getImageList();
   const i = ids.indexOf(top.id);
   if (i < 0) return;
-  const j = step === "prev" ? i - 1 : step === "next" ? i + 1 : step === "first" ? 0 : ids.length - 1;
-  if (j < 0 || j >= ids.length || j === i) {
+  const target =
+    step === "prev" ? neighbor(ids, top.id, -1)
+    : step === "next" ? neighbor(ids, top.id, 1)
+    : step === "first" ? ids[0]
+    : ids[ids.length - 1];
+  if (target === null || target === top.id) {
     showHint(t(step === "prev" || step === "first" ? "hint.first" : "hint.last"));
     return;
   }
+  const j = ids.indexOf(target);
   markSwitchStart();
-  useNav.getState().setCurrent(ids[j]);
+  useNav.getState().setCurrent(target);
   const groupAt = (k: number) => groups.find((g) => k >= g.start && k < g.start + g.count);
   const to = groupAt(j);
   if (to && to !== groupAt(i)) showHint(to.dir === "" ? t("grid.rootGroup") : to.dir);
 }
 
-/** 返回网格：Esc 与顶栏返回按钮共用。 */
+/** 返回网格：Esc 与顶栏返回按钮共用。不在单张视图时不做事。 */
 export function backToGrid(): void {
+  if (topView().kind !== "single") return;
   useNav.getState().back();
 }
 
+// 命令在应用启动时就注册，没有单张视图时被直接调用也不做事
 const withStage = (fn: (api: StageApi) => void) => () => {
   const api = useStageApi.getState().api;
-  if (api) fn(api);
+  if (api && topView().kind === "single") fn(api);
 };
 
 // 切图命令不忽略自动重复：按住方向键连续切换
@@ -124,7 +132,7 @@ const singleCommands: Command[] = [
     keys: ["I"],
     views: ["single"],
     run: ({ repeat }) => {
-      if (!repeat) useSingleUi.getState().toggleInfo();
+      if (!repeat && topView().kind === "single") useSingleUi.getState().toggleInfo();
     },
   },
 ];
@@ -134,7 +142,7 @@ export function singleCommand(id: string): Command | undefined {
   return singleCommands.find((c) => c.id === id);
 }
 
-/** SingleView 挂载期间注册；返回注销函数。 */
+/** 应用启动时注册一次（命令按视图生效）；返回注销函数。 */
 export function registerSingleCommands(): () => void {
   return registerCommands(singleCommands);
 }

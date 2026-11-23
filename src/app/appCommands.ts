@@ -19,7 +19,8 @@ const appCommands: Command[] = [
     title: "cmd.view.refresh",
     category: "cmd.cat.view",
     keys: ["F5", "Mod+R"],
-    views: ["grid"],
+    // 单张视图里也要拦下：否则按键落到 WebView，WebView2 会重新载入页面、丢掉全部状态
+    views: ["grid", "single"],
     allowInInput: true,
     run: () => void refreshFolder(),
   },

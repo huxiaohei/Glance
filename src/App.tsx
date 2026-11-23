@@ -9,6 +9,7 @@ import { useNav } from "./stores/nav";
 import GridView from "./views/grid/GridView";
 import ShortcutsOverlay from "./views/help/ShortcutsOverlay";
 import SingleView from "./views/single/SingleView";
+import { registerSingleCommands } from "./views/single/singleCommands";
 import StartView from "./views/start/StartView";
 import "./app/app.css";
 
@@ -19,9 +20,15 @@ export default function App() {
   const [lab, setLab] = useState(false);
   useKeyboard();
 
+  // 应用级与单张视图的命令启动时注册一次（单张视图的命令按视图生效），快捷键一览从哪个视图打开都列得全
   useEffect(() => {
     subscribeThumbs();
-    return registerAppCommands();
+    const offApp = registerAppCommands();
+    const offSingle = registerSingleCommands();
+    return () => {
+      offSingle();
+      offApp();
+    };
   }, []);
 
   if (import.meta.env.DEV && lab) return <Lab onBack={() => setLab(false)} />;

@@ -68,6 +68,28 @@ describe("useIdle", () => {
     expect(result.current).toBe(true);
   });
 
+  it("子元素原生拦下 pointerdown（箭头区域）时按下仍算活动", () => {
+    const child = document.createElement("div");
+    el.appendChild(child);
+    child.addEventListener("pointerdown", (e) => e.stopPropagation());
+    const { result } = renderHook(() => useIdle(el, 2000, false));
+    act(() => void vi.advanceTimersByTime(2000));
+    expect(result.current).toBe(true);
+    act(() => void fireEvent.pointerDown(child));
+    expect(result.current).toBe(false);
+  });
+
+  it("pinned 变化不重置上次的指针位置：面板关上后同位置的合成移动不算活动", () => {
+    const { result, rerender } = renderHook(({ p }) => useIdle(el, 2000, p), { initialProps: { p: false } });
+    move(5, 5);
+    rerender({ p: true });
+    rerender({ p: false });
+    act(() => void vi.advanceTimersByTime(2000));
+    expect(result.current).toBe(true);
+    move(5, 5);
+    expect(result.current).toBe(true);
+  });
+
   it("卸载时清掉定时器和监听", () => {
     const { unmount } = renderHook(() => useIdle(el, 2000, false));
     expect(vi.getTimerCount()).toBe(1);
