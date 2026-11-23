@@ -4,6 +4,7 @@ import type { ImageList } from "../../lib/deriveList";
 import { layoutGrid } from "../../lib/gridLayout";
 import { selectOnly } from "../../lib/selection";
 import { useGridCtx } from "../../stores/gridCtx";
+import { topView, useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
 import { registerGridCommands } from "./gridCommands";
 
@@ -128,5 +129,26 @@ describe("gridCommands", () => {
     useSelection.getState().set(selectOnly(2));
     run("select.clear", false, true);
     expect(ids()).toEqual([2]);
+  });
+
+  it("焦点所在分组已折叠时回车不打开单张视图", () => {
+    useNav.getState().reset();
+    // sub 组折叠：它的项不在列表里
+    const collapsed: ImageList = {
+      ids: [1, 2, 3],
+      groups: [
+        { dir: "", start: 0, count: 3, total: 3 },
+        { dir: "sub", start: 3, count: 0, total: 3 },
+      ],
+    };
+    useGridCtx.setState({ list: collapsed, layout: layoutGrid(collapsed, 208, 100) });
+    useSelection.getState().set(selectOnly(5));
+    run("grid.open");
+    expect(topView()).toEqual({ kind: "grid" });
+    // 对照：焦点在展开的分组里时打开
+    useSelection.getState().set(selectOnly(2));
+    run("grid.open");
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
+    useNav.getState().reset();
   });
 });
