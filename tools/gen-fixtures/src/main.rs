@@ -14,12 +14,17 @@ const HUGE_SIDE: u32 = 8000;
 const HUGE_LINE_STEP: u32 = 500;
 const MANY_SIDE: u32 = 256;
 const MANY_DIRS: [&str; 3] = ["蜀国", "魏国", "吴国 备选"];
+const ORIENTED_W: u32 = 600;
+const ORIENTED_H: u32 = 300;
+const ORIENTATIONS: [u16; 4] = [1, 3, 6, 8];
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum Preset {
     Transport,
     Huge,
     Many,
+    /// 同一张横图分别带 EXIF 方向 1、3、6、8 的四个 JPEG。
+    Oriented,
 }
 
 #[derive(Parser)]
@@ -38,6 +43,7 @@ pub fn generate(preset: Preset, out: &Path, count: usize) -> Result<Vec<PathBuf>
         Preset::Transport => transport(out),
         Preset::Huge => huge(out),
         Preset::Many => many(out, count),
+        Preset::Oriented => oriented(out),
     }
 }
 
@@ -102,6 +108,46 @@ fn many(out: &Path, count: usize) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+/// 只含方向一项的大端 TIFF（EXIF 的主体，JPEG 编码器会补上 "Exif\0\0" 前缀）。
+fn orientation_exif(orientation: u16) -> Vec<u8> {
+    let mut tiff = b"MM\0\x2a\0\0\0\x08".to_vec();
+    tiff.extend(1u16.to_be_bytes());
+    tiff.extend(0x0112u16.to_be_bytes());
+    tiff.extend(3u16.to_be_bytes());
+    tiff.extend(1u32.to_be_bytes());
+    tiff.extend(orientation.to_be_bytes());
+    tiff.extend([0, 0]);
+    tiff.extend(0u32.to_be_bytes());
+    tiff
+}
+
+/// 一眼能看出朝向的横图：浅灰底，顶部一条红带，左上角一个深色方块。
+fn oriented(out: &Path) -> Result<Vec<PathBuf>> {
+    let (w, h) = (ORIENTED_W, ORIENTED_H);
+    let mut rgb = Vec::with_capacity((w * h * 3) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let px = if x < h / 3 && y < h / 3 {
+                [30, 30, 30]
+            } else if y < h / 6 {
+                [220, 40, 40]
+            } else {
+                [200, 200, 200]
+            };
+            rgb.extend(px);
+        }
+    }
+    let mut files = Vec::with_capacity(ORIENTATIONS.len());
+    for o in ORIENTATIONS {
+        let path = out.join(format!("方向 {o}.jpg"));
+        let mut encoder = JpegEncoder::new_with_quality(BufWriter::new(File::create(&path)?), 90);
+        encoder.set_exif_metadata(orientation_exif(o))?;
+        encoder.write_image(&rgb, w, h, ExtendedColorType::Rgb8)?;
+        files.push(path);
+    }
+    Ok(files)
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     for file in generate(cli.preset, &cli.out, cli.count)? {
@@ -131,6 +177,21 @@ mod tests {
         for f in &files {
             assert_eq!(image::image_dimensions(f).unwrap(), (8000, 8000));
         }
+    }
+
+    #[test]
+    fn oriented_preset_has_four_orientations_of_one_landscape_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = generate(Preset::Oriented, dir.path(), 0).unwrap();
+        let mut seen = vec![];
+        for f in &files {
+            let mut decoder = image::ImageReader::open(f).unwrap().into_decoder().unwrap();
+            use image::ImageDecoder;
+            assert_eq!(decoder.dimensions(), (ORIENTED_W, ORIENTED_H));
+            seen.push(decoder.orientation().unwrap());
+        }
+        use image::metadata::Orientation::*;
+        assert_eq!(seen, vec![NoTransforms, Rotate180, Rotate90, Rotate270]);
     }
 
     #[test]

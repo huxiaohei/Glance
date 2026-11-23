@@ -14,6 +14,7 @@ use notify_debouncer_full::{
     DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache, new_debouncer,
 };
 
+use super::details::display_size;
 use super::events::{CatalogEvent, Dim};
 use super::reconcile::{Changes, FsHint, Reconciler};
 use super::registry::Registry;
@@ -79,7 +80,8 @@ pub fn hints_from(root: &Path, events: &[DebouncedEvent]) -> Vec<FsHint> {
     hints
 }
 
-/// 把一批变化按固定顺序发出：Removed → Renamed → Batch → Dims（对 upsert_paths 读文件头）。
+/// 把一批变化按固定顺序发出：Removed → Renamed → Batch → Dims（对 upsert_paths 读文件头，
+/// 取按 EXIF 方向转正后的显示尺寸）。
 /// 空的部分不发；读不出尺寸的文件不出现在 Dims 里。
 pub fn emit_changes(generation: u32, changes: Changes, emit: &dyn Fn(CatalogEvent)) {
     let Changes {
@@ -109,12 +111,8 @@ pub fn emit_changes(generation: u32, changes: Changes, emit: &dyn Fn(CatalogEven
     let items: Vec<Dim> = upsert_paths
         .iter()
         .filter_map(|(id, path)| {
-            let size = imagesize::size(path).ok()?;
-            Some(Dim {
-                id: *id,
-                w: size.width as u32,
-                h: size.height as u32,
-            })
+            let (w, h) = display_size(path)?;
+            Some(Dim { id: *id, w, h })
         })
         .collect();
     if !items.is_empty() {

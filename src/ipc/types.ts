@@ -16,3 +16,20 @@ export interface RootInfo { generation: number; path: string; name: string; recu
 export type OpenErrorCode = "notFound" | "notAnImage" | "unreadable";
 
 export type ThumbEvent = { type: "ready"; id: FileId; tier: Tier; v: string } | { type: "broken"; id: FileId };
+
+export interface ExifItem {
+  key: "make" | "model" | "lens" | "dateTime" | "exposure" | "fNumber" | "iso" | "focalLength";
+  value: string;
+}
+
+/** 图片详情。path 只用于显示（“前端只见 FileId”的明确例外），不得拿它访问文件。 */
+export interface ImageDetails {
+  path: string;
+  mtimeMs: number;
+  color: "RGB" | "RGBA" | "Gray" | "GrayA" | "Indexed" | null;
+  bitDepth: number | null;
+  hasAlpha: boolean | null;
+  dpi: [number, number] | null;
+  animated: boolean;
+  exif: ExifItem[];
+}

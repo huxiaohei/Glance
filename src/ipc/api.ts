@@ -1,5 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { CatalogEvent, FileId, RootInfo, ThumbEvent, Tier } from "./types";
+import type { CatalogEvent, FileId, ImageDetails, RootInfo, ThumbEvent, Tier } from "./types";
 
 function channel<T>(onEvent: (e: T) => void): Channel<T> {
   const ch = new Channel<T>();
@@ -22,4 +22,8 @@ export function thumbsSubscribe(onEvent: (e: ThumbEvent) => void): Promise<void>
 
 export function thumbsWant(consumer: string, ids: FileId[], tier: Tier): Promise<{ id: FileId; v: string }[]> {
   return invoke<{ id: FileId; v: string }[]>("thumbs_want", { consumer, ids, tier });
+}
+
+export function imageDetails(id: FileId): Promise<ImageDetails> {
+  return invoke<ImageDetails>("image_details", { id });
 }

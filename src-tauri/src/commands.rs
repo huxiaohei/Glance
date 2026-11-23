@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tauri::State;
 use tauri::ipc::Channel;
 
+use crate::catalog::details::{self, ImageDetails};
 use crate::catalog::events::{CatalogEvent, OpenError, RootInfo};
 use crate::catalog::registry::FileId;
 use crate::catalog::registry::Registry;
@@ -105,4 +106,11 @@ pub fn thumbs_want(
         .into_iter()
         .map(|(id, v)| ReadyThumb { id: id.0, v })
         .collect())
+}
+
+/// 单张图片的详情（信息面板用）。ID 经登记表换算路径；未登记或文件不在了返回 Err。
+/// 读文件，不上主线程。
+#[tauri::command(async)]
+pub fn image_details(id: u32, registry: State<'_, Arc<Registry>>) -> Result<ImageDetails, String> {
+    details::details_by_id(&registry, FileId(id))
 }

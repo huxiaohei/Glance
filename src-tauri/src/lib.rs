@@ -45,6 +45,7 @@ pub fn run() {
         commands::open_path,
         commands::thumbs_subscribe,
         commands::thumbs_want,
+        commands::image_details,
         lab::lab_register_dir,
         lab::lab_paths,
         lab::lab_protocol_hits,
@@ -56,7 +57,8 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         commands::open_path,
         commands::thumbs_subscribe,
-        commands::thumbs_want
+        commands::thumbs_want,
+        commands::image_details
     ]);
 
     builder

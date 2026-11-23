@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use super::details::display_size;
 use super::events::{CatalogEvent, Dim, Entry, OpenError};
 use super::registry::Registry;
 use super::scan::{Stamp, is_image_path, scan};
@@ -84,7 +85,7 @@ pub(crate) fn rel_path(root: &Path, path: &Path) -> String {
 }
 
 /// 一次完整的打开：扫描并登记，逐批发 Batch，结束发 Done，随后只读文件头
-/// 并行补齐尺寸，分批发 Dims（读不出尺寸的文件不出现在 Dims 里）。
+/// 并行补齐尺寸（按 EXIF 方向转正后的显示尺寸，见 [`display_size`]），分批发 Dims（读不出尺寸的文件不出现在 Dims 里）。
 /// 取消是尽力而为：cancel 置位后会尽快停止，但已在途的少量事件仍可能发出；
 /// 它们带着旧的 generation，消费方据此丢弃。
 ///
@@ -154,12 +155,8 @@ pub fn run(
                     if cancel.load(Ordering::Relaxed) {
                         return;
                     }
-                    if let Ok(size) = imagesize::size(path) {
-                        items.push(Dim {
-                            id: *id,
-                            w: size.width as u32,
-                            h: size.height as u32,
-                        });
+                    if let Some((w, h)) = display_size(path) {
+                        items.push(Dim { id: *id, w, h });
                         if items.len() >= DIMS_BATCH
                             && !send(CatalogEvent::Dims {
                                 generation,
@@ -398,6 +395,32 @@ mod tests {
         );
         dims.sort();
         assert_eq!(dims, vec![("a.png".to_string(), 4, 2), ("b.png".to_string(), 3, 5)]);
+    }
+
+    #[test]
+    fn run_dims_follow_exif_orientation() {
+        use crate::catalog::details::testimg::{ORIENTATION, V, jpeg_with_exif, tiff};
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let t = tiff(&[(ORIENTATION, V::Short(6))], &[]);
+        fs::write(dir.join("o6.jpg"), jpeg_with_exif(40, 20, &t)).unwrap();
+        let events = Mutex::new(Vec::<CatalogEvent>::new());
+        let target = OpenTarget { root: dir.to_path_buf(), recursive: false, focus_file: None };
+        run(1, &target, &Registry::default(), &AtomicBool::new(false), &|e| {
+            events.lock().unwrap().push(e)
+        });
+        let dims: Vec<(u32, u32)> = events
+            .into_inner()
+            .unwrap()
+            .into_iter()
+            .filter_map(|e| match e {
+                CatalogEvent::Dims { items, .. } => Some(items),
+                _ => None,
+            })
+            .flatten()
+            .map(|d| (d.w, d.h))
+            .collect();
+        assert_eq!(dims, vec![(20, 40)]);
     }
 
     #[test]

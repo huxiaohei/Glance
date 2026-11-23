@@ -1,3 +1,4 @@
+pub mod details;
 pub mod events;
 pub mod reconcile;
 pub mod registry;
