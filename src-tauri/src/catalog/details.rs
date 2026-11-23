@@ -718,6 +718,25 @@ pub(crate) mod testimg {
         out
     }
 
+    /// 1×1、24 位、每米 3780 像素的 BMP。
+    pub fn bmp() -> Vec<u8> {
+        let mut bmp = b"BM".to_vec();
+        bmp.extend(58u32.to_le_bytes());
+        bmp.extend([0u8; 4]);
+        bmp.extend(54u32.to_le_bytes());
+        bmp.extend(40u32.to_le_bytes());
+        bmp.extend(1i32.to_le_bytes());
+        bmp.extend(1i32.to_le_bytes());
+        bmp.extend(1u16.to_le_bytes());
+        bmp.extend(24u16.to_le_bytes());
+        bmp.extend([0u8; 8]);
+        bmp.extend(3780u32.to_le_bytes());
+        bmp.extend(3780u32.to_le_bytes());
+        bmp.extend([0u8; 8]);
+        bmp.extend([10, 20, 30, 0]);
+        bmp
+    }
+
     /// 1×1 的 GIF，frames 帧。
     pub fn gif(frames: usize) -> Vec<u8> {
         let mut out = b"GIF89a\x01\x00\x01\x00\x80\x00\x00".to_vec();
@@ -904,21 +923,7 @@ mod tests {
     fn details_reads_bmp_info_header() {
         let tmp = tempfile::tempdir().unwrap();
         // 1×1、24 位、每米 3780 像素
-        let mut bmp = b"BM".to_vec();
-        bmp.extend(58u32.to_le_bytes());
-        bmp.extend([0u8; 4]);
-        bmp.extend(54u32.to_le_bytes());
-        bmp.extend(40u32.to_le_bytes());
-        bmp.extend(1i32.to_le_bytes());
-        bmp.extend(1i32.to_le_bytes());
-        bmp.extend(1u16.to_le_bytes());
-        bmp.extend(24u16.to_le_bytes());
-        bmp.extend([0u8; 8]);
-        bmp.extend(3780u32.to_le_bytes());
-        bmp.extend(3780u32.to_le_bytes());
-        bmp.extend([0u8; 8]);
-        bmp.extend([10, 20, 30, 0]);
-        let p = write(tmp.path(), "a.bmp", &bmp);
+        let p = write(tmp.path(), "a.bmp", &bmp());
         let d = image_details(&p).unwrap();
         assert_eq!(
             (d.color.as_deref(), d.bit_depth, d.has_alpha),
@@ -957,5 +962,56 @@ mod tests {
             p.to_string_lossy()
         );
         assert!(details_by_id(&registry, crate::catalog::registry::FileId(999)).is_err());
+    }
+
+    /// 各格式的样张（JPEG / PNG / WebP 带 EXIF，GIF 两帧，BMP）。
+    fn robustness_samples() -> Vec<(&'static str, Vec<u8>)> {
+        let t = tiff(
+            &[
+                (MAKE, V::Ascii("Canon")),
+                (ORIENTATION, V::Short(6)),
+                (0x011A, V::Rational(300, 1)),
+            ],
+            &[(ISO, V::Short(400)), (0x829A, V::Rational(1, 250))],
+        );
+        vec![
+            ("jpg", jpeg_with_exif(8, 8, &t)),
+            ("png", png_with_exif(8, 8, &t)),
+            ("webp", webp_with_exif(8, 8, &t)),
+            ("gif", gif(2)),
+            ("bmp", bmp()),
+        ]
+    }
+
+    #[test]
+    fn truncated_files_never_panic() {
+        let tmp = tempfile::tempdir().unwrap();
+        for (ext, bytes) in robustness_samples() {
+            let p = tmp.path().join(format!("t.{ext}"));
+            for cut in 0..=bytes.len() {
+                fs::write(&p, &bytes[..cut]).unwrap();
+                let _ = display_size(&p);
+                let _ = image_details(&p);
+            }
+        }
+    }
+
+    #[test]
+    fn oversized_length_fields_never_panic() {
+        // 依次把每个位置起的 4 个字节改成 0xFF（盖住各处的长度、偏移、计数字段），再改成 0x7F
+        let tmp = tempfile::tempdir().unwrap();
+        for (ext, bytes) in robustness_samples() {
+            let p = tmp.path().join(format!("o.{ext}"));
+            for fill in [0xFFu8, 0x7F] {
+                for at in 0..bytes.len() {
+                    let mut b = bytes.clone();
+                    let end = (at + 4).min(b.len());
+                    b[at..end].fill(fill);
+                    fs::write(&p, &b).unwrap();
+                    let _ = display_size(&p);
+                    let _ = image_details(&p);
+                }
+            }
+        }
     }
 }

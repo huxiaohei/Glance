@@ -429,4 +429,42 @@ mod tests {
         assert!(got.contains(&ready(b)) && got.contains(&ready(c)));
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());
     }
+
+    #[test]
+    fn rewritten_file_wanted_again_yields_a_second_event() {
+        // 第一次任务结束时必须从“进行中”移除：否则改写后再要同一 (ID, 档位) 会被当成仍在进行而永远不处理
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.png");
+        std::fs::write(&img, png_of_width(40, 0)).unwrap();
+        let registry = Arc::new(Registry::default());
+        let id = registry.register(&img);
+        let thumbs = Thumbs::start(
+            ThumbCache::new(cache_dir.path().to_path_buf()),
+            registry.clone(),
+        );
+        let (tx, rx) = mpsc::channel();
+        let tx = std::sync::Mutex::new(tx);
+        thumbs.subscribe(Box::new(move |e| {
+            let _ = tx.lock().unwrap().send(e);
+        }));
+        let ready = || ThumbEvent::Ready {
+            id: id.0,
+            tier: 320,
+            v: stamp_of(&img).unwrap().version(),
+        };
+
+        assert!(thumbs.want("strip", &[id], Tier::S).is_empty());
+        let first = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(first, ready());
+
+        // 改写：多接 1 字节，大小必然不同，缓存键随之不同
+        std::fs::write(&img, png_of_width(90, 1)).unwrap();
+        assert!(thumbs.want("strip", &[id], Tier::S).is_empty());
+        let second = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("改写后再次登记应再收到一次事件");
+        assert_eq!(second, ready());
+        assert_ne!(first, second);
+    }
 }
