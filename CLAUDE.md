@@ -43,7 +43,7 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 
 ## 硬性约束
 
-- **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令，以及三处：仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`，、移动 / 复制的目标目录（来自系统对话框或最近目标，含 `OpReport.dest`），以及最近目录的路径（`RecentEntry.path`，只用于显示，并原样传回 `open_path` / `recents_pin` / `recents_remove`）。撤销失败只返回文件名，不返回路径。
+- **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令，以及三处：仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`，移动 / 复制的目标目录（来自系统对话框或最近目标，含 `OpReport.dest`），以及最近目录的路径（`RecentEntry.path`，只用于显示，并原样传回 `open_path` / `recents_pin` / `recents_remove`）。撤销失败只返回文件名，不返回路径。
 - **不向前端开放通用文件系统权限。** 文件访问集中在 `catalog`、`fileops`、`thumbs` 和 `state`（`state` 只读写应用配置目录下自己的文件），不在别处直接碰磁盘（也是为将来上架 Mac App Store 的沙盒预留）。
 - **内容安全策略禁止一切远程资源**；图片只允许 `glance:` 与 `http://glance.localhost`。只有 `devCsp` 为开发热更新放宽，正式 `csp` 不得放宽。
 - **读文件和 CPU 密集任务不上主线程。** 已接受的例外：设置、最近目录、最近目标三份小配置文件在启动时（`setup` 里、窗口显示之前）读一次。
