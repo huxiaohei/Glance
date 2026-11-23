@@ -81,11 +81,15 @@ describe("快捷键一览打开时", () => {
     expect(runTab).not.toHaveBeenCalled();
     expect(useHelp.getState().open).toBe(true);
   });
-  it("按住 Cmd 或 Ctrl 的按键不拦也不处理（留给 Cmd+Q、Cmd+W 等系统快捷键）", () => {
+  it("没有对应命令的 Cmd/Ctrl 组合键不拦也不处理（留给 Cmd+Q、Cmd+W 等系统快捷键）", () => {
     useHelp.setState({ open: true });
     expect(press(document.body, "q", { metaKey: true })).toBe(false);
     expect(press(document.body, "w", { ctrlKey: true })).toBe(false);
-    expect(press(document.body, "a", mod)).toBe(false);
+    expect(useHelp.getState().open).toBe(true);
+  });
+  it("对应已注册命令的 Mod 组合键被拦下但不执行（免得 Mod+A 选中页面文字、Ctrl+R 刷新页面）", () => {
+    useHelp.setState({ open: true });
+    expect(press(document.body, "a", mod)).toBe(true);
     expect(runAll).not.toHaveBeenCalled();
     expect(useHelp.getState().open).toBe(true);
   });
