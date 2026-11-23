@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { IS_MAC } from "../../app/keys";
 import { GRID_PAD, idsInRect, type GridLayout, type Rect } from "../../lib/gridLayout";
 import { edgeScroll } from "../../lib/marquee";
-import { selectMany, type Selection } from "../../lib/selection";
+import { EMPTY, selectMany, type Selection } from "../../lib/selection";
 import { useSelection } from "../../stores/selection";
 
 const THRESHOLD = 4; // 移动超过这个距离（px）才算拖动
@@ -12,12 +12,13 @@ interface Press {
   startClientX: number;
   startClientY: number;
   start: { x: number; y: number }; // 内容区坐标
-  base: Selection; // 按下时的选中
+  base: Selection; // 按下时的选中（Esc 恢复用）
   additive: boolean;
   active: boolean; // 已超过阈值、正在框选
   lastX: number;
   lastY: number;
   rect: Rect | null; // 上一帧算出的矩形
+  carry: number; // 自动滚动累积的不足 1 px 的部分（引擎会把小数滚动量舍掉）
 }
 
 /** 滚动区视口坐标 → 内容区坐标。 */
@@ -50,9 +51,16 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
       if (!press?.active) return;
       const view = el.getBoundingClientRect();
       const dy = edgeScroll(press.lastY, view.top, view.bottom);
-      const before = el.scrollTop;
-      if (dy !== 0) el.scrollTop += dy;
-      const scrolled = el.scrollTop !== before; // 滚到头后不再空转
+      // 只按整像素滚动，余下的小数留到下一帧，速度不足 1 px/帧时也会前进
+      press.carry = dy === 0 ? 0 : press.carry + dy;
+      const step = Math.trunc(press.carry);
+      if (step !== 0) {
+        el.scrollTop += step;
+        press.carry -= step;
+      }
+      const max = el.scrollHeight - el.clientHeight;
+      const atLimit = dy > 0 ? el.scrollTop >= max - 1 : el.scrollTop <= 0;
+      const keepScrolling = dy !== 0 && !atLimit; // 滚到头后不再空转
       const { layout: lay, cell: c } = geometry.current;
       const end = toContent(el, press.lastX, press.lastY);
       // 只画在画布范围内，免得框本身撑出滚动条
@@ -64,9 +72,11 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
       if (!prev || prev.x0 !== r.x0 || prev.y0 !== r.y0 || prev.x1 !== r.x1 || prev.y1 !== r.y1) {
         press.rect = r;
         setRect(r);
-        useSelection.getState().set(selectMany(press.base, idsInRect(lay, c, r), press.additive));
+        // 非加选以空选中为底：什么都没碰到时 focus、anchor 也是空的，与空白处单击一致
+        const base = press.additive ? press.base : EMPTY;
+        useSelection.getState().set(selectMany(base, idsInRect(lay, c, r), press.additive));
       }
-      if (scrolled) schedule();
+      if (keepScrolling) schedule();
     };
     const schedule = () => {
       if (frame === null) frame = requestAnimationFrame(tick);
@@ -101,6 +111,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
         lastX: e.clientX,
         lastY: e.clientY,
         rect: null,
+        carry: 0,
       };
       // 捕获指针：拖出滚动区（含窗口外）时仍收得到移动与松开
       try { el.setPointerCapture(e.pointerId); } catch { /* 指针已不在 */ }
@@ -109,6 +120,11 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
 
     const onMove = (e: PointerEvent) => {
       if (!press || e.pointerId !== press.pointerId) return;
+      // 主键已经松开却没收到 pointerup（漏掉了）：就此结束，免得框一直跟着鼠标
+      if ((e.buttons & 1) === 0) {
+        finish();
+        return;
+      }
       press.lastX = e.clientX;
       press.lastY = e.clientY;
       if (!press.active) {
@@ -147,6 +163,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
     el.addEventListener("pointercancel", onUp);
+    el.addEventListener("lostpointercapture", finish);
     el.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("keydown", onKey, true);
     return () => {
@@ -155,6 +172,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
+      el.removeEventListener("lostpointercapture", finish);
       el.removeEventListener("scroll", onScroll);
       window.removeEventListener("keydown", onKey, true);
     };

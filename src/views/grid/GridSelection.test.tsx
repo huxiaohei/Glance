@@ -323,7 +323,7 @@ describe("GridView", () => {
       const { container, scroller } = setup();
       act(() => useSelection.getState().set(selectOnly(1)));
       fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
-      fireEvent.pointerMove(scroller, { clientX: 502, clientY: 102 }); // 不超过 4 px
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 502, clientY: 102 }); // 不超过 4 px
       flush();
       fireEvent.pointerUp(scroller, { clientX: 502, clientY: 102 });
       flush();
@@ -335,7 +335,7 @@ describe("GridView", () => {
       const { container, scroller } = setup();
       act(() => useSelection.getState().set(selectOnly(1)));
       fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
-      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 }); // 内容区 x 188..488 → 只碰到格子 2
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 }); // 内容区 x 188..488 → 只碰到格子 2
       flush();
       expect(ids()).toEqual([2]);
       expect(useSelection.getState().focus).toBe(2);
@@ -347,7 +347,7 @@ describe("GridView", () => {
       expect(box.style.width).toBe("300px");
       expect(box.style.height).toBe("40px");
 
-      fireEvent.pointerMove(scroller, { clientX: 100, clientY: 60 }); // 扩大到格子 1，还没到下一帧就松开
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 100, clientY: 60 }); // 扩大到格子 1，还没到下一帧就松开
       fireEvent.pointerUp(scroller, { clientX: 100, clientY: 60 });
       flush();
       expect(ids()).toEqual([1, 2]);
@@ -358,8 +358,8 @@ describe("GridView", () => {
       const { scroller } = setup();
       fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
       const set = vi.spyOn(useSelection.getState(), "set");
-      fireEvent.pointerMove(scroller, { clientX: 300, clientY: 60 });
-      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 300, clientY: 60 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
       expect(set).not.toHaveBeenCalled();
       flush();
       expect(set).toHaveBeenCalledTimes(1);
@@ -375,14 +375,14 @@ describe("GridView", () => {
       expect(ids()).toEqual([1]);
 
       fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100, metaKey: true });
-      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
       flush();
       expect(ids()).toEqual([1, 2]);
       fireEvent.pointerUp(scroller, { clientX: 200, clientY: 60 });
 
       act(() => useSelection.getState().set(selectOnly(1)));
       fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100, shiftKey: true });
-      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
       flush();
       expect(ids()).toEqual([1, 2]);
       fireEvent.pointerUp(scroller, { clientX: 200, clientY: 60 });
@@ -394,7 +394,7 @@ describe("GridView", () => {
       restore.push(() => window.removeEventListener("keydown", handleKeyDown));
       act(() => useSelection.getState().set(selectOnly(1)));
       fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
-      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
       flush();
       expect(ids()).toEqual([2]);
 
@@ -404,12 +404,87 @@ describe("GridView", () => {
       expect(useSelection.getState().focus).toBe(1);
       expect(marquee(container)).toBeNull();
       // 拖动已结束：之后的移动与松开不再改变选中，下一次 Esc 照常清空
-      fireEvent.pointerMove(scroller, { clientX: 100, clientY: 60 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 100, clientY: 60 });
       fireEvent.pointerUp(scroller, { clientX: 100, clientY: 60 });
       flush();
       expect(ids()).toEqual([1]);
       fireEvent.keyDown(scroller, { key: "Escape" });
       expect(ids()).toEqual([]);
+    });
+
+    it("不按 Mod/Shift 拖动、矩形只落在空白处：选中为空，focus 与 anchor 为 null", () => {
+      const { container, scroller } = setup();
+      act(() => useSelection.getState().set(selectOnly(1)));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 490, clientY: 110 }); // 内容区 x 478..488，第三列空着
+      flush();
+      expect(marquee(container)).not.toBeNull();
+      expect(ids()).toEqual([]);
+      expect(useSelection.getState().focus).toBeNull();
+      expect(useSelection.getState().anchor).toBeNull();
+    });
+
+    it("漏掉松开时（移动时主键已不在按下状态，或失去指针捕获）结束框选", () => {
+      const { container, scroller } = setup();
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([2]);
+      fireEvent.pointerMove(scroller, { buttons: 0, clientX: 100, clientY: 60 });
+      flush();
+      expect(marquee(container)).toBeNull();
+      expect(ids()).toEqual([2]);
+
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
+      flush();
+      expect(marquee(container)).not.toBeNull();
+      fireEvent(scroller, new Event("lostpointercapture"));
+      flush();
+      expect(marquee(container)).toBeNull();
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 100, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([2]);
+    });
+
+    describe("边缘自动滚动", () => {
+      // 30 张 → 10 行，总高 1944；视口高 400 → scrollTop 最大 1544。scrollTop 写入时像引擎一样舍去小数并夹紧
+      const setupTall = (initial: number) => {
+        open(null);
+        const { container } = render(<GridView />);
+        add(1, ...Array.from({ length: 30 }, (_, i) => i + 1));
+        const scroller = container.querySelector(".grid-scroll") as HTMLElement;
+        let top = initial;
+        Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => 1944 });
+        Object.defineProperty(scroller, "scrollTop", {
+          configurable: true,
+          get: () => top,
+          set: (v: number) => { top = Math.min(1544, Math.max(0, Math.floor(v))); },
+        });
+        return { scroller, top: () => top };
+      };
+
+      it("指针停在下边缘带外侧（速度不足 1 px/帧）：多帧后仍在前进，选中随之扩大", () => {
+        const { scroller, top } = setupTall(0);
+        fireEvent.pointerDown(scroller, { button: 0, clientX: 520, clientY: 100 }); // 内容区 x 508，第三列右侧空白
+        fireEvent.pointerMove(scroller, { buttons: 1, clientX: 100, clientY: 377 }); // 离下边缘 23 px → 2/3 px/帧
+        flush();
+        const firstCount = ids().length;
+        for (let i = 0; i < 60; i++) flush();
+        expect(top()).toBeGreaterThanOrEqual(39);
+        expect(ids().length).toBeGreaterThan(firstCount);
+        expect(frames.length).toBe(1); // 还在继续
+      });
+
+      it("滚到底后循环停止", () => {
+        const { scroller, top } = setupTall(1530);
+        fireEvent.pointerDown(scroller, { button: 0, clientX: 520, clientY: 100 });
+        fireEvent.pointerMove(scroller, { buttons: 1, clientX: 100, clientY: 399 });
+        for (let i = 0; i < 5 && frames.length > 0; i++) flush();
+        expect(top()).toBe(1544);
+        expect(frames.length).toBe(0);
+        expect(ids()).toContain(30); // 最后一行也被框进来
+      });
     });
 
     it("在格子、标题、滚动条上按下或用右键都不开始框选", () => {
@@ -423,7 +498,7 @@ describe("GridView", () => {
       for (const [el, button, clientX] of starts) {
         act(() => useSelection.getState().set(selectOnly(1)));
         fireEvent.pointerDown(el, { button, clientX, clientY: 100 });
-        fireEvent.pointerMove(scroller, { clientX: 20, clientY: 60 });
+        fireEvent.pointerMove(scroller, { buttons: 1, clientX: 20, clientY: 60 });
         flush();
         expect(marquee(container)).toBeNull();
         fireEvent.pointerUp(scroller, { clientX: 20, clientY: 60 });
