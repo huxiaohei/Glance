@@ -99,13 +99,26 @@ export function reportOp(r: OpReport, opts: ReportOpts = {}): void {
   });
 }
 
-/** 带加载提示调用后端；调用本身出错（不是操作结果里的失败项）时提示“操作失败”并返回 null。 */
+/** 正在等待后端应答的文件操作数（重命名可能与之重叠，所以是计数）。有操作进行时新的删除、撤销直接忽略：选中要等应答后才变，重复发出同一批 id
+ *  会全部失败，失败的提示还会盖掉成功的那条和它的撤销按钮。 */
+let inFlight = 0;
+
+export function isBusy(): boolean {
+  return inFlight > 0;
+}
+
+/** 带加载提示调用后端；已有操作在进行时什么都不做，返回 null。调用本身出错（不是操作结果里的失败项）时
+ *  提示“操作失败”并返回 null。 */
 async function call<T>(busyText: string, work: () => Promise<T>): Promise<T | null> {
+  if (inFlight > 0) return null;
+  inFlight++;
   try {
     return await withBusy(busyText, work());
   } catch {
     showToast({ text: errorText("other") });
     return null;
+  } finally {
+    inFlight--;
   }
 }
 
@@ -130,11 +143,15 @@ export async function undoLast(): Promise<void> {
 /** 成功或名字没变返回 null；否则返回错误码，供输入框就地显示。成功时走 reportOp（带撤销）。空名字等同没变。 */
 export async function renameTo(id: FileId, name: string): Promise<FsErrorCode | null> {
   if (name === "" || name === useCatalog.getState().entries.get(id)?.name) return null;
+  // 不受“进行中”拦截（输入框自己防重复提交），但运行期间占住它，删除、撤销不会与之重叠
   let r: OpReport;
+  inFlight++;
   try {
     r = await fsRename(id, name);
   } catch {
     return "other";
+  } finally {
+    inFlight--;
   }
   if (r.done.length === 0) return r.failed[0]?.code ?? "other";
   // 条目可能还没更新：提示里用新名字

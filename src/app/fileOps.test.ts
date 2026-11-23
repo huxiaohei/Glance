@@ -8,7 +8,7 @@ import { useListView } from "../stores/listView";
 import { useNav } from "../stores/nav";
 import { useSelection } from "../stores/selection";
 import { useToast } from "../stores/toast";
-import { errorText, opTargets, renameTo, reportOp, trashTargets, undoLast } from "./fileOps";
+import { errorText, isBusy, opTargets, renameTo, reportOp, trashTargets, undoLast } from "./fileOps";
 
 vi.mock("../ipc/api", () => ({ fsRename: vi.fn(), fsTrash: vi.fn(), fsUndo: vi.fn() }));
 
@@ -187,5 +187,74 @@ describe("renameTo", () => {
     vi.mocked(fsRename).mockRejectedValueOnce(new Error("ipc"));
     expect(await renameTo(1, "x.png")).toBe("other");
     expect(toast()).toBeNull();
+  });
+});
+
+describe("进行中的操作", () => {
+  /** 可手动完成的 Promise。 */
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  it("连续两次 trashTargets（不等第一次）只调用一次后端，只出一条提示", async () => {
+    const d = deferred<OpReport>();
+    vi.mocked(fsTrash).mockReturnValue(d.promise);
+    useSelection.getState().set(selectOnly(1));
+    const a = trashTargets();
+    const b = trashTargets();
+    await b;
+    expect(fsTrash).toHaveBeenCalledTimes(1);
+    expect(toast()).toBeNull();
+    d.resolve(report({ done: [1], token: 1 }));
+    await a;
+    expect(toast()?.text).toBe(t("fs.trash.one", { name: "one.png" }));
+    expect(action(t("fs.undo"))).toBeDefined();
+  });
+
+  it("连续两次 undoLast 只调用一次 fsUndo", async () => {
+    const d = deferred<{ kind: "trash"; done: number; failed: [] }>();
+    vi.mocked(fsUndo).mockReturnValue(d.promise);
+    const a = undoLast();
+    await undoLast();
+    d.resolve({ kind: "trash", done: 1, failed: [] });
+    await a;
+    expect(fsUndo).toHaveBeenCalledTimes(1);
+    expect(toast()?.text).toBe(t("fs.undo.done"));
+  });
+
+  it("第一次结束后（成功或抛错）新的调用照常进行", async () => {
+    useSelection.getState().set(selectOnly(1));
+    vi.mocked(fsTrash).mockResolvedValueOnce(report({ done: [1], token: 1 }));
+    await trashTargets();
+    vi.mocked(fsTrash).mockRejectedValueOnce(new Error("ipc"));
+    await trashTargets();
+    vi.mocked(fsTrash).mockResolvedValueOnce(report({ done: [1], token: 2 }));
+    await trashTargets();
+    expect(fsTrash).toHaveBeenCalledTimes(3);
+    vi.mocked(fsUndo).mockRejectedValueOnce(new Error("ipc"));
+    await undoLast();
+    vi.mocked(fsUndo).mockResolvedValueOnce({ kind: null, done: 0, failed: [] });
+    await undoLast();
+    expect(fsUndo).toHaveBeenCalledTimes(2);
+    expect(isBusy()).toBe(false);
+  });
+
+  it("重命名进行中时 trashTargets 不做事", async () => {
+    const d = deferred<OpReport>();
+    vi.mocked(fsRename).mockReturnValue(d.promise);
+    useSelection.getState().set(selectOnly(2));
+    const r = renameTo(1, "uno.png");
+    expect(isBusy()).toBe(true);
+    await trashTargets();
+    expect(fsTrash).not.toHaveBeenCalled();
+    d.resolve(report({ kind: "rename", done: [1], token: 5 }));
+    await expect(r).resolves.toBeNull();
+    expect(isBusy()).toBe(false);
   });
 });
