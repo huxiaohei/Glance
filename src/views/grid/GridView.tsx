@@ -1,21 +1,22 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { pickAndOpenFolder, useOpenError } from "../../app/openFolder";
+import { pickAndOpenFolder } from "../../app/openFolder";
 import { t } from "../../i18n";
-import { deriveList, type ListOptions } from "../../lib/deriveList";
+import { deriveList, dirTree } from "../../lib/deriveList";
 import { layoutGrid, type Row } from "../../lib/gridLayout";
+import { pickTier } from "../../lib/pickTier";
 import { useCatalog } from "../../stores/catalog";
+import { useListView } from "../../stores/listView";
+import DirTree from "./DirTree";
+import GridToolbar from "./GridToolbar";
 import GroupHeader from "./GroupHeader";
 import StatusBar from "./StatusBar";
 import ThumbCell from "./ThumbCell";
 import { useVisibleThumbs } from "./useVisibleThumbs";
 import "./grid.css";
 
-const CELL = 160;
-const TIER = 320;
 const PAD = 12; // 滚动区左右内边距
-// Task 7 接入真实的排序/目录筛选状态
-const LIST_OPTIONS: ListOptions = { sort: "name", includeSubdirs: true, dirFilter: null, collapsed: new Set() };
+const WHEEL_STEP = 16; // Cmd/Ctrl + 滚轮每格调整的格子大小
 
 /** 最后一个 top <= y 的标题行下标（rows 按 top 升序）。 */
 function pinnedHeader(rows: Row[], y: number): number {
@@ -33,11 +34,20 @@ export default function GridView() {
   const entries = useCatalog((s) => s.entries);
   const scanning = useCatalog((s) => s.scanning);
   const version = useCatalog((s) => s.version);
-  const openError = useOpenError((s) => s.error);
+  const sort = useListView((s) => s.sort);
+  const includeSubdirs = useListView((s) => s.includeSubdirs);
+  const dirFilter = useListView((s) => s.dirFilter);
+  const collapsed = useListView((s) => s.collapsed);
+  const cell = useListView((s) => s.cell);
   const generation = root?.generation;
+  const tier = pickTier(cell, window.devicePixelRatio);
 
-  // 派生列表按 catalog.version 缓存
-  const list = useMemo(() => deriveList(entries.values(), LIST_OPTIONS), [version]);
+  // 派生列表与目录树按 catalog.version（及各选项）缓存，滚动和缩略图事件不会触发重算
+  const list = useMemo(
+    () => deriveList(entries.values(), { sort, includeSubdirs, dirFilter, collapsed }),
+    [version, sort, includeSubdirs, dirFilter, collapsed],
+  );
+  const tree = useMemo(() => dirTree(entries.values()), [version]);
 
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -50,7 +60,7 @@ export default function GridView() {
     return () => ro.disconnect();
   }, [scroller]);
 
-  const layout = useMemo(() => layoutGrid(list, Math.max(0, size.width - PAD * 2), CELL), [list, size.width]);
+  const layout = useMemo(() => layoutGrid(list, Math.max(0, size.width - PAD * 2), cell), [list, size.width]);
 
   const virtualizer = useVirtualizer({
     count: layout.rows.length,
@@ -64,12 +74,26 @@ export default function GridView() {
   });
   // estimateSize 不在虚拟器的缓存依赖里：布局变化（换目录、列数变化）后须手动让它重算
   useLayoutEffect(() => virtualizer.measure(), [virtualizer, layout]);
-  // 打开新目录时回到顶部
+  // 排序、筛选、折叠、格子大小变化不回到顶部，只有换根目录才回到顶部
   useLayoutEffect(() => {
     if (scroller) scroller.scrollTop = 0;
   }, [scroller, generation]);
   const scrollTop = virtualizer.scrollOffset ?? 0;
-  useVisibleThumbs(layout, scrollTop, size.height, TIER);
+  useVisibleThumbs(layout, scrollTop, size.height, tier);
+
+  // Cmd/Ctrl + 滚轮调格子大小。React 的 onWheel 是被动监听，preventDefault 拦不住页面缩放，须手动挂非被动监听。
+  useEffect(() => {
+    if (!scroller) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      if (e.deltaY === 0) return;
+      const { cell: cur, setCell } = useListView.getState();
+      setCell(cur + (e.deltaY < 0 ? WHEEL_STEP : -WHEEL_STEP));
+    };
+    scroller.addEventListener("wheel", onWheel, { passive: false });
+    return () => scroller.removeEventListener("wheel", onWheel);
+  }, [scroller]);
 
   const openOther = useCallback(() => void pickAndOpenFolder(), []);
 
@@ -85,57 +109,60 @@ export default function GridView() {
     }
   }
 
-  const empty = !scanning && list.ids.length === 0;
+  const empty = !scanning && list.groups.length === 0;
   const total = list.groups.reduce((n, g) => n + g.total, 0);
+  // 不含子目录时列表为空，但当前范围内其实有下级图片：提示打开“包含子目录”
+  const hintSubdirs = empty && !includeSubdirs &&
+    (dirFilter === null ? tree.length > 0 : tree.some((n) => n.dir === dirFilter && n.total > n.count));
 
   return (
     <div className="grid-view">
-      <div className="grid-toolbar">
-        <span className="grid-root" title={root?.path}>{root?.name}</span>
-        {scanning && <span className="grid-scanning">{t("grid.scanning", { n: entries.size })}</span>}
-        {openError && <span className="grid-error">{t(`error.${openError}`)}</span>}
-        <span className="grid-spacer" />
-        <button type="button" onClick={openOther}>{t("grid.openOther")}</button>
-      </div>
+      <GridToolbar />
       <div className="grid-progress">{scanning && <div className="grid-progress-bar" />}</div>
-      {empty ? (
-        <div className="grid-empty">
-          <div>{t("grid.empty")}</div>
-          <button type="button" onClick={openOther}>{t("grid.openOther")}</button>
-        </div>
-      ) : (
-        <div className="grid-scroll" ref={setScroller}>
-          <div className="grid-pin">
-            {pinnedRow?.kind === "header" && (
-              <div className="grid-pin-inner" style={{ transform: `translateY(${push}px)` }}>
-                <GroupHeader dir={pinnedRow.dir} total={pinnedRow.total} />
+      <div className="grid-body">
+        <DirTree nodes={tree} total={entries.size} />
+        <div className="grid-main">
+          {empty ? (
+            <div className="grid-empty">
+              <div>{t("grid.empty")}</div>
+              {hintSubdirs && <div>{t("grid.emptyHintSubdirs")}</div>}
+              <button type="button" onClick={openOther}>{t("grid.openOther")}</button>
+            </div>
+          ) : (
+            <div className="grid-scroll" ref={setScroller}>
+              <div className="grid-pin">
+                {pinnedRow?.kind === "header" && (
+                  <div className="grid-pin-inner" style={{ transform: `translateY(${push}px)` }}>
+                    <GroupHeader dir={pinnedRow.dir} total={pinnedRow.total} collapsed={pinnedRow.count !== pinnedRow.total} />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div className="grid-canvas" style={{ height: virtualizer.getTotalSize() }}>
-            {virtualizer.getVirtualItems().map((v) => {
-              const row = layout.rows[v.index];
-              if (!row) return null;
-              return (
-                <div
-                  key={v.key}
-                  className={row.kind === "header" ? "grid-row grid-row-header" : "grid-row"}
-                  style={{ height: row.height, transform: `translateY(${row.top}px)` }}
-                >
-                  {row.kind === "header" ? (
-                    <GroupHeader dir={row.dir} total={row.total} />
-                  ) : (
-                    row.ids.map((id) => {
-                      const entry = entries.get(id);
-                      return entry ? <ThumbCell key={id} entry={entry} cell={CELL} /> : null;
-                    })
-                  )}
-                </div>
-              );
-            })}
-          </div>
+              <div className="grid-canvas" style={{ height: virtualizer.getTotalSize() }}>
+                {virtualizer.getVirtualItems().map((v) => {
+                  const row = layout.rows[v.index];
+                  if (!row) return null;
+                  return (
+                    <div
+                      key={v.key}
+                      className={row.kind === "header" ? "grid-row grid-row-header" : "grid-row"}
+                      style={{ height: row.height, transform: `translateY(${row.top}px)` }}
+                    >
+                      {row.kind === "header" ? (
+                        <GroupHeader dir={row.dir} total={row.total} collapsed={row.count !== row.total} />
+                      ) : (
+                        row.ids.map((id) => {
+                          const entry = entries.get(id);
+                          return entry ? <ThumbCell key={id} entry={entry} cell={cell} /> : null;
+                        })
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
       <StatusBar total={total} />
     </div>
   );

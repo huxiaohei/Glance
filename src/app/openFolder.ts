@@ -3,6 +3,7 @@ import { openPath, thumbsSubscribe } from "../ipc/api";
 import type { OpenErrorCode } from "../ipc/types";
 import { useCatalog } from "../stores/catalog";
 import { createThumbBatcher } from "../stores/thumbBatcher";
+import { useListView } from "../stores/listView";
 import { useThumbs } from "../stores/thumbs";
 import { create } from "zustand";
 import { createOpener } from "./openSession";
@@ -14,6 +15,7 @@ const opener = createOpener({
   openPath,
   begin: (info) => {
     useThumbs.getState().reset();
+    useListView.getState().resetForNewRoot(info.recursive);
     useCatalog.getState().begin(info);
   },
   apply: (e) => useCatalog.getState().apply(e),

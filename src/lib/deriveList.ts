@@ -18,6 +18,28 @@ export function toImageEntry(w: WireEntry): ImageEntry {
   };
 }
 
+const segmentsOf = (p: string): string[] => (p === "" ? [] : p.split("/"));
+
+function compareSegments(a: string[], b: string[]): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    const c = naturalCompare(a[i], b[i]);
+    if (c !== 0) return c;
+  }
+  return a.length - b.length;
+}
+
+/** 逐段自然比较 "/" 分隔的路径：父目录排在子目录前，"" 最先。分组顺序与目录树顺序共用它。 */
+export function comparePaths(a: string, b: string): number {
+  return compareSegments(segmentsOf(a), segmentsOf(b));
+}
+
+/** 按 comparePaths 排序；每个路径只拆分一次。 */
+function sortPaths(paths: string[]): string[] {
+  const segs = new Map(paths.map((p) => [p, segmentsOf(p)] as const));
+  return [...paths].sort((a, b) => compareSegments(segs.get(a)!, segs.get(b)!));
+}
+
 export type SortKey = "name" | "mtime" | "size";
 export interface ListOptions {
   sort: SortKey;
@@ -50,8 +72,7 @@ export function deriveList(entries: Iterable<ImageEntry>, opts: ListOptions): Im
     if (list) list.push(e); else byDir.set(e.dir, [e]);
   }
 
-  const dirs = [...byDir.keys()].sort((a, b) =>
-    a === b ? 0 : a === "" ? -1 : b === "" ? 1 : naturalCompare(a, b));
+  const dirs = sortPaths([...byDir.keys()]);
   const cmp = comparator(opts.sort);
   const ids: FileId[] = [];
   const groups: Group[] = [];
@@ -88,13 +109,5 @@ export function dirTree(entries: Iterable<ImageEntry>): DirNode[] {
     }
   }
   // 逐段比较，保证子目录紧跟父目录（深度优先）
-  return [...nodes.values()].sort((a, b) => {
-    const pa = a.dir.split("/");
-    const pb = b.dir.split("/");
-    for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
-      const c = naturalCompare(pa[i], pb[i]);
-      if (c !== 0) return c;
-    }
-    return pa.length - pb.length;
-  });
+  return sortPaths([...nodes.keys()]).map((dir) => nodes.get(dir)!);
 }

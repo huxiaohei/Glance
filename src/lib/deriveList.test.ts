@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveList, dirTree, toImageEntry, type ListOptions } from "./deriveList";
+import { comparePaths, deriveList, dirTree, toImageEntry, type ListOptions } from "./deriveList";
 
 const e = (id: number, relPath: string, size = 1, mtimeMs = 0) => toImageEntry({ id, relPath, size, mtimeMs });
 const base: ListOptions = { sort: "name", includeSubdirs: true, dirFilter: null, collapsed: new Set() };
@@ -73,5 +73,21 @@ describe("dirTree", () => {
       { dir: "蜀国/五虎", name: "五虎", depth: 1, count: 1, total: 1 },
       { dir: "魏国", name: "魏国", depth: 0, count: 1, total: 1 },
     ]);
+  });
+});
+
+describe("comparePaths", () => {
+  it("逐段比较：父目录在前、子目录紧随，根最先", () => {
+    expect(["蜀国/五虎", "蜀国 2", "蜀国", ""].sort(comparePaths)).toEqual(["", "蜀国", "蜀国/五虎", "蜀国 2"]);
+  });
+
+  it("deriveList 的分组顺序与之一致", () => {
+    const list = deriveList(
+      [e(1, "蜀国 2/a.png"), e(2, "蜀国/五虎/b.png"), e(3, "蜀国/c.png"), e(4, "d.png")],
+      base,
+    );
+    expect(list.groups.map((g) => g.dir)).toEqual(["", "蜀国", "蜀国/五虎", "蜀国 2"]);
+    expect(dirTree([e(1, "蜀国 2/a.png"), e(2, "蜀国/五虎/b.png")]).map((n) => n.dir))
+      .toEqual(["蜀国", "蜀国/五虎", "蜀国 2"]);
   });
 });
