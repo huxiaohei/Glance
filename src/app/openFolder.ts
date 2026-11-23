@@ -49,6 +49,17 @@ interface OpenOpts { keepView?: boolean; restore?: boolean }
 // 等待汇报送达的打开不会被随后无需等待的打开（包括刷新）抢先。队列从不拒绝。
 let queue: Promise<void> = Promise.resolve();
 
+/** 换目录前等待汇报送达的上限：后端迟迟不答也照常打开（这次汇报可能因代号已变被丢弃）。 */
+const FLUSH_WAIT_MS = 500;
+
+/** 送出待发的汇报，最多等 FLUSH_WAIT_MS；flushRecents 抛错或拒绝都当作已完成。从不拒绝。 */
+function flushBounded(): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((r) => { timer = setTimeout(r, FLUSH_WAIT_MS); });
+  const flushed = Promise.resolve().then(flushRecents).catch(() => {});
+  return Promise.race([flushed, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function openWith(
   path: string,
   recursive: boolean | undefined,
@@ -57,9 +68,11 @@ async function openWith(
   const rec = recursive ?? useSettings.getState().settings.includeSubdirs;
   const keepView = opts?.keepView === true;
   // 换目录之前先把当前目录待发的浏览状态送达后端（新会话开始后，带旧代号的汇报会被丢弃）；刷新同一目录不用
-  const turn = (queue = queue.then(() => (keepView ? undefined : flushRecents())));
+  const turn = queue.then(() => (keepView ? undefined : flushBounded()));
+  // 队列只接在“不拒绝”的版本上：某一轮出错也不会让之后的打开全部失败
+  queue = turn.catch(() => {});
   try {
-    await turn;
+    await turn.catch(() => {});
     const restore = !keepView && opts?.restore === true;
     const tag = keepView ? { keepView } : { sort: opts?.sort, restore };
     const result = await opener(path, rec, tag, restore);

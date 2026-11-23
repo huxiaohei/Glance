@@ -4,8 +4,10 @@ import type { SortKey } from "../lib/deriveList";
 
 type Note = { generation: number; count: number; first: FileId[]; last: FileId | null; sort: SortKey; includeSubdirs: boolean };
 const recentsNote = vi.fn<(note: Note) => Promise<void>>();
+const thumbsWant = vi.fn<(consumer: string, ids: FileId[], tier: number) => Promise<unknown>>();
 vi.mock("../ipc/api", () => ({
   recentsNote: (n: Note) => recentsNote(n),
+  thumbsWant: (c: string, ids: FileId[], tier: number) => thumbsWant(c, ids, tier),
 }));
 
 const { flushRecents, startRecentsSync } = await import("./recentsSync");
@@ -29,6 +31,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   recentsNote.mockReset();
   recentsNote.mockResolvedValue(undefined);
+  thumbsWant.mockReset();
+  thumbsWant.mockResolvedValue([]);
   useCatalog.getState().reset();
   useNav.getState().reset();
   useSelection.getState().clear();
@@ -156,5 +160,44 @@ describe("recentsSync", () => {
     useListView.getState().setSort("size");
     await expect(flushRecents()).resolves.toBeUndefined();
     expect(recentsNote).toHaveBeenCalledTimes(2);
+  });
+
+  it("flushRecents 也等已经发出、尚未落定的汇报（定时器已到点）", async () => {
+    let resolve!: () => void;
+    recentsNote.mockReturnValueOnce(new Promise<void>((r) => { resolve = r; }));
+    open(1, 5);
+    vi.advanceTimersByTime(1000);
+    expect(recentsNote).toHaveBeenCalledTimes(1);
+    let done = false;
+    const p = flushRecents().then(() => { done = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(done).toBe(false);
+    expect(recentsNote).toHaveBeenCalledTimes(1);
+    resolve();
+    await p;
+    expect(done).toBe(true);
+    // 落定后不再等
+    await expect(flushRecents()).resolves.toBeUndefined();
+  });
+
+  it("汇报带前几张图时同时请求它们的 320 档缩略图，供启动页显示", () => {
+    open(1, 5);
+    vi.advanceTimersByTime(1000);
+    expect(thumbsWant).toHaveBeenCalledTimes(1);
+    expect(thumbsWant).toHaveBeenCalledWith("recents", [1, 2, 3, 4], 320);
+  });
+
+  it("没有图时不请求缩略图；请求失败不影响汇报", async () => {
+    open(1, 0);
+    vi.advanceTimersByTime(1000);
+    expect(recentsNote).toHaveBeenCalledTimes(1);
+    expect(thumbsWant).not.toHaveBeenCalled();
+    thumbsWant.mockRejectedValue(new Error("boom"));
+    open(2, 3);
+    vi.advanceTimersByTime(1000);
+    expect(thumbsWant).toHaveBeenCalledWith("recents", [1, 2, 3], 320);
+    expect(recentsNote).toHaveBeenCalledTimes(2);
+    await Promise.resolve();
   });
 });

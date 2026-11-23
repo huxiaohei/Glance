@@ -14,6 +14,12 @@ vi.mock("../ipc/api", () => ({
   settingsSet: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+// flushRecents 默认走真实实现；测试可临时换成抛错或拒绝的替身
+const flushImpl = vi.hoisted(() => ({ current: null as null | (() => Promise<void>) }));
+vi.mock("./recentsSync", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./recentsSync")>();
+  return { ...real, flushRecents: () => (flushImpl.current ? flushImpl.current() : real.flushRecents()) };
+});
 
 const { openFolder, openRecent, refreshFolder } = await import("./openFolder");
 const { startRecentsSync } = await import("./recentsSync");
@@ -35,6 +41,7 @@ beforeEach(() => {
   recentsNote.mockReset();
   recentsNote.mockResolvedValue(undefined);
   log.length = 0;
+  flushImpl.current = null;
   useListView.setState({ sort: "name" });
   useSettings.setState({ settings: DEFAULT_SETTINGS });
   useToast.setState({ current: null });
@@ -204,6 +211,47 @@ describe("最近目录的汇报与读取", () => {
     } finally {
       stop();
     }
+  });
+
+  it("汇报一直不落定时，最多等 500 ms 就照常打开", async () => {
+    let hung = () => {};
+    vi.useFakeTimers();
+    const stop = startRecentsSync();
+    try {
+      resolveScanned(1);
+      await openFolder("/real/dir");
+      useListView.getState().setSort("size");
+      const note = deferred();   // 测试结束时才落定，免得悬着的汇报拖慢后面的测试
+      hung = note.resolve;
+      recentsNote.mockReturnValueOnce(note.promise);
+      openPath.mockResolvedValueOnce(info(2, "other"));
+      const p = openFolder("/other");
+      await vi.advanceTimersByTimeAsync(499);
+      expect(recentsNote).toHaveBeenCalledTimes(1);
+      expect(openPath).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await p).toBeNull();
+      expect(openPath).toHaveBeenCalledTimes(2);
+      expect(openPath.mock.calls[1][0]).toBe("/other");
+    } finally {
+      stop();
+      hung();
+      vi.useRealTimers();
+    }
+  });
+
+  it("flush 抛错或拒绝时照常打开，之后的打开也不受影响", async () => {
+    flushImpl.current = () => { throw new Error("sync boom"); };
+    openPath.mockResolvedValueOnce(info(1, "a"));
+    expect(await openFolder("/a")).toBeNull();
+    flushImpl.current = () => Promise.reject(new Error("async boom"));
+    openPath.mockResolvedValueOnce(info(2, "b"));
+    expect(await openFolder("/b")).toBeNull();
+    flushImpl.current = null;
+    openPath.mockResolvedValueOnce(info(3, "c"));
+    expect(await openFolder("/c")).toBeNull();
+    expect(openPath.mock.calls.map((c) => c[0])).toEqual(["/a", "/b", "/c"]);
+    expect(useCatalog.getState().root?.generation).toBe(3);
   });
 
   it("刷新（keepView）不带 restore，也不 flush", async () => {
