@@ -5,6 +5,9 @@
   --accent: #4C9AFF;
   --text: #D4D4D4;
   --text-dim: #8A8A8A;
+  --danger: #E5534B;
+  --scrim: rgba(0, 0, 0, 0.5);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   --radius-thumb: 6px;
   --radius: 8px;
   --gap: 8px;

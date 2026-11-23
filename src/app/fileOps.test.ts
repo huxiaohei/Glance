@@ -143,10 +143,10 @@ describe("undoLast", () => {
   });
 
   it("undoLast：restoreDenied 的说明里提到从废纸篓手动恢复", async () => {
-    vi.mocked(fsUndo).mockResolvedValue({ kind: "trash", done: 1, failed: ["restoreDenied"] });
+    vi.mocked(fsUndo).mockResolvedValue({ kind: "trash", done: 1, failed: [{ name: "a.png", code: "restoreDenied" }] });
     await undoLast();
     expect(toast()?.text).toBe(t("fs.undo.partial", { m: 1 }));
-    expect(toast()?.details).toEqual([errorText("restoreDenied")]);
+    expect(toast()?.details).toEqual([t("fs.detailLine", { name: "a.png", reason: errorText("restoreDenied") })]);
     expect(errorText("restoreDenied")).toMatch(/废纸篓手动恢复|from the Trash manually/);
   });
 

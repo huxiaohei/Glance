@@ -23,7 +23,7 @@
 }
 
 .rename-input[aria-invalid="true"] {
-  border-color: var(--text-dim);
+  border-color: var(--danger);
 }
 
 .rename-input[readonly] {

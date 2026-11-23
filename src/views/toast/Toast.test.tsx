@@ -84,6 +84,19 @@ describe("Toast", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
+  it("动作抛错时提示照样关闭", () => {
+    render(<Toast />);
+    act(() => { showToast({ text: "已移动", actions: [{ label: "撤销", run: () => { throw new Error("boom"); } }] }); });
+    const onError = vi.fn((e: ErrorEvent) => e.preventDefault());
+    window.addEventListener("error", onError);
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "撤销" }));
+    } finally {
+      window.removeEventListener("error", onError);
+    }
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("关闭按钮关闭提示", () => {
     render(<Toast />);
     act(() => { showToast({ text: "x" }); });

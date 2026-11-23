@@ -54,8 +54,11 @@ export default function Toast() {
             type="button"
             className="toast-btn"
             onClick={() => {
-              a.run();
-              dismissToast(current.key);
+              try {
+                a.run();
+              } finally {
+                dismissToast(current.key);
+              }
             }}
           >
             {a.label}

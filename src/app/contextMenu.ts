@@ -1,5 +1,6 @@
 import { t } from "../i18n";
 import { fsRecentTargets } from "../ipc/api";
+import { lastSegment } from "../lib/lastSegment";
 import { topView } from "../stores/nav";
 import { allCommands } from "./commands";
 import { opTargets, pickAndTransfer, transferTo, transferToNewChild, type TransferKind } from "./fileOps";
@@ -26,12 +27,6 @@ function commandItem(id: string, enabled: boolean): MenuNode[] {
       run: () => cmd.run({ shift: false, repeat: false }),
     },
   ];
-}
-
-/** 最后一级目录名，两种分隔符都认，忽略结尾的分隔符 */
-function lastSegment(path: string): string {
-  const parts = path.split(/[/\\]/).filter((s) => s !== "");
-  return parts.length > 0 ? parts[parts.length - 1] : path;
 }
 
 function transferSubmenu(kind: TransferKind, recent: string[]): MenuNode {

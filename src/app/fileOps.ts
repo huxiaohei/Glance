@@ -2,6 +2,7 @@ import { t } from "../i18n";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { clipboardCopyImage, clipboardCopyPaths, fsCopy, fsMove, fsRename, fsTrash, fsUndo, reveal } from "../ipc/api";
 import type { Dest, FileId, FsErrorCode, OpKind, OpReport } from "../ipc/types";
+import { lastSegment } from "../lib/lastSegment";
 import { useCatalog } from "../stores/catalog";
 import { topView } from "../stores/nav";
 import { useSelection } from "../stores/selection";
@@ -55,11 +56,9 @@ const GENERIC: KindTexts = {
   allFailed: (r) => t("fs.failMany", { m: r.failed.length }),
 };
 
-/** 目录的最后一级名字，两种分隔符都认，忽略结尾的分隔符；没有目录时为空 */
+/** 目标目录的最后一级名字；没有目录时为空 */
 function dirName(dest: string | null): string {
-  if (!dest) return "";
-  const parts = dest.split(/[/\\]/).filter((s) => s !== "");
-  return parts.length > 0 ? parts[parts.length - 1] : dest;
+  return dest ? lastSegment(dest) : "";
 }
 
 const isExists = (f: { code: FsErrorCode }) => f.code === "exists";
@@ -168,7 +167,10 @@ export async function undoLast(): Promise<void> {
   if (!r) return;
   if (r.kind === null) showToast({ text: t("fs.undo.nothing") });
   else if (r.failed.length === 0) showToast({ text: t("fs.undo.done") });
-  else showToast({ text: t("fs.undo.partial", { m: r.failed.length }), details: r.failed.map(errorText) });
+  else {
+    const details = r.failed.map((f) => t("fs.detailLine", { name: f.name, reason: errorText(f.code) }));
+    showToast({ text: t("fs.undo.partial", { m: r.failed.length }), details });
+  }
 }
 
 /** 成功或名字没变返回 null；否则返回错误码，供输入框就地显示。成功时走 reportOp（带撤销）。空名字等同没变。 */

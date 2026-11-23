@@ -42,4 +42,6 @@ export type OpKind = "trash" | "rename" | "move" | "copy";
 export interface OpReport { kind: OpKind; done: FileId[]; failed: { id: FileId; code: FsErrorCode }[]; token: number | null; dest: string | null }
 export type Dest = { kind: "path"; path: string } | { kind: "newChild"; name: string };
 export type Conflict = "skip" | "keepBoth";
-export interface UndoReport { kind: OpKind | null; done: number; failed: FsErrorCode[] }
+/** 撤销失败的一步：name 只是文件名（最后一级），不是路径 */
+export interface UndoFailure { name: string; code: FsErrorCode }
+export interface UndoReport { kind: OpKind | null; done: number; failed: UndoFailure[] }
