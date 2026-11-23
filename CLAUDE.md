@@ -30,7 +30,8 @@ cargo test -p glance --test trash_roundtrip -- --ignored                  # 废�
 ## 工程结构
 
 - Cargo 工作区：`src-tauri`（包名 `glance`，库名 `glance_lib`）、`crates/glance-imaging`（纯图片库，不依赖 Tauri）、`tools/gen-fixtures`。
-- 前端在 `src/`：`lib/` 放纯函数，`lab/` 是实验面板，`i18n/` 是界面文字。
+- 前端在 `src/`：`app/` 打开流程，`ipc/` 通信封装，`stores/` 状态（zustand），`lib/` 纯函数，`views/` 视图，`lab/` 实验面板，`i18n/` 界面文字。
+- 后端事件可能先于命令应答到达前端，也可能有上一次打开的迟到事件：前端按 `generation` 丢弃过期事件，`openSession` 负责缓冲。
 - 包管理器只用 npm；Tauri CLI 通过 `npm run tauri` 调用。
 
 ## 硬性约束
@@ -54,4 +55,6 @@ cargo test -p glance --test trash_roundtrip -- --ignored                  # 废�
 
 ## 当前进度
 
-M0 的任务 1 到 6 已完成（工程骨架、样张生成器、文件登记与协议、废纸篓、拖拽实验页、编码器）。启动页的“打开目录”和拖入目录尚未实现，属于 V0.1。
+- M0：任务 1 到 6 完成；任务 7（CI、出包、更新）和任务 8 的 Windows 部分未做，等待推送许可。
+- V0.1-A1 完成：打开目录、分组缩略图网格、排序筛选、目录树。
+- 下一步：V0.1-A2（目录监听、选中与多选、键盘导航、命令表）。写计划前先读 `docs/plans/后续事项.md`。
