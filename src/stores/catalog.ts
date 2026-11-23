@@ -7,6 +7,7 @@ export interface CatalogState {
   entries: Map<FileId, ImageEntry>;
   scanning: boolean;
   watchFailed: boolean;                 // 后端无法监听当前目录；begin、reset 时清除
+  rootGone: boolean;                    // 根目录已被移走或删除；begin、reset 时清除
   version: number;                      // 每次 entries 变化加一（含尺寸补全），供格子占位比例用
   listVersion: number;                  // 仅在条目集合变化（begin/reset/非空批次/删除/改名）时加一，供列表与目录树派生缓存用
   /** 进入扫描中。keep 为真（刷新）时保留现有条目，扫描结束时移除没有再出现的。 */
@@ -34,6 +35,7 @@ export const useCatalog = create<CatalogState>((set) => ({
   entries: new Map(),
   scanning: false,
   watchFailed: false,
+  rootGone: false,
   version: 0,
   listVersion: 0,
 
@@ -41,7 +43,7 @@ export const useCatalog = create<CatalogState>((set) => ({
     set((s) => {
       if (opts?.keep) {
         stale = new Set(s.entries.keys());
-        return { root, scanning: true, watchFailed: false, version: s.version + 1 };
+        return { root, scanning: true, watchFailed: false, rootGone: false, version: s.version + 1 };
       }
       stale = new Set();
       return {
@@ -49,6 +51,7 @@ export const useCatalog = create<CatalogState>((set) => ({
         entries: new Map(),
         scanning: true,
         watchFailed: false,
+        rootGone: false,
         version: s.version + 1,
         listVersion: s.listVersion + 1,
       };
@@ -114,6 +117,8 @@ export const useCatalog = create<CatalogState>((set) => ({
         }
         case "watchFailed":
           return s.watchFailed ? s : { watchFailed: true };
+        case "rootGone":
+          return s.rootGone ? s : { rootGone: true };
       }
     }),
 
@@ -125,6 +130,7 @@ export const useCatalog = create<CatalogState>((set) => ({
         entries: new Map(),
         scanning: false,
         watchFailed: false,
+        rootGone: false,
         version: s.version + 1,
         listVersion: s.listVersion + 1,
       };

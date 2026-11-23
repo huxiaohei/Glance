@@ -31,6 +31,8 @@ pub enum CatalogEvent {
     Renamed { generation: u32, items: Vec<RenamedItem> },
     /// 目录监听启动失败或中途失效，网格不再自动跟随磁盘变化。
     WatchFailed { generation: u32 },
+    /// 根目录本身已被移走或删除。每个会话至多一次，排在让条目消失的那批事件之后。
+    RootGone { generation: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -139,6 +141,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&CatalogEvent::WatchFailed { generation: 3 }).unwrap(),
             r#"{"type":"watchFailed","generation":3}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&CatalogEvent::RootGone { generation: 3 }).unwrap(),
+            r#"{"type":"rootGone","generation":3}"#
         );
     }
 }

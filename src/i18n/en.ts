@@ -9,6 +9,7 @@ export const en: Record<MessageKey, string> = {
   "status.watchFailed": "Can't watch this folder for changes. Press F5 to refresh.",
   "status.selected": "{n} selected",
   "grid.empty": "No images in this folder",
+  "grid.rootGone": "This folder was moved or deleted",
   "grid.emptyHintSubdirs": "Try turning on “Include subfolders”",
   "grid.openOther": "Open Another Folder",
   "grid.rootGroup": "Root",

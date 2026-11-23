@@ -1182,6 +1182,49 @@ mod tests {
     }
 
     /// 临时目录所在的卷不区分大小写（macOS 默认的 APFS、Windows 的 NTFS）。
+    // 文件操作之后会立即投递提示，约 300 ms 后监听器再把同一变化报一遍：第二遍不应产生任何结果
+    fn repeat(f: &mut Fixture, mut all: Vec<FsHint>) -> Changes {
+        all.push(FsHint::Listed(f.root.clone()));
+        f.reconciler.apply(&all, &f.registry)
+    }
+
+    #[test]
+    fn repeating_an_applied_rename_yields_nothing() {
+        let mut f = Fixture::new(&["a.png"], true);
+        let id = f.id("a.png");
+        fs::rename(f.p("a.png"), f.p("b.png")).unwrap();
+        assert_eq!(f.renamed("a.png", "b.png").renamed.len(), 1);
+        let hints = vec![
+            FsHint::Renamed { from: f.p("a.png"), to: f.p("b.png") },
+            FsHint::Touched(f.p("a.png")),
+            FsHint::Touched(f.p("b.png")),
+        ];
+        let again = repeat(&mut f, hints);
+        assert!(again.is_empty(), "{again:?}");
+        assert_eq!(f.registry.path(FileId(id)), Some(f.p("b.png")));
+    }
+
+    #[test]
+    fn repeating_an_applied_removal_yields_nothing() {
+        let mut f = Fixture::new(&["a.png", "b.png"], true);
+        let id = f.id("a.png");
+        fs::remove_file(f.p("a.png")).unwrap();
+        assert_eq!(f.touch("a.png").removed, vec![id]);
+        let hints = vec![FsHint::Touched(f.p("a.png"))];
+        let again = repeat(&mut f, hints);
+        assert!(again.is_empty(), "{again:?}");
+    }
+
+    #[test]
+    fn repeating_an_applied_creation_yields_nothing() {
+        let mut f = Fixture::new(&["a.png"], true);
+        write(&f.root, "new.png", 5);
+        assert_eq!(rels(&f.touch("new.png")), vec!["new.png"]);
+        let hints = vec![FsHint::Touched(f.p("new.png"))];
+        let again = repeat(&mut f, hints);
+        assert!(again.is_empty(), "{again:?}");
+    }
+
     fn case_insensitive_volume() -> bool {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("a"), b"").unwrap();

@@ -3,12 +3,15 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 use super::details::display_size;
 use super::events::{CatalogEvent, Dim, Entry, OpenError};
+use super::reconcile::FsHint;
 use super::registry::Registry;
 use super::scan::{Stamp, is_image_path, scan};
+use super::watch::SessionMsg;
 
 #[derive(Debug, PartialEq)]
 pub struct OpenTarget {
@@ -184,6 +187,8 @@ struct Current {
     /// 见过的最大请求序号。
     seen: u64,
     cancel: Option<Arc<AtomicBool>>,
+    /// 当前会话的根目录与收件口（attach 之后才有）。
+    attached: Option<(PathBuf, Sender<SessionMsg>)>,
 }
 
 /// 管理“当前这一次打开”。
@@ -198,6 +203,7 @@ impl Default for Sessions {
                 generation: 0,
                 seen: 0,
                 cancel: None,
+                attached: None,
             }),
         }
     }
@@ -221,10 +227,35 @@ impl Sessions {
         if let Some(prev) = cur.cancel.take() {
             prev.store(true, Ordering::Relaxed);
         }
+        cur.attached = None;
         cur.generation += 1;
         let cancel = Arc::new(AtomicBool::new(false));
         cur.cancel = Some(cancel.clone());
         Some((cur.generation, cancel))
+    }
+
+    /// begin 之后调用：记下当前会话的根目录与收件口。下一次 begin 时清掉。
+    /// `generation` 已不是当前会话（期间又有新的 begin）时忽略。
+    pub fn attach(&self, generation: u32, root: PathBuf, tx: Sender<SessionMsg>) {
+        let mut cur = self.current.lock().unwrap();
+        if cur.generation == generation && cur.cancel.is_some() {
+            cur.attached = Some((root, tx));
+        }
+    }
+
+    /// 当前会话的根目录；没有会话返回 None。
+    pub fn root(&self) -> Option<PathBuf> {
+        let cur = self.current.lock().unwrap();
+        cur.attached.as_ref().map(|(root, _)| root.clone())
+    }
+
+    /// 把提示投给当前会话；没有会话或会话已结束时什么都不做。
+    pub fn hint(&self, hints: Vec<FsHint>) {
+        let cur = self.current.lock().unwrap();
+        if let Some((_, tx)) = &cur.attached {
+            // 会话线程已退出时发送失败，不是错误
+            let _ = tx.send(SessionMsg::Hints(hints));
+        }
     }
 }
 
@@ -498,5 +529,49 @@ mod tests {
         s.note(7);
         assert!(s.begin(6).is_none());
         assert!(!cancel.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn hint_before_attach_or_after_next_begin_is_dropped() {
+        use crate::catalog::reconcile::FsHint;
+        use crate::catalog::watch::SessionMsg;
+        use std::sync::mpsc::channel;
+
+        let hints = || vec![FsHint::Touched(PathBuf::from("/r/a.png"))];
+        let received = |rx: &std::sync::mpsc::Receiver<SessionMsg>| {
+            rx.try_iter()
+                .filter(|m| matches!(m, SessionMsg::Hints(h) if *h == hints()))
+                .count()
+        };
+        let s = Sessions::default();
+        assert_eq!(s.root(), None);
+        s.hint(hints()); // 没有会话：什么都不做
+
+        s.note(1);
+        let (g1, _) = s.begin(1).unwrap();
+        let (tx, rx) = channel();
+        s.hint(hints());
+        assert_eq!(received(&rx), 0, "attach 之前的提示应丢弃");
+
+        s.attach(g1, PathBuf::from("/r"), tx.clone());
+        assert_eq!(s.root(), Some(PathBuf::from("/r")));
+        s.hint(hints());
+        assert_eq!(received(&rx), 1);
+
+        s.note(2);
+        let (g2, _) = s.begin(2).unwrap();
+        assert_eq!(s.root(), None, "下一次 begin 清掉上一次的根目录");
+        s.hint(hints());
+        assert_eq!(received(&rx), 0, "下一次 begin 之后不再投给旧会话");
+
+        // 过期的 attach 被忽略
+        s.attach(g1, PathBuf::from("/old"), tx.clone());
+        assert_eq!(s.root(), None);
+        let (tx2, rx2) = channel();
+        s.attach(g2, PathBuf::from("/r2"), tx2);
+        s.hint(hints());
+        assert_eq!(received(&rx), 0);
+        assert_eq!(received(&rx2), 1);
+        assert_eq!(s.root(), Some(PathBuf::from("/r2")));
     }
 }

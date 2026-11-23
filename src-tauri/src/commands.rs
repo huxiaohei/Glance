@@ -11,7 +11,7 @@ use crate::catalog::events::{CatalogEvent, OpenError, RootInfo};
 use crate::catalog::registry::FileId;
 use crate::catalog::registry::Registry;
 use crate::catalog::session::{Sessions, resolve_open_target, root_display_name};
-use crate::catalog::watch::serve;
+use crate::catalog::watch::{SessionMsg, serve};
 use crate::thumbs::{ThumbEvent, Thumbs, Tier};
 
 /// 打开目录或图片文件。扫描与之后的目录监听在一条专属的会话线程里进行，
@@ -55,6 +55,10 @@ pub async fn open_path(
         focus,
     };
 
+    // 会话的收件口：监听器与之后的文件操作（经 Sessions::hint）都往这里投递。
+    let (tx, rx) = std::sync::mpsc::channel::<SessionMsg>();
+    sessions.attach(generation, target.root.clone(), tx.clone());
+
     // 会话线程长期存活（监听直到下一次打开），不占 spawn_blocking 的线程池，
     // 也不占主线程或异步运行时的核心线程。
     let registry = Arc::clone(&registry);
@@ -66,6 +70,7 @@ pub async fn open_path(
                 target,
                 registry,
                 cancel,
+                (tx, rx),
                 Box::new(move |event| {
                     // webview 可能已经消失，发送失败不是错误。
                     let _ = on_event.send(event);

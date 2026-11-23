@@ -174,6 +174,19 @@ describe("catalog store", () => {
     expect(useCatalog.getState().watchFailed).toBe(false);
   });
 
+  it("rootGone 置位，begin 后清除", () => {
+    seed();
+    useCatalog.getState().apply({ type: "rootGone", generation: 0 });
+    expect(useCatalog.getState().rootGone).toBe(false);
+    useCatalog.getState().apply({ type: "rootGone", generation: 1 });
+    expect(useCatalog.getState().rootGone).toBe(true);
+    useCatalog.getState().begin(root(2));
+    expect(useCatalog.getState().rootGone).toBe(false);
+    useCatalog.getState().apply({ type: "rootGone", generation: 2 });
+    useCatalog.getState().reset();
+    expect(useCatalog.getState().rootGone).toBe(false);
+  });
+
   it("过期 generation 的 removed、renamed、watchFailed 被丢弃", () => {
     seed();
     const s = useCatalog.getState();

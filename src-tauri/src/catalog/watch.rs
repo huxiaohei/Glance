@@ -1,11 +1,11 @@
 //! 目录监听：一次打开的完整生命周期——启动监听、扫描、补尺寸，然后把去抖后的
-//! 监听事件交给比对器，推送得出的变化。
+//! 监听事件与外部投递的路径提示交给比对器，推送得出的变化。
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use notify_debouncer_full::notify::event::{EventKind, ModifyKind, RenameMode};
@@ -122,12 +122,21 @@ pub fn emit_changes(generation: u32, changes: Changes, emit: &dyn Fn(CatalogEven
 
 type Watcher = Debouncer<RecommendedWatcher, RecommendedCache>;
 
-/// 启动去抖监听；回调线程只把结果转进通道，比对在会话线程里做。
+/// 会话线程收件口里的消息：监听器的去抖结果，或外部（文件操作之后）投递的路径提示。
+pub enum SessionMsg {
+    Watch(DebounceEventResult),
+    Hints(Vec<FsHint>),
+}
+
+/// 启动去抖监听；回调线程只把结果包成 [`SessionMsg::Watch`] 转进通道，比对在会话线程里做。
 fn start_watcher(
     target: &OpenTarget,
-    tx: Sender<DebounceEventResult>,
+    tx: Sender<SessionMsg>,
 ) -> notify_debouncer_full::notify::Result<Watcher> {
-    let mut debouncer = new_debouncer(DEBOUNCE, None, tx)?;
+    let mut debouncer = new_debouncer(DEBOUNCE, None, move |result| {
+        // 会话线程已退出时发送失败，不是错误
+        let _ = tx.send(SessionMsg::Watch(result));
+    })?;
     let mode = if target.recursive {
         RecursiveMode::Recursive
     } else {
@@ -138,18 +147,22 @@ fn start_watcher(
 }
 
 /// 一次打开的完整生命周期，在调用方提供的专属线程里运行直到 cancel 置位：
-/// 1. 启动监听（失败则发 WatchFailed，后面照常扫描）；事件先进通道排队
+/// 1. 启动监听（失败则发 WatchFailed，后面照常扫描）；监听事件先进收件口排队
 /// 2. session::run（扫描、Done、补尺寸）
-/// 3. 循环：从通道取事件（每 200 ms 检查一次 cancel）→ hints_from → Reconciler::apply → emit_changes
+/// 3. 循环：从收件口取消息（每 200 ms 检查一次 cancel），监听结果经 hints_from 与外部投递的
+///    提示合成一批 → Reconciler::apply → emit_changes
 ///
+/// 收件口由调用方创建（`inbox` 的发送端另有一份交给 `Sessions`，供文件操作投递提示）。
 /// 监听器本身报错（Err 批次）时发一次 WatchFailed 并继续，同时整棵重扫一次，
-/// 补上可能丢掉的事件。cancel 后丢弃监听器并返回；监听没能启动时扫描完即返回。
+/// 补上可能丢掉的事件。监听没能启动时照样等外部提示，直到 cancel；cancel 后丢弃监听器并返回。
+/// 某批让条目消失、且根目录已不存在时，在这批事件之后发 RootGone（每个会话一次）。
 /// 所有事件发出前检查 cancel。
 pub fn serve(
     generation: u32,
     target: OpenTarget,
     registry: Arc<Registry>,
     cancel: Arc<AtomicBool>,
+    inbox: (Sender<SessionMsg>, Receiver<SessionMsg>),
     emit: Box<dyn Fn(CatalogEvent) + Send + Sync>,
 ) {
     let send = |event: CatalogEvent| {
@@ -158,8 +171,9 @@ pub fn serve(
         }
     };
 
-    let (tx, rx) = channel();
-    let watcher = start_watcher(&target, tx);
+    // 自己留着一份发送端：通道在会话期间不会断开，会话只因 cancel 结束
+    let (tx, rx) = inbox;
+    let watcher = start_watcher(&target, tx.clone());
     let mut watch_failed = watcher.is_err();
     if watch_failed {
         send(CatalogEvent::WatchFailed { generation });
@@ -167,20 +181,15 @@ pub fn serve(
 
     let known = session::run(generation, &target, &registry, &cancel, &*emit);
     let mut reconciler = Reconciler::new(target.root.clone(), target.recursive, known, cancel.clone());
+    let mut root_gone = false;
 
     while !cancel.load(Ordering::Relaxed) {
-        let Some(results) = next_results(&rx) else {
-            // 通道断开：监听没能启动，或去抖线程意外退出，之后不会再有事件
-            if !watch_failed {
-                send(CatalogEvent::WatchFailed { generation });
-            }
-            return;
-        };
         let mut hints = Vec::new();
-        for result in results {
-            match result {
-                Ok(events) => hints.extend(hints_from(&target.root, &events)),
-                Err(_) => {
+        for msg in next_messages(&rx) {
+            match msg {
+                SessionMsg::Hints(h) => hints.extend(h),
+                SessionMsg::Watch(Ok(events)) => hints.extend(hints_from(&target.root, &events)),
+                SessionMsg::Watch(Err(_)) => {
                     if !watch_failed {
                         watch_failed = true;
                         send(CatalogEvent::WatchFailed { generation });
@@ -197,22 +206,30 @@ pub fn serve(
         if cancel.load(Ordering::Relaxed) {
             break;
         }
+        let removed_any = !changes.removed.is_empty();
         emit_changes(generation, changes, &send);
+        if removed_any && !root_gone && !target.root.exists() {
+            root_gone = true;
+            send(CatalogEvent::RootGone { generation });
+        }
     }
     drop(watcher);
 }
 
-/// 等至多 CANCEL_POLL 取一个结果，再顺带取走已排队的，合成一批处理。
-/// 超时返回空表；通道已断开（监听没能启动）返回 None。
-fn next_results(rx: &Receiver<DebounceEventResult>) -> Option<Vec<DebounceEventResult>> {
+/// 等至多 CANCEL_POLL 取一条消息，再顺带取走已排队的，合成一批处理；超时返回空表。
+/// serve 自己持有一份发送端，通道不会断开；万一断开也按超时处理（之后只等 cancel）。
+fn next_messages(rx: &Receiver<SessionMsg>) -> Vec<SessionMsg> {
     match rx.recv_timeout(CANCEL_POLL) {
         Ok(first) => {
-            let mut results = vec![first];
-            results.extend(rx.try_iter());
-            Some(results)
+            let mut msgs = vec![first];
+            msgs.extend(rx.try_iter());
+            msgs
         }
-        Err(RecvTimeoutError::Timeout) => Some(Vec::new()),
-        Err(RecvTimeoutError::Disconnected) => None,
+        Err(RecvTimeoutError::Timeout) => Vec::new(),
+        Err(RecvTimeoutError::Disconnected) => {
+            std::thread::sleep(CANCEL_POLL);
+            Vec::new()
+        }
     }
 }
 
@@ -227,6 +244,7 @@ mod tests {
     };
     use std::cell::RefCell;
     use std::path::PathBuf;
+    use std::sync::mpsc::channel;
     use std::time::Instant;
 
     const ROOT: &str = "/r";
@@ -473,5 +491,191 @@ mod tests {
                 }]
             }]
         );
+    }
+
+    /// 在专属线程里运行的 serve；测试经 inbox 直接投递提示。
+    struct Running {
+        events: Receiver<CatalogEvent>,
+        inbox: Sender<SessionMsg>,
+        cancel: Arc<AtomicBool>,
+        handle: std::thread::JoinHandle<()>,
+    }
+
+    const WAIT: Duration = Duration::from_secs(5);
+
+    impl Running {
+        fn start(root: PathBuf) -> Running {
+            let target = OpenTarget { root, recursive: true, focus_file: None };
+            let (etx, events) = channel();
+            let inbox = channel();
+            let tx = inbox.0.clone();
+            let cancel = Arc::new(AtomicBool::new(false));
+            let c = cancel.clone();
+            let handle = std::thread::spawn(move || {
+                serve(
+                    1,
+                    target,
+                    Arc::new(Registry::default()),
+                    c,
+                    inbox,
+                    Box::new(move |e| {
+                        let _ = etx.send(e);
+                    }),
+                )
+            });
+            Running { events, inbox: tx, cancel, handle }
+        }
+
+        fn hint(&self, hints: Vec<FsHint>) {
+            self.inbox.send(SessionMsg::Hints(hints)).unwrap();
+        }
+
+        /// 收事件直到 pick 认出一条，返回它与之前收到的全部事件。
+        fn until<T>(&self, what: &str, pick: impl Fn(&CatalogEvent) -> Option<T>) -> (T, Vec<CatalogEvent>) {
+            let mut seen = Vec::new();
+            loop {
+                let e = self
+                    .events
+                    .recv_timeout(WAIT)
+                    .unwrap_or_else(|_| panic!("{what}：没有等到，已收到 {seen:?}"));
+                if let Some(t) = pick(&e) {
+                    return (t, seen);
+                }
+                seen.push(e);
+            }
+        }
+
+        /// 再收一段时间的事件。
+        fn drain_for(&self, d: Duration) -> Vec<CatalogEvent> {
+            let end = Instant::now() + d;
+            let mut out = Vec::new();
+            while let Some(left) = end.checked_duration_since(Instant::now()) {
+                match self.events.recv_timeout(left) {
+                    Ok(e) => out.push(e),
+                    Err(_) => break,
+                }
+            }
+            out
+        }
+
+        fn stop(self) {
+            self.cancel.store(true, Ordering::Relaxed);
+            let start = Instant::now();
+            while !self.handle.is_finished() {
+                assert!(start.elapsed() < Duration::from_secs(2), "cancel 后应退出");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            self.handle.join().unwrap();
+        }
+    }
+
+    fn ids_of(entries: &[Entry]) -> Vec<u32> {
+        entries.iter().map(|e| e.id).collect()
+    }
+
+    fn canonical_tempdir() -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap().join("root");
+        std::fs::create_dir(&root).unwrap();
+        (tmp, root)
+    }
+
+    #[test]
+    fn hints_sent_to_the_session_are_reconciled() {
+        let (_tmp, root) = canonical_tempdir();
+        std::fs::write(root.join("a.png"), png(1, 1)).unwrap();
+        std::fs::write(root.join("b.png"), png(1, 1)).unwrap();
+        let run = Running::start(root.clone());
+        let (_, before) = run.until("Done", |e| matches!(e, CatalogEvent::Done { .. }).then_some(()));
+        let a = before
+            .iter()
+            .filter_map(|e| match e {
+                CatalogEvent::Batch { entries, .. } => entries.iter().find(|en| en.rel_path == "a.png"),
+                _ => None,
+            })
+            .map(|en| en.id)
+            .next()
+            .expect("扫描应找到 a.png");
+
+        std::fs::remove_file(root.join("a.png")).unwrap();
+        run.hint(vec![FsHint::Touched(root.join("a.png"))]);
+        let (ids, _) = run.until("Removed", |e| match e {
+            CatalogEvent::Removed { generation: 1, ids } => Some(ids.clone()),
+            _ => None,
+        });
+        assert_eq!(ids, vec![a]);
+        run.stop();
+    }
+
+    #[test]
+    fn session_without_a_watcher_still_serves_hints() {
+        // 替身：打开时根目录还不存在，监听启动失败；之后目录出现，靠提示跟上
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap().join("later");
+        let run = Running::start(root.clone());
+        run.until("WatchFailed", |e| matches!(e, CatalogEvent::WatchFailed { generation: 1 }).then_some(()));
+        run.until("Done", |e| matches!(e, CatalogEvent::Done { total: 0, .. }).then_some(()));
+
+        // 监听没能启动不再让会话线程退出
+        std::thread::sleep(CANCEL_POLL * 2);
+        assert!(!run.handle.is_finished());
+
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("a.png"), png(1, 1)).unwrap();
+        run.hint(vec![FsHint::Touched(root.join("a.png"))]);
+        let (entries, _) = run.until("Batch", |e| match e {
+            CatalogEvent::Batch { generation: 1, entries } => Some(entries.clone()),
+            _ => None,
+        });
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].rel_path, "a.png");
+        run.stop();
+    }
+
+    #[test]
+    fn root_gone_is_reported_once() {
+        let (_tmp, root) = canonical_tempdir();
+        std::fs::write(root.join("a.png"), png(1, 1)).unwrap();
+        let run = Running::start(root.clone());
+        let (_, before) = run.until("Done", |e| matches!(e, CatalogEvent::Done { .. }).then_some(()));
+        let scanned: Vec<u32> = before
+            .iter()
+            .filter_map(|e| match e {
+                CatalogEvent::Batch { entries, .. } => Some(ids_of(entries)),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        std::fs::remove_dir_all(&root).unwrap();
+        run.hint(vec![FsHint::Touched(root.clone())]);
+        let (_, earlier) = run.until("RootGone", |e| {
+            matches!(e, CatalogEvent::RootGone { generation: 1 }).then_some(())
+        });
+        let removed: Vec<u32> = earlier
+            .iter()
+            .filter_map(|e| match e {
+                CatalogEvent::Removed { ids, .. } => Some(ids.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert_eq!(removed, scanned, "RootGone 排在这批的 Removed 之后");
+
+        run.hint(vec![FsHint::Touched(root.clone())]);
+        let later = run.drain_for(Duration::from_millis(600));
+        assert!(!later.iter().any(|e| matches!(e, CatalogEvent::RootGone { .. })), "{later:?}");
+
+        // 目录回来又再次消失：每个会话只报一次
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("b.png"), png(1, 1)).unwrap();
+        run.hint(vec![FsHint::Touched(root.join("b.png"))]);
+        run.until("b.png", |e| matches!(e, CatalogEvent::Batch { .. }).then_some(()));
+        std::fs::remove_dir_all(&root).unwrap();
+        run.hint(vec![FsHint::Touched(root.clone())]);
+        run.until("Removed", |e| matches!(e, CatalogEvent::Removed { .. }).then_some(()));
+        let later = run.drain_for(Duration::from_millis(600));
+        assert!(!later.iter().any(|e| matches!(e, CatalogEvent::RootGone { .. })), "{later:?}");
+        run.stop();
     }
 }

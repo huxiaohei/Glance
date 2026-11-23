@@ -9,7 +9,8 @@ export type CatalogEvent =
   | { type: "dims"; generation: number; items: { id: FileId; w: number; h: number }[] }
   | { type: "removed"; generation: number; ids: FileId[] }
   | { type: "renamed"; generation: number; items: { id: FileId; relPath: string }[] }
-  | { type: "watchFailed"; generation: number };
+  | { type: "watchFailed"; generation: number }
+  | { type: "rootGone"; generation: number };
 
 export interface RootInfo { generation: number; path: string; name: string; recursive: boolean; focus: FileId | null }
 

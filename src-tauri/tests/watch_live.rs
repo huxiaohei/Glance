@@ -40,6 +40,7 @@ struct Live {
     ids_seen: HashMap<String, BTreeSet<u32>>,
     removed: Vec<u32>,
     renamed: Vec<(u32, String)>,
+    root_gone: bool,
 }
 
 impl Live {
@@ -60,6 +61,7 @@ impl Live {
                 target,
                 registry,
                 c,
+                channel(),
                 Box::new(move |e| {
                     hook(&e);
                     let _ = tx.send(e);
@@ -75,6 +77,7 @@ impl Live {
             ids_seen: HashMap::new(),
             removed: Vec::new(),
             renamed: Vec::new(),
+            root_gone: false,
         }
     }
 
@@ -112,6 +115,7 @@ impl Live {
                 }
             }
             CatalogEvent::WatchFailed { .. } => panic!("监听不应失败"),
+            CatalogEvent::RootGone { .. } => self.root_gone = true,
         }
     }
 
@@ -269,6 +273,24 @@ fn opening_through_a_symlink_still_follows_changes() {
     live.until("Done", |l| l.done);
     fs::write(link.join("new.png"), png()).unwrap();
     live.until("经链接新建 new.png", |l| l.id_of("new.png").is_some());
+
+    live.stop();
+}
+
+#[test]
+#[ignore]
+fn deleting_the_root_reports_root_gone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("a.png"), png()).unwrap();
+
+    let mut live = Live::start(&root);
+    live.until("Done", |l| l.done);
+    fs::remove_dir_all(&root).unwrap();
+    live.until("根目录被删：条目移除并报告 RootGone", |l| {
+        l.grid.is_empty() && l.root_gone
+    });
 
     live.stop();
 }

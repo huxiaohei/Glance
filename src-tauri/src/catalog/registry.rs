@@ -40,10 +40,15 @@ impl Registry {
     }
 
     /// 改名后 ID 不变。旧路径未登记时返回 None。
+    /// `to` 上原来登记着另一个 ID 时，那个 ID 指的文件已被覆盖：它不再对应任何路径。
     pub fn rename(&self, from: &Path, to: &Path) -> Option<FileId> {
         let mut inner = self.inner.write().unwrap();
         let id = inner.by_path.remove(from)?;
-        inner.by_path.insert(to.to_path_buf(), id);
+        if let Some(displaced) = inner.by_path.insert(to.to_path_buf(), id)
+            && displaced != id
+        {
+            inner.by_id.remove(&displaced);
+        }
         inner.by_id.insert(id, to.to_path_buf());
         Some(id)
     }
@@ -78,6 +83,20 @@ mod tests {
             r.rename(Path::new("/a/missing.png"), Path::new("/a/x.png")),
             None
         );
+    }
+
+    #[test]
+    fn rename_over_a_registered_path_drops_the_displaced_id() {
+        let r = Registry::default();
+        let moved = r.register(Path::new("/a/old.png"));
+        let displaced = r.register(Path::new("/a/new.png"));
+        assert_eq!(
+            r.rename(Path::new("/a/old.png"), Path::new("/a/new.png")),
+            Some(moved)
+        );
+        assert_eq!(r.path(displaced), None);
+        assert_eq!(r.path(moved), Some(PathBuf::from("/a/new.png")));
+        assert_eq!(r.register(Path::new("/a/new.png")), moved);
     }
 
     #[test]

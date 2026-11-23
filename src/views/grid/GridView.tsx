@@ -41,6 +41,7 @@ export default function GridView({ hidden = false }: { hidden?: boolean }) {
   const root = useCatalog((s) => s.root);
   const entries = useCatalog((s) => s.entries);
   const scanning = useCatalog((s) => s.scanning);
+  const rootGone = useCatalog((s) => s.rootGone);
   const listVersion = useCatalog((s) => s.listVersion);
   const includeSubdirs = useListView((s) => s.includeSubdirs);
   const dirFilter = useListView((s) => s.dirFilter);
@@ -182,10 +183,11 @@ export default function GridView({ hidden = false }: { hidden?: boolean }) {
     }
   }
 
-  const empty = !scanning && list.groups.length === 0;
+  // 根目录已不在：剩下的条目也都指向不存在的文件，直接显示空状态
+  const empty = rootGone || (!scanning && list.groups.length === 0);
   const total = list.groups.reduce((n, g) => n + g.total, 0);
   // 不含子目录时列表为空，但当前范围内其实有下级图片：提示打开“包含子目录”
-  const hintSubdirs = empty && !includeSubdirs &&
+  const hintSubdirs = empty && !rootGone && !includeSubdirs &&
     (dirFilter === null ? tree.length > 0 : tree.some((n) => n.dir === dirFilter && n.total > n.count));
 
   return (
@@ -197,7 +199,7 @@ export default function GridView({ hidden = false }: { hidden?: boolean }) {
         <div className="grid-main">
           {empty ? (
             <div className="grid-empty">
-              <div>{t("grid.empty")}</div>
+              <div>{t(rootGone ? "grid.rootGone" : "grid.empty")}</div>
               {hintSubdirs && <div>{t("grid.emptyHintSubdirs")}</div>}
               <button type="button" onClick={openOther}>{t("grid.openOther")}</button>
             </div>

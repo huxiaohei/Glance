@@ -7,6 +7,7 @@ export const zhCN = {
   "status.watchFailed": "无法监听这个目录的变化，按 F5 刷新",
   "status.selected": "已选 {n} 张",
   "grid.empty": "这个目录里没有图片",
+  "grid.rootGone": "这个目录已被移走或删除",
   "grid.emptyHintSubdirs": "可以打开“包含子目录”",
   "grid.openOther": "打开其他目录",
   "grid.rootGroup": "根目录",
