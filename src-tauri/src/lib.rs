@@ -1,4 +1,4 @@
-mod catalog;
+pub mod catalog;
 mod commands;
 pub mod fileops;
 #[cfg(debug_assertions)]
