@@ -46,7 +46,7 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 - **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令，以及三处：仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`，、移动 / 复制的目标目录（来自系统对话框或最近目标，含 `OpReport.dest`），以及最近目录的路径（`RecentEntry.path`，只用于显示，并原样传回 `open_path` / `recents_pin` / `recents_remove`）。撤销失败只返回文件名，不返回路径。
 - **不向前端开放通用文件系统权限。** 文件访问集中在 `catalog`、`fileops`、`thumbs` 和 `state`（`state` 只读写应用配置目录下自己的文件），不在别处直接碰磁盘（也是为将来上架 Mac App Store 的沙盒预留）。
 - **内容安全策略禁止一切远程资源**；图片只允许 `glance:` 与 `http://glance.localhost`。只有 `devCsp` 为开发热更新放宽，正式 `csp` 不得放宽。
-- **读文件和 CPU 密集任务不上主线程。**
+- **读文件和 CPU 密集任务不上主线程。** 已接受的例外：设置、最近目录、最近目标三份小配置文件在启动时（`setup` 里、窗口显示之前）读一次。
 - **所有写文件的操作先写同目录临时文件，再原子改名。** 任何情况下不静默覆盖用户文件；改名、移动、复制只在 `fileops/fsx.rs` 里做（目标已存在即失败，不“先检查再改名”）。
 - **第三方依赖只用宽松许可**（MIT、Apache-2.0、BSD、ISC、Zlib、IJG 等），不引入 GPL / LGPL / AGPL。新增依赖时核对许可证。
 - **所有快捷键都登记在 `src/app/commands.ts` 的命令表里**，不要另外加零散的 keydown 监听。输入控件聚焦时只有标了 `allowInInput` 的命令响应。
