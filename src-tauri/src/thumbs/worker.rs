@@ -16,38 +16,62 @@ pub enum ThumbEvent {
     Broken { id: u32 },
 }
 
+/// 读文件期间文件被改写时，最多尝试这么多次。
+const ATTEMPTS: usize = 3;
+
 /// 处理一个任务：已缓存直接 Ready；否则读文件、生成、写缓存。
 /// 文件未登记、已不存在、读失败或解码失败 → Broken。绝不 panic。
 pub fn process(job: Job, registry: &Registry, cache: &ThumbCache) -> ThumbEvent {
+    process_with(job, registry, cache, &mut |_| {})
+}
+
+/// after_read 在读完、解码完之后调用，测试借此在两次查看文件状态之间改写文件。
+///
+/// 缓存键与版本号出自读文件前查看的同一份文件状态；读完、解码完再查看一次，
+/// 状态变了说明读到的可能是改写到一半或已过时的字节：丢弃结果重来（解码失败也一样，
+/// 可能正是因为读到了一半），最多 ATTEMPTS 次，仍在变则 Broken。
+/// 状态只比较大小与毫秒级修改时间，同一毫秒内大小不变的改写分辨不出。
+fn process_with(
+    job: Job,
+    registry: &Registry,
+    cache: &ThumbCache,
+    after_read: &mut dyn FnMut(&std::path::Path),
+) -> ThumbEvent {
     let (id, tier) = job;
     let broken = ThumbEvent::Broken { id: id.0 };
     let Some(path) = registry.path(id) else {
         return broken;
     };
-    // 只读一次文件状态：缓存键和版本号出自同一份，版本号描述的就是缓存的那份字节。
-    let Some(stamp) = stamp_of(&path) else {
-        return broken;
-    };
-    let key = ThumbCache::key_for_stamp(&path, stamp, tier);
-    let ready = || ThumbEvent::Ready {
-        id: id.0,
-        tier: tier.px(),
-        v: stamp.version(),
-    };
-    if cache.contains(&key) {
-        return ready();
+    for _ in 0..ATTEMPTS {
+        let Some(stamp) = stamp_of(&path) else {
+            return broken;
+        };
+        let key = ThumbCache::key_for_stamp(&path, stamp, tier);
+        let ready = ThumbEvent::Ready {
+            id: id.0,
+            tier: tier.px(),
+            v: stamp.version(),
+        };
+        if cache.contains(&key) {
+            return ready;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            return broken;
+        };
+        // 解码库万一 panic，也只算这张图损坏，不能带走工作线程。
+        let made = catch_unwind(AssertUnwindSafe(|| {
+            glance_imaging::make_thumbnail(&bytes, tier.px())
+        }));
+        after_read(&path);
+        if stamp_of(&path) != Some(stamp) {
+            continue;
+        }
+        return match made {
+            Ok(Ok(thumb)) if cache.put(&key, &thumb.webp).is_ok() => ready,
+            _ => broken,
+        };
     }
-    let Ok(bytes) = std::fs::read(&path) else {
-        return broken;
-    };
-    // 解码库万一 panic，也只算这张图损坏，不能带走工作线程。
-    let made = catch_unwind(AssertUnwindSafe(|| {
-        glance_imaging::make_thumbnail(&bytes, tier.px())
-    }));
-    match made {
-        Ok(Ok(thumb)) if cache.put(&key, &thumb.webp).is_ok() => ready(),
-        _ => broken,
-    }
+    broken
 }
 
 type Sink = Arc<dyn Fn(ThumbEvent) + Send + Sync>;
@@ -259,6 +283,69 @@ mod tests {
         let size = imagesize::blob_size(&bytes).unwrap();
         assert_eq!((size.width, size.height), (320, 160));
         assert_eq!(process((id, Tier::S), &registry, &cache), expect);
+    }
+
+    fn png_of_width(w: u32) -> Vec<u8> {
+        let data = vec![200u8; (w * 10 * 4) as usize];
+        encode_png_lossless(RgbaView {
+            width: w,
+            height: 10,
+            data: &data,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn file_rewritten_while_reading_is_retried_with_the_new_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.png");
+        std::fs::write(&img, png_of_width(40)).unwrap();
+        let registry = Registry::default();
+        let id = registry.register(&img);
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let mut calls = 0;
+        // 第一次读完之后文件被改写（大小不同，版本必然不同）
+        let event = process_with((id, Tier::S), &registry, &cache, &mut |p| {
+            calls += 1;
+            if calls == 1 {
+                std::fs::write(p, png_of_width(90)).unwrap();
+            }
+        });
+        assert_eq!(calls, 2);
+        let v = stamp_of(&img).unwrap().version();
+        assert_eq!(
+            event,
+            ThumbEvent::Ready {
+                id: id.0,
+                tier: 320,
+                v
+            }
+        );
+        // 缓存的是新内容的缩略图，旧内容的没有写入
+        let key = ThumbCache::key_for_file(&img, Tier::S).unwrap();
+        let size = imagesize::blob_size(&cache.get(&key).unwrap()).unwrap();
+        assert_eq!((size.width, size.height), (90, 10));
+        assert_eq!(file_count(cache_dir.path()), 1);
+    }
+
+    #[test]
+    fn file_that_keeps_changing_is_broken_after_bounded_attempts() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.png");
+        std::fs::write(&img, png_of_width(10)).unwrap();
+        let registry = Registry::default();
+        let id = registry.register(&img);
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let mut calls = 0u32;
+        let event = process_with((id, Tier::S), &registry, &cache, &mut |p| {
+            calls += 1;
+            std::fs::write(p, png_of_width(10 + calls)).unwrap();
+        });
+        assert_eq!(event, ThumbEvent::Broken { id: id.0 });
+        assert_eq!(calls, ATTEMPTS as u32);
+        assert_eq!(file_count(cache_dir.path()), 0);
     }
 
     #[test]
