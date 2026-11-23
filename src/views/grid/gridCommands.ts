@@ -2,6 +2,7 @@ import { registerCommands, type Command, type CommandCtx } from "../../app/comma
 import { moveInLayout, type Move } from "../../lib/gridLayout";
 import { moveTo, selectAll } from "../../lib/selection";
 import { useGridCtx } from "../../stores/gridCtx";
+import { useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
 
 /** 没有焦点（或焦点不在当前布局里）时落到第一张；否则按布局移动。extend 时从锚点扩展选中。 */
@@ -49,6 +50,19 @@ const gridCommands: Command[] = [
     keys: ["Escape"],
     views: ["grid"],
     run: () => useSelection.getState().clear(),
+  },
+  {
+    id: "grid.open",
+    title: "cmd.grid.open",
+    category: "cmd.cat.view",
+    keys: ["Enter"],
+    views: ["grid"],
+    run: () => {
+      // 焦点为空、或所在分组已折叠（不在列表里）时不做事
+      const { focus } = useSelection.getState();
+      if (focus === null || !useGridCtx.getState().list.ids.includes(focus)) return;
+      useNav.getState().openSingle(focus);
+    },
   },
 ];
 

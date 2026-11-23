@@ -5,6 +5,12 @@
   flex-direction: column;
 }
 
+/* 单张视图盖在上面时：不用 display: none，保持尺寸与滚动位置，虚拟器照常工作 */
+.grid-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .grid-toolbar {
   flex: none;
   height: 40px;

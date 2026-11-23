@@ -11,6 +11,7 @@ import { pickTier } from "../../lib/pickTier";
 import { useCatalog } from "../../stores/catalog";
 import { EMPTY_GRID_CTX, useGridCtx } from "../../stores/gridCtx";
 import { useListView } from "../../stores/listView";
+import { useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
 import DirTree from "./DirTree";
 import GridToolbar from "./GridToolbar";
@@ -35,7 +36,8 @@ function pinnedHeader(rows: Row[], y: number): number {
   return found;
 }
 
-export default function GridView() {
+/** hidden：单张视图盖在上面。只隐藏（visibility + pointer-events），不卸载，虚拟器与滚动位置保留。 */
+export default function GridView({ hidden = false }: { hidden?: boolean }) {
   const root = useCatalog((s) => s.root);
   const entries = useCatalog((s) => s.entries);
   const scanning = useCatalog((s) => s.scanning);
@@ -92,7 +94,7 @@ export default function GridView() {
   useLayoutEffect(() => () => useGridCtx.setState(EMPTY_GRID_CTX), []);
   useEffect(() => registerGridCommands(), []);
 
-  // 打开单张图片：该条目到达且已在布局里后，选中并滚到它（每次打开 generation 只选一次）。
+  // 打开单张图片：该条目到达且已在布局里后，选中并滚到它，并进入单张视图（每次打开 generation 只做一次）。
   // 扫描期间后到的批次可能排在它前面、把它挤出视口：布局每次变化都再滚一次，扫描结束时再滚最后一次。
   // 用户一接手（在滚动区滚轮或按下指针，或选中不再恰好是这张）就停止，本次打开不再跟随。
   const follow = useRef<{ generation: number; active: boolean } | null>(null);
@@ -115,6 +117,7 @@ export default function GridView() {
       follow.current = { generation: root.generation, active: scanning };
       useSelection.getState().set(selectOnly(id));
       useGridCtx.getState().reveal(id);
+      useNav.getState().openSingle(id);
       return;
     }
     if (!f.active) return;
@@ -133,7 +136,7 @@ export default function GridView() {
   const scrollTop = virtualizer.scrollOffset ?? 0;
   useVisibleThumbs(layout, scrollTop, size.height, tier);
   // 空白处的指针处理（单击清空、框选）都在这里
-  const marquee = useMarquee(scroller, layout, cell);
+  const marquee = useMarquee(scroller, layout, cell, !hidden);
 
   // Cmd/Ctrl + 滚轮调格子大小。React 的 onWheel 是被动监听，preventDefault 拦不住页面缩放，须手动挂非被动监听。
   const wheelAcc = useRef(0);
@@ -177,7 +180,7 @@ export default function GridView() {
     (dirFilter === null ? tree.length > 0 : tree.some((n) => n.dir === dirFilter && n.total > n.count));
 
   return (
-    <div className="grid-view">
+    <div className={hidden ? "grid-view grid-hidden" : "grid-view"}>
       <GridToolbar />
       <div className="grid-progress">{scanning && <div className="grid-progress-bar" />}</div>
       <div className="grid-body">

@@ -312,10 +312,10 @@ describe("GridView", () => {
 
     const setup = () => {
       open(null);
-      const { container } = render(<GridView />);
+      const { container, rerender } = render(<GridView />);
       add(1, 1, 2);
       const scroller = container.querySelector(".grid-scroll") as HTMLElement;
-      return { container, scroller };
+      return { container, scroller, rerender };
     };
     const marquee = (container: HTMLElement) => container.querySelector(".grid-marquee");
 
@@ -410,6 +410,26 @@ describe("GridView", () => {
       expect(ids()).toEqual([1]);
       fireEvent.keyDown(scroller, { key: "Escape" });
       expect(ids()).toEqual([]);
+    });
+
+    it("网格被单张视图盖住（hidden）时结束进行中的框选，之后的 Esc 不再被框选拦下", () => {
+      const { container, scroller, rerender } = setup();
+      act(() => useSelection.getState().set(selectOnly(1)));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([2]);
+      rerender(<GridView hidden />);
+      expect(container.querySelector(".grid-view")!.classList.contains("grid-hidden")).toBe(true);
+      expect(container.querySelector(".grid-scroll")).toBe(scroller); // 不卸载，滚动区原样保留
+      expect(marquee(container)).toBeNull();
+      const esc = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+      act(() => { window.dispatchEvent(esc); });
+      expect(esc.defaultPrevented).toBe(false);
+      expect(ids()).toEqual([2]);
+      // 隐藏期间在滚动区按下也不开始框选、不清空选中
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      expect(ids()).toEqual([2]);
     });
 
     it("不按 Mod/Shift 拖动、矩形只落在空白处：选中为空，focus 与 anchor 为 null", () => {

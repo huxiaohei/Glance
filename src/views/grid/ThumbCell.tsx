@@ -1,4 +1,4 @@
-import { memo, useState, type PointerEvent } from "react";
+import { memo, useState, type MouseEvent, type PointerEvent } from "react";
 import { IS_MAC } from "../../app/keys";
 import { t } from "../../i18n";
 import type { ImageEntry } from "../../lib/deriveList";
@@ -6,6 +6,7 @@ import { glanceUrl } from "../../lib/glanceUrl";
 import { middleEllipsis } from "../../lib/middleEllipsis";
 import { selectOnly, selectRange, toggle } from "../../lib/selection";
 import { useGridCtx } from "../../stores/gridCtx";
+import { useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
 import { useThumbs } from "../../stores/thumbs";
 
@@ -23,6 +24,12 @@ function onCellPointerDown(e: PointerEvent<HTMLDivElement>): void {
   if (e.shiftKey) sel.set(selectRange(sel, useGridCtx.getState().list, id));
   else if (IS_MAC ? e.metaKey : e.ctrlKey) sel.set(toggle(sel, id));
   else sel.set(selectOnly(id));
+}
+
+/** 主键双击进入单张视图；按着 Mod、Ctrl 或 Shift 时只是选择操作，不进入。 */
+function onCellDoubleClick(e: MouseEvent<HTMLDivElement>): void {
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  useNav.getState().openSingle(Number(e.currentTarget.dataset.id));
 }
 
 /** 12px 字体下窄字符约 6.5px、全角约 13px：按窄字符单位估算每格预算。 */
@@ -49,6 +56,7 @@ function ThumbCell({ entry, cell, selected, focused }: Props) {
       style={{ width: cell }}
       data-id={entry.id}
       onPointerDown={onCellPointerDown}
+      onDoubleClick={onCellDoubleClick}
     >
       <div className="thumb-box" style={{ width: cell, height: cell }}>
         {broken ? (

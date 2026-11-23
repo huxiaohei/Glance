@@ -1,0 +1,16 @@
+.single-view {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg);
+}
+/* 完整显示、居中（不放大小图）；之后由基于 transform 的视口取代 */
+.single-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+}

@@ -32,6 +32,8 @@ export const zhCN = {
   "cmd.nav.end": "到最后一张",
   "cmd.select.all": "全选（先本组，再全部）",
   "cmd.select.clear": "取消选中",
+  "cmd.grid.open": "打开",
+  "cmd.single.back": "返回网格",
   "cmd.cat.nav": "导航",
   "cmd.cat.view": "视图",
   "cmd.cat.select": "选择",

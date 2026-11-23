@@ -34,6 +34,8 @@ export const en: Record<MessageKey, string> = {
   "cmd.nav.end": "Go to Last",
   "cmd.select.all": "Select All (Group First, Then Everything)",
   "cmd.select.clear": "Deselect All",
+  "cmd.grid.open": "Open",
+  "cmd.single.back": "Back to grid",
   "cmd.cat.nav": "Navigation",
   "cmd.cat.view": "View",
   "cmd.cat.select": "Selection",

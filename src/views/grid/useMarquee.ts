@@ -30,17 +30,18 @@ function toContent(el: HTMLElement, clientX: number, clientY: number): { x: numb
   };
 }
 
-/** 在滚动区空白处按下并拖动超过 4 px 后开始框选；返回要画的矩形（内容区坐标）或 null。
+/** enabled 为假（网格被单张视图盖住）时不挂任何监听，进行中的框选就此结束。
+ *  在滚动区空白处按下并拖动超过 4 px 后开始框选；返回要画的矩形（内容区坐标）或 null。
  *  拖动中实时 selectMany(起始时的选中, idsInRect(...), 按下时是否按着 Mod 或 Shift)；
  *  起点记在内容区坐标里，所以拖动时滚动（滚轮或边缘自动滚动）会自然扩大范围。
  *  松开或按 Esc 结束；没有超过 4 px 的按下视为空白处单击（清空选中，由任务 9 的逻辑处理）。 */
-export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cell: number): Rect | null {
+export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cell: number, enabled: boolean): Rect | null {
   const [rect, setRect] = useState<Rect | null>(null);
   const geometry = useRef({ layout, cell });
   geometry.current = { layout, cell };
 
   useEffect(() => {
-    if (!scroller) return;
+    if (!scroller || !enabled) return;
     const el = scroller;
     let press: Press | null = null;
     let frame: number | null = null;
@@ -176,7 +177,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
       el.removeEventListener("scroll", onScroll);
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [scroller]);
+  }, [scroller, enabled]);
 
   return rect;
 }

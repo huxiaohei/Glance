@@ -1,5 +1,6 @@
 import type { MessageKey } from "../i18n";
 import { useCatalog } from "../stores/catalog";
+import { topView } from "../stores/nav";
 import { matchKey, type KeyLike } from "./keys";
 
 export type ViewId = "start" | "grid" | "single" | "compare" | "edit";
@@ -47,7 +48,7 @@ export function findCommand(e: KeyLike, view: ViewId, inInput: boolean, isMac: b
   return null;
 }
 
-/** 当前视图：有根目录为 "grid"，否则 "start"。 */
+/** 当前视图：没有根目录为 "start"；否则按视图栈栈顶。 */
 export function activeView(): ViewId {
-  return useCatalog.getState().root ? "grid" : "start";
+  return useCatalog.getState().root ? topView().kind : "start";
 }
