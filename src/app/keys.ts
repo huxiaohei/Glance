@@ -6,10 +6,12 @@ export interface KeyLike {
   altKey: boolean;
 }
 
-function detectMac(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const nav = navigator as { platform?: string; userAgent?: string };
-  return /mac|iphone|ipad/i.test(nav.platform ?? nav.userAgent ?? "");
+export function detectMac(
+  nav: { platform?: string; userAgent?: string } | undefined = typeof navigator === "undefined" ? undefined : navigator,
+): boolean {
+  if (!nav) return false;
+  // platform 可能是空串（已弃用的属性），这时退回 userAgent
+  return /mac|iphone|ipad/i.test(nav.platform || nav.userAgent || "");
 }
 
 export const IS_MAC: boolean = detectMac();

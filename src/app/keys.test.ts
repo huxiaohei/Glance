@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { formatKey, matchKey, type KeyLike } from "./keys";
+import { detectMac, formatKey, matchKey, type KeyLike } from "./keys";
 
 const ev = (key: string, o: Partial<KeyLike> = {}): KeyLike => ({
   key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...o,
+});
+
+describe("detectMac", () => {
+  it("platform 为空串时退回 userAgent", () => {
+    expect(detectMac({ platform: "", userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)" })).toBe(true);
+    expect(detectMac({ platform: "MacIntel", userAgent: "" })).toBe(true);
+    expect(detectMac({ platform: "", userAgent: "Mozilla/5.0 (Windows NT 10.0)" })).toBe(false);
+  });
 });
 
 describe("matchKey", () => {
