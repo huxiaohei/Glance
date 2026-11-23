@@ -1,13 +1,16 @@
 //! 面向前端的正式命令。
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
 use crate::catalog::events::{CatalogEvent, OpenError, RootInfo};
+use crate::catalog::registry::FileId;
 use crate::catalog::registry::Registry;
 use crate::catalog::session::{Sessions, resolve_open_target, run};
+use crate::thumbs::{ThumbEvent, Thumbs, Tier};
 
 /// 打开目录或图片文件。扫描在后台线程里进行，事件经 on_event 推送。
 /// 命令的返回值与 Channel 消息是相互独立的 IPC 消息，后端不保证先后：事件可能先于
@@ -19,7 +22,7 @@ pub async fn open_path(
     path: String,
     recursive: bool,
     on_event: Channel<CatalogEvent>,
-    registry: State<'_, Registry>,
+    registry: State<'_, Arc<Registry>>,
     sessions: State<'_, Sessions>,
 ) -> Result<RootInfo, OpenError> {
     let target = resolve_open_target(&PathBuf::from(path), recursive)?;
@@ -42,11 +45,36 @@ pub async fn open_path(
 
     // 扫描与读文件头不得占用主线程或异步运行时的核心线程。
     tauri::async_runtime::spawn_blocking(move || {
-        let registry = app.state::<Registry>();
+        let registry = app.state::<Arc<Registry>>();
         run(generation, &target, &registry, &cancel, &|event| {
             // webview 可能已经消失，发送失败不是错误。
             let _ = on_event.send(event);
         });
     });
     Ok(info)
+}
+
+/// 订阅缩略图事件，替换上一个订阅者。webview 消失后发送失败，直接忽略。
+#[tauri::command]
+pub fn thumbs_subscribe(on_event: Channel<ThumbEvent>, thumbs: State<'_, Arc<Thumbs>>) {
+    thumbs.subscribe(Box::new(move |event| {
+        let _ = on_event.send(event);
+    }));
+}
+
+/// 整体替换该消费者想要的缩略图集合；返回其中已有缓存的 ID，其余稍后经事件送达。
+#[tauri::command]
+pub fn thumbs_want(
+    consumer: String,
+    ids: Vec<u32>,
+    tier: u32,
+    thumbs: State<'_, Arc<Thumbs>>,
+) -> Result<Vec<u32>, String> {
+    let tier = Tier::from_px(tier).ok_or_else(|| format!("invalid thumbnail tier: {tier}"))?;
+    let ids: Vec<FileId> = ids.into_iter().map(FileId).collect();
+    Ok(thumbs
+        .want(&consumer, &ids, tier)
+        .into_iter()
+        .map(|id| id.0)
+        .collect())
 }

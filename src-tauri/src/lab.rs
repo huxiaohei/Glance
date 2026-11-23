@@ -4,6 +4,7 @@ use crate::catalog::registry::{FileId, Registry};
 use crate::fileops::trash::{self, TrashHandle};
 use crate::protocol::HITS;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tauri::State;
 
@@ -17,7 +18,7 @@ pub struct LabEntry {
 /// 登记目录下一层（不递归）的全部文件。
 #[tauri::command]
 pub async fn lab_register_dir(
-    registry: State<'_, Registry>,
+    registry: State<'_, Arc<Registry>>,
     path: String,
 ) -> Result<Vec<LabEntry>, String> {
     let dir = PathBuf::from(path);
@@ -61,7 +62,7 @@ pub fn lab_restore(handle: TrashHandle) -> Result<(), String> {
 /// 实验专用：把 ID 换成真实路径（原生拖拽插件需要）。未知 ID 跳过。
 /// 正式版会封装为 `start_drag(ids)`，前端始终拿不到路径。
 #[tauri::command]
-pub fn lab_paths(registry: State<'_, Registry>, ids: Vec<u32>) -> Vec<String> {
+pub fn lab_paths(registry: State<'_, Arc<Registry>>, ids: Vec<u32>) -> Vec<String> {
     ids.into_iter()
         .filter_map(|id| registry.path(FileId(id)))
         .map(|p| p.to_string_lossy().into_owned())
