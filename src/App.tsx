@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { registerAppCommands } from "./app/appCommands";
 import { registerFileCommands } from "./app/fileCommands";
 import { subscribeThumbs } from "./app/openFolder";
@@ -7,6 +7,7 @@ import { useKeyboard } from "./app/useKeyboard";
 import Lab from "./lab/Lab";
 import { useCatalog } from "./stores/catalog";
 import { useNav } from "./stores/nav";
+import { useSettings } from "./stores/settings";
 import NamePrompt from "./views/common/NamePrompt";
 import GridView from "./views/grid/GridView";
 import ShortcutsOverlay from "./views/help/ShortcutsOverlay";
@@ -19,6 +20,7 @@ import "./app/app.css";
 export default function App() {
   const hasRoot = useCatalog((s) => s.root !== null);
   const single = useNav((s) => s.stack[s.stack.length - 1].kind === "single");
+  const language = useSettings((s) => s.settings.language);
   const dragging = useFolderDrop();
   const [lab, setLab] = useState(false);
   useKeyboard();
@@ -39,12 +41,14 @@ export default function App() {
   if (import.meta.env.DEV && lab) return <Lab onBack={() => setLab(false)} />;
   return (
     <>
-      {/* 有根目录时网格始终挂载；单张视图盖在上面时网格只隐藏，滚动位置与选中保留 */}
-      {hasRoot ? <GridView hidden={single} /> : <StartView />}
-      {hasRoot && single && <SingleView />}
-      <ShortcutsOverlay />
-      <NamePrompt />
-      <Toast />
+      <Fragment key={language}>
+        {/* 有根目录时网格始终挂载；单张视图盖在上面时网格只隐藏，滚动位置与选中保留 */}
+        {hasRoot ? <GridView hidden={single} /> : <StartView />}
+        {hasRoot && single && <SingleView />}
+        <ShortcutsOverlay />
+        <NamePrompt />
+        <Toast />
+      </Fragment>
       {dragging && <div className="drop-outline" />}
       {import.meta.env.DEV && (
         <button type="button" className="lab-entry" onClick={() => setLab(true)}>

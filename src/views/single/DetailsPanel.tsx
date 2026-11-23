@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { t, type MessageKey } from "../../i18n";
+import { locale, t, type MessageKey } from "../../i18n";
 import type { FileId, ImageDetails } from "../../ipc/types";
 import { formatBytes } from "../../lib/formatBytes";
 import { hasSize } from "../../lib/deriveList";
@@ -40,7 +40,7 @@ export default function DetailsPanel({ id }: { id: FileId }) {
   const { details, loading, error } = useImageDetails(id, version);
   const yesNo = (b: boolean) => t(b ? "details.yes" : "details.no");
   const modified = details
-    ? new Intl.DateTimeFormat(navigator.language, { dateStyle: "medium", timeStyle: "short" }).format(details.mtimeMs)
+    ? new Intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(details.mtimeMs)
     : null;
   const color = details ? colorText(details) : null;
 

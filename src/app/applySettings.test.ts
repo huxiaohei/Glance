@@ -5,6 +5,7 @@ vi.mock("../ipc/api", () => ({ settingsGet: vi.fn(), settingsSet: vi.fn(() => Pr
 
 const { startApplyingSettings } = await import("./applySettings");
 const { DEFAULT_SETTINGS, useSettings } = await import("../stores/settings");
+const { locale, setLanguage } = await import("../i18n");
 const { useListView } = await import("../stores/listView");
 
 let stop: (() => void) | null = null;
@@ -13,6 +14,8 @@ beforeEach(() => {
   useSettings.setState({ settings: DEFAULT_SETTINGS, open: false });
   useListView.getState().setSort("name");
   delete document.documentElement.dataset.theme;
+  document.documentElement.lang = "";
+  setLanguage("zh-CN");
 });
 afterEach(() => {
   stop?.();
@@ -46,6 +49,17 @@ describe("startApplyingSettings", () => {
     expect(useListView.getState().sort).toBe("mtime");
     patch({ defaultSort: "size" });
     expect(useListView.getState().sort).toBe("size");
+  });
+
+  it("语言改变后调用 setLanguage 并更新 <html lang>", () => {
+    stop = startApplyingSettings();
+    expect(document.documentElement.lang).toBe(locale());
+    patch({ language: "en" });
+    expect(locale()).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    patch({ language: "zh-CN" });
+    expect(locale()).toBe("zh-CN");
+    expect(document.documentElement.lang).toBe("zh-CN");
   });
 
   it("返回的函数取消订阅", () => {
