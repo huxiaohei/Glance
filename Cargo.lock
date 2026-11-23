@@ -1380,6 +1380,7 @@ dependencies = [
  "thiserror 2.0.21",
  "trash",
  "walkdir",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
