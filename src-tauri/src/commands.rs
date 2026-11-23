@@ -63,7 +63,7 @@ pub fn thumbs_subscribe(on_event: Channel<ThumbEvent>, thumbs: State<'_, Arc<Thu
 }
 
 /// 整体替换该消费者想要的缩略图集合；返回其中已有缓存的 ID，其余稍后经事件送达。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn thumbs_want(
     consumer: String,
     ids: Vec<u32>,
