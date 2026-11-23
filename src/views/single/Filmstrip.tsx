@@ -7,7 +7,7 @@ import { glanceUrl } from "../../lib/glanceUrl";
 import { markSwitchStart } from "../../lib/perfMarks";
 import { layoutStrip, scrollToShow, STRIP_DIVIDER, STRIP_GAP, stripVisible } from "../../lib/stripLayout";
 import { useCatalog } from "../../stores/catalog";
-import { useNav } from "../../stores/nav";
+import { topView, useNav } from "../../stores/nav";
 import { useThumbs } from "../../stores/thumbs";
 
 const TIER = 320;
@@ -36,8 +36,12 @@ const StripCell = memo(function StripCell({ id, left, current }: { id: FileId; l
 function onStripClick(e: MouseEvent<HTMLDivElement>): void {
   const item = (e.target as HTMLElement).closest<HTMLElement>(".strip-item");
   if (!item) return;
+  const id = Number(item.dataset.id);
+  // 点当前项不算切图：不会有随后的绘制，留下的开始标记会与之后无关的绘制配对
+  const top = topView();
+  if (top.kind === "single" && top.id === id) return;
   markSwitchStart();
-  useNav.getState().setCurrent(Number(item.dataset.id));
+  useNav.getState().setCurrent(id);
 }
 
 /**
@@ -90,15 +94,21 @@ export default function Filmstrip({ list, current }: { list: ImageList; current:
     };
   }, []);
 
-  // 当前项保持可见：只在当前图、布局或视口变化时调整，不跟滚动事件较劲。不用平滑滚动，免得跟不上连按
+  // 当前项保持可见：只在当前图换了、当前项的位置被布局挪动了、或第一次量到视口宽度时调整。
+  // 列表刷新（内容未挪动当前项）、窗口缩放、用户自己滚动都不动条。不用平滑滚动，免得跟不上连按
   const index = indexOf.get(current) ?? -1;
+  const currentLeft = index < 0 ? null : layout.items[index].left;
+  const shownFor = useRef<{ id: FileId; left: number } | null>(null);
   useLayoutEffect(() => {
-    if (index < 0 || view <= 0) return;
+    if (currentLeft === null || view <= 0) return;
+    const last = shownFor.current;
+    if (last && last.id === current && last.left === currentLeft) return;
+    shownFor.current = { id: current, left: currentLeft };
     const el = ref.current!;
     const next = Math.round(scrollToShow(layout, index, el.scrollLeft, view));
     if (next !== el.scrollLeft) el.scrollLeft = next;
     setScrollLeft(next);
-  }, [index, layout, view]);
+  }, [current, currentLeft, index, layout, view]);
 
   // 可见项（左右各扩一屏）：既是渲染的项，也是登记需求的项
   const shown = useMemo(() => (view > 0 ? stripVisible(layout, scrollLeft, view, view) : []), [layout, scrollLeft, view]);

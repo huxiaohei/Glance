@@ -12,6 +12,7 @@ import Filmstrip from "./Filmstrip";
 vi.mock("../../ipc/api", () => ({ thumbsWant: vi.fn() }));
 
 let restore: (() => void)[] = [];
+let viewWidth = 600;
 const stubProp = (proto: object, prop: string, desc: PropertyDescriptor) => {
   const old = Object.getOwnPropertyDescriptor(proto, prop);
   Object.defineProperty(proto, prop, { configurable: true, ...desc });
@@ -29,7 +30,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.mocked(thumbsWant).mockResolvedValue([]);
   // 视口宽 600：一屏放得下 10 项
-  stubProp(Element.prototype, "clientWidth", { get: () => 600 });
+  viewWidth = 600;
+  stubProp(Element.prototype, "clientWidth", { get: () => viewWidth });
   useThumbs.getState().reset();
   useCatalog.getState().reset();
   useNav.getState().reset();
@@ -117,5 +119,60 @@ describe("Filmstrip", () => {
     scroller.dispatchEvent(ev);
     expect(left).toBe(120);
     expect(ev.defaultPrevented).toBe(true);
+  });
+  it("点击当前项不做事：不标记切图开始，免得与之后无关的绘制配对", () => {
+    act(() => useNav.getState().openSingle(1));
+    const { container } = render(<Filmstrip list={flat(20)} current={1} />);
+    const before = switchStats().count;
+    fireEvent.click(container.querySelector('.strip-item[data-id="1"]')!);
+    markSwitchPainted();
+    expect(switchStats().count).toBe(before);
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 1 });
+  });
+
+  describe("保持当前项可见，但不与用户的滚动较劲", () => {
+    /** 渲染后接管滚动区的 scrollLeft，模拟用户把条滚到 5000（当前项 50 在 [2940, 2996) 早已不可见）。 */
+    function scrolledAway(list: ImageList) {
+      const view = render(<Filmstrip list={list} current={50} />);
+      const scroller = view.container.querySelector<HTMLElement>(".strip-scroller")!;
+      const pos = { left: 0 };
+      Object.defineProperty(scroller, "scrollLeft", { configurable: true, get: () => pos.left, set: (v) => (pos.left = v) });
+      pos.left = 5000;
+      return { ...view, pos };
+    }
+
+    it("列表刷新但内容不变（新对象）时不动 scrollLeft", () => {
+      const { rerender, pos } = scrolledAway(flat(200));
+      rerender(<Filmstrip list={flat(200)} current={50} />);
+      expect(pos.left).toBe(5000);
+    });
+
+    it("当前项前面插入了项（它的位置变了）时滚到让它可见", () => {
+      const { rerender, pos } = scrolledAway(flat(200));
+      // 在最前面插入 0 与 -1：当前项 50 移到第 51 项，left = 51 × 60 = 3060
+      const ids = [-1, 0, ...flat(200).ids];
+      rerender(<Filmstrip list={{ ids, groups: [{ dir: "", start: 0, count: 202, total: 202 }] }} current={50} />);
+      expect(pos.left).toBe(3060 + 28 - 300);
+    });
+
+    it("只是视口宽度变化时不动 scrollLeft", () => {
+      let notify: (() => void) | null = null;
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          constructor(cb: () => void) { notify = cb; }
+          observe() {}
+          disconnect() {}
+        },
+      );
+      try {
+        const { pos } = scrolledAway(flat(200));
+        viewWidth = 800;
+        act(() => notify!());
+        expect(pos.left).toBe(5000);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 });
