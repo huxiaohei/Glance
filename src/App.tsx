@@ -11,6 +11,7 @@ import { useSettings } from "./stores/settings";
 import NamePrompt from "./views/common/NamePrompt";
 import GridView from "./views/grid/GridView";
 import ShortcutsOverlay from "./views/help/ShortcutsOverlay";
+import SettingsDialog from "./views/settings/SettingsDialog";
 import SingleView from "./views/single/SingleView";
 import { registerSingleCommands } from "./views/single/singleCommands";
 import StartView from "./views/start/StartView";
@@ -46,6 +47,7 @@ export default function App() {
         {hasRoot ? <GridView hidden={single} /> : <StartView />}
         {hasRoot && single && <SingleView />}
         <ShortcutsOverlay />
+        <SettingsDialog />
         <NamePrompt />
         <Toast />
       </Fragment>

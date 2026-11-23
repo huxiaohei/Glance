@@ -1,0 +1,56 @@
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 105;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+}
+.settings-panel {
+  width: 400px;
+  max-width: calc(100vw - 4 * var(--gap));
+  max-height: 80vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: calc(2 * var(--gap)) calc(3 * var(--gap));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.settings-panel:focus { outline: none; }
+.settings-title { margin: 0 0 calc(2 * var(--gap)); font-size: 15px; }
+.settings-group + .settings-group {
+  margin-top: calc(2 * var(--gap));
+  padding-top: calc(2 * var(--gap));
+  border-top: 1px solid var(--line);
+}
+.settings-cat { margin: 0 0 var(--gap); font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(2 * var(--gap));
+  min-height: calc(4 * var(--gap));
+}
+.settings-check { justify-content: flex-start; gap: var(--gap); }
+.settings-row select {
+  min-width: 140px;
+  height: 28px;
+  padding: 0 var(--gap);
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.settings-row select:focus,
+.settings-row input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.settings-row input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+.settings-actions { display: flex; justify-content: flex-end; margin-top: calc(2 * var(--gap)); }
+.settings-actions button {
+  height: 28px;
+  padding: 0 calc(1.5 * var(--gap));
+  background: transparent;
+}

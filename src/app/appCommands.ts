@@ -1,4 +1,5 @@
 import { useListView } from "../stores/listView";
+import { useSettings } from "../stores/settings";
 import { pickAndOpenFolder, refreshFolder } from "./openFolder";
 import { registerCommands, type Command } from "./commands";
 import { toggleFullscreen } from "./fullscreen";
@@ -41,6 +42,15 @@ const appCommands: Command[] = [
     run: (ctx) => {
       if (!ctx.repeat) void toggleFullscreen();
     },
+  },
+  {
+    id: "app.settings",
+    title: "cmd.app.settings",
+    category: "cmd.cat.general",
+    keys: ["Mod+,"],
+    views: "all",
+    allowInInput: true,
+    run: () => useSettings.setState((s) => ({ open: !s.open })),
   },
   {
     id: "help.shortcuts",

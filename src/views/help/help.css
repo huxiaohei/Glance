@@ -18,6 +18,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
+.help-panel:focus { outline: none; }
 .help-title { margin: 0 0 12px; font-size: 15px; }
 .help-group { margin-bottom: 12px; }
 .help-cat { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-dim); }

@@ -1,7 +1,9 @@
+import { useRef } from "react";
 import { allCommands, type Command } from "../../app/commands";
 import { IS_MAC, formatKey } from "../../app/keys";
 import { useHelp } from "../../app/useKeyboard";
 import { t, type MessageKey } from "../../i18n";
+import { useModalFocus } from "../common/useModalFocus";
 import "./help.css";
 
 /** 适用视图的标签：全部视图，或所列视图（目前只有网格与单张）。 */
@@ -14,6 +16,8 @@ function viewLabel(c: Command): string {
 /** 快捷键一览：没有快捷键的命令不列出；按分类分组，分类内再按适用视图分组并标出视图；都按注册顺序首次出现的先后。 */
 export default function ShortcutsOverlay() {
   const open = useHelp((s) => s.open);
+  const panel = useRef<HTMLDivElement>(null);
+  useModalFocus(panel, open);
   if (!open) return null;
 
   const groups = new Map<MessageKey, Map<string, Command[]>>();
@@ -27,7 +31,15 @@ export default function ShortcutsOverlay() {
 
   return (
     <div className="help-backdrop" onClick={() => useHelp.setState({ open: false })}>
-      <div className="help-panel" role="dialog" aria-label={t("help.title")} onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={panel}
+        className="help-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("help.title")}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <h2 className="help-title">{t("help.title")}</h2>
         {[...groups].map(([category, byView]) => (
           <section key={category} className="help-group">

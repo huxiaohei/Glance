@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerCommands } from "../../app/commands";
 import { useHelp } from "../../app/useKeyboard";
@@ -56,5 +56,19 @@ describe("ShortcutsOverlay", () => {
   it("关闭时不渲染", () => {
     const { container } = render(<ShortcutsOverlay />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it("有 aria-modal，打开后焦点在面板内，关闭后焦点还原", () => {
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+    render(<ShortcutsOverlay />);
+    act(() => useHelp.setState({ open: true }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    act(() => useHelp.setState({ open: false }));
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
   });
 });

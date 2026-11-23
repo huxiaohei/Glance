@@ -4,7 +4,9 @@ import { allCommands, findCommand } from "./commands";
 
 vi.mock("./fullscreen", () => ({ toggleFullscreen: vi.fn() }));
 vi.mock("./openFolder", () => ({ pickAndOpenFolder: vi.fn(), refreshFolder: vi.fn() }));
+vi.mock("../ipc/api", () => ({ settingsGet: vi.fn(), settingsSet: vi.fn(() => Promise.resolve()) }));
 import { toggleFullscreen } from "./fullscreen";
+import { useSettings } from "../stores/settings";
 
 let unregister: (() => void) | null = null;
 afterEach(() => {
@@ -23,5 +25,18 @@ describe("view.fullscreen", () => {
     expect(toggleFullscreen).not.toHaveBeenCalled();
     cmd!.run({ shift: false, repeat: false });
     expect(toggleFullscreen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("app.settings", () => {
+  it("Mod+, 在各视图（含输入框里）切换设置对话框", () => {
+    unregister = registerAppCommands();
+    const cmd = findCommand({ key: ",", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false } as KeyboardEvent, "single", true, true);
+    expect(cmd?.id).toBe("app.settings");
+    expect(cmd?.views).toBe("all");
+    cmd!.run({ shift: false, repeat: false });
+    expect(useSettings.getState().open).toBe(true);
+    cmd!.run({ shift: false, repeat: false });
+    expect(useSettings.getState().open).toBe(false);
   });
 });

@@ -2,12 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogEvent, RootInfo } from "../ipc/types";
 
 const openPath = vi.fn<(path: string, recursive: boolean, seq: number, onEvent: (e: CatalogEvent) => void) => Promise<RootInfo>>();
-vi.mock("../ipc/api", () => ({ openPath: (...a: Parameters<typeof openPath>) => openPath(...a), thumbsSubscribe: vi.fn() }));
+vi.mock("../ipc/api", () => ({
+  openPath: (...a: Parameters<typeof openPath>) => openPath(...a),
+  thumbsSubscribe: vi.fn(),
+  settingsGet: vi.fn(),
+  settingsSet: vi.fn(() => Promise.resolve()),
+}));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 const { openFolder, refreshFolder } = await import("./openFolder");
 const { useCatalog } = await import("../stores/catalog");
 const { useThumbs } = await import("../stores/thumbs");
+const { DEFAULT_SETTINGS, useSettings } = await import("../stores/settings");
 
 const info = (generation: number, name: string): RootInfo => ({ generation, path: "/real/dir", name, recursive: true, focus: null });
 
@@ -44,5 +50,18 @@ describe("refreshFolder", () => {
     openPath.mockResolvedValueOnce(info(3, "dir"));
     await openFolder("/real/dir");
     expect(useCatalog.getState().root?.name).toBe("dir");
+  });
+});
+
+describe("openFolder", () => {
+  it("不传 recursive 时按设置里的 includeSubdirs 打开", async () => {
+    useSettings.setState({ settings: { ...DEFAULT_SETTINGS, includeSubdirs: false } });
+    openPath.mockResolvedValueOnce({ ...info(1, "dir"), recursive: false });
+    await openFolder("/real/dir");
+    expect(openPath.mock.calls[0][1]).toBe(false);
+    useSettings.setState({ settings: DEFAULT_SETTINGS });
+    openPath.mockResolvedValueOnce(info(2, "dir"));
+    await openFolder("/real/dir");
+    expect(openPath.mock.calls[1][1]).toBe(true);
   });
 });

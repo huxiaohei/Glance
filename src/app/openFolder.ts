@@ -4,6 +4,7 @@ import type { OpenErrorCode } from "../ipc/types";
 import { changedIds, useCatalog } from "../stores/catalog";
 import { createThumbBatcher } from "../stores/thumbBatcher";
 import { useListView } from "../stores/listView";
+import { useSettings } from "../stores/settings";
 import { useThumbs } from "../stores/thumbs";
 import { create } from "zustand";
 import { createOpener } from "./openSession";
@@ -35,13 +36,14 @@ const opener = createOpener<{ keepView?: boolean }>({
   },
 });
 
-/** 打开目录或图片：begin → 事件流写入 catalog；失败时返回错误码。 */
+/** 打开目录或图片：begin → 事件流写入 catalog；失败时返回错误码。recursive 省略时按设置里的“包含子目录”。 */
 export async function openFolder(
   path: string,
-  recursive: boolean = true,
+  recursive?: boolean,
   opts?: { keepView?: boolean },
 ): Promise<OpenErrorCode | null> {
-  const { superseded, error } = await opener(path, recursive, opts);
+  const rec = recursive ?? useSettings.getState().settings.includeSubdirs;
+  const { superseded, error } = await opener(path, rec, opts);
   if (!superseded) useOpenError.setState({ error });
   return error;
 }
