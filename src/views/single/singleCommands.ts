@@ -3,6 +3,7 @@ import { getImageList } from "../../app/useImageList";
 import { t } from "../../i18n";
 import { markSwitchStart } from "../../lib/perfMarks";
 import { topView, useNav } from "../../stores/nav";
+import { useSingleUi } from "../../stores/singleUi";
 import { showHint } from "./Hint";
 import { useStageApi, type StageApi } from "./Stage";
 
@@ -115,6 +116,16 @@ const singleCommands: Command[] = [
     keys: ["1"],
     views: ["single"],
     run: withStage((api) => api.actual()),
+  },
+  {
+    id: "single.toggleInfo",
+    title: "cmd.single.toggleInfo",
+    category: "cmd.cat.view",
+    keys: ["I"],
+    views: ["single"],
+    run: ({ repeat }) => {
+      if (!repeat) useSingleUi.getState().toggleInfo();
+    },
   },
 ];
 

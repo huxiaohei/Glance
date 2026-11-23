@@ -7,6 +7,8 @@ import { cancelSwitch } from "../../lib/perfMarks";
 import { preloadPlan } from "../../lib/preloadPlan";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
+import { useSingleUi } from "../../stores/singleUi";
+import DetailsPanel from "./DetailsPanel";
 import Filmstrip from "./Filmstrip";
 import Hint from "./Hint";
 import InfoBar from "./InfoBar";
@@ -53,6 +55,7 @@ export default function SingleView() {
   });
   const list = useImageList();
   const entries = useCatalog((s) => s.entries);
+  const infoOpen = useSingleUi((s) => s.infoOpen);
   const [preloader] = useState(() => new Preloader());
 
   useEffect(() => registerSingleCommands(), []);
@@ -97,6 +100,8 @@ export default function SingleView() {
   return (
     <div className="single-view">
       {id !== null && <TopBar id={id} />}
+      <div className="single-middle">
+        <div className="single-main">
       <div className="single-stage">
         {id !== null && (
           <Stage id={id} preloader={preloader}>
@@ -106,6 +111,9 @@ export default function SingleView() {
         )}
       </div>
       {id !== null && <Filmstrip list={list} current={id} />}
+        </div>
+        {id !== null && infoOpen && <DetailsPanel id={id} />}
+      </div>
       {id !== null && <InfoBar id={id} />}
       <Hint />
     </div>

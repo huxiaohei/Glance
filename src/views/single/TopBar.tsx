@@ -3,6 +3,7 @@ import { IS_MAC, formatKey } from "../../app/keys";
 import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
 import { useCatalog } from "../../stores/catalog";
+import { useSingleUi } from "../../stores/singleUi";
 import { backToGrid, singleCommand } from "./singleCommands";
 
 /** 切到另一个子目录时目录名高亮这么久。 */
@@ -27,6 +28,10 @@ export default function TopBar({ id }: { id: FileId }) {
   const cmd = singleCommand("single.back");
   const tip = cmd ? `${t(cmd.title)} (${formatKey(cmd.keys[0], IS_MAC)})` : t("single.back");
 
+  const infoOpen = useSingleUi((s) => s.infoOpen);
+  const infoCmd = singleCommand("single.toggleInfo");
+  const infoTip = infoCmd ? `${t(infoCmd.title)} (${formatKey(infoCmd.keys[0], IS_MAC)})` : t("details.title");
+
   return (
     <div className="single-topbar">
       <button type="button" className="topbar-back" title={tip} aria-label={t("single.back")} onClick={backToGrid}>
@@ -47,6 +52,19 @@ export default function TopBar({ id }: { id: FileId }) {
           </span>
         </div>
       )}
+      <button
+        type="button"
+        className={`topbar-info${infoOpen ? " active" : ""}`}
+        title={infoTip}
+        aria-label={t("details.title")}
+        aria-pressed={infoOpen}
+        onClick={() => useSingleUi.getState().toggleInfo()}
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v6M12 7.5v.5" />
+        </svg>
+      </button>
     </div>
   );
 }
