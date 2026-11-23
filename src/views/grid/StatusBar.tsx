@@ -25,6 +25,7 @@ export default function StatusBar({ total }: { total: number }) {
     <div className="status-bar">
       <span className="status-counts">
         <span>{t("grid.total", { n: total })}</span>
+        {selected > 0 && <span aria-hidden="true">{t("status.sep")}</span>}
         {selected > 0 && <span>{t("status.selected", { n: selected })}</span>}
       </span>
       {watchFailed && <span className="status-warn">{t("status.watchFailed")}</span>}

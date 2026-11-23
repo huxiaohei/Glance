@@ -64,3 +64,18 @@ describe("formatKey", () => {
     expect(formatKey("Delete", false)).toBe("Del");
   });
 });
+
+describe("matchKey 带 Shift 的数字键", () => {
+  it("Shift+1 匹配 key='!'、code='Digit1'、shift 按下", () => {
+    expect(matchKey(ev("!", { shiftKey: true, code: "Digit1" }), "Shift+1", true)).toBe(true);
+  });
+  it("Shift+1 不匹配没按 Shift 的 1", () => {
+    expect(matchKey(ev("1", { code: "Digit1" }), "Shift+1", true)).toBe(false);
+  });
+  it("1 不匹配按着 Shift 的 Digit1", () => {
+    expect(matchKey(ev("!", { shiftKey: true, code: "Digit1" }), "1", true)).toBe(false);
+  });
+  it("没有 code 的事件不匹配 Shift+数字", () => {
+    expect(matchKey(ev("!", { shiftKey: true }), "Shift+1", true)).toBe(false);
+  });
+});

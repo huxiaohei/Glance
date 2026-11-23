@@ -11,6 +11,9 @@ import { backToGrid, singleCommand } from "./singleCommands";
 /** 切到另一个子目录时目录名高亮这么久。 */
 const DIR_HIGHLIGHT_MS = 1000;
 
+/** 指针按下不把焦点移到按钮上（否则空格 / 回车会再次触发它）；点击照常触发，Tab 聚焦后的键盘激活不受影响。 */
+const keepFocus = (e: React.MouseEvent) => e.preventDefault();
+
 /** 单张视图顶栏：返回按钮 + “子目录 / 文件名”。当前图所在目录与上一张不同时目录名高亮 1 秒。 */
 export default function TopBar({ id }: { id: FileId }) {
   const entry = useCatalog((s) => s.entries.get(id));
@@ -41,7 +44,7 @@ export default function TopBar({ id }: { id: FileId }) {
 
   return (
     <div className="single-topbar">
-      <button type="button" className="topbar-back" title={tip} aria-label={t("single.back")} onClick={backToGrid}>
+      <button type="button" className="topbar-back" title={tip} aria-label={t("single.back")} onMouseDown={keepFocus} onClick={backToGrid}>
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <path d="M15 5l-7 7 7 7" />
         </svg>
@@ -69,6 +72,7 @@ export default function TopBar({ id }: { id: FileId }) {
         title={infoTip}
         aria-label={t("details.title")}
         aria-pressed={infoOpen}
+        onMouseDown={keepFocus}
         onClick={() => useSingleUi.getState().toggleInfo()}
       >
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">

@@ -17,8 +17,8 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px;
+  gap: 16px;
+  padding: 0 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
@@ -98,11 +98,11 @@
 .group-arrow { flex: none; width: 16px; color: var(--text-dim); transition: transform 120ms; }
 .group-header-collapsed .group-arrow { transform: rotate(-90deg); }
 .group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.group-count { color: var(--text-dim); margin-left: 12px; flex: none; }
+.group-count { color: var(--text-dim); margin-left: 16px; flex: none; }
 .group-select {
   flex: none;
   opacity: 0; /* 不用 visibility：隐藏时仍可被辅助技术读到、聚焦（Tab 键已用于切换侧栏，键盘用户靠辅助技术或指针） */
-  margin-left: 12px;
+  margin-left: 16px;
   padding: 0 8px;
   height: 22px;
   font-size: 12px;
@@ -164,7 +164,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 16px;
   color: var(--text-dim);
 }
 
@@ -174,14 +174,13 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 16px;
   background: var(--panel);
   border-top: 1px solid var(--line);
   color: var(--text-dim);
   gap: 16px;
 }
 .status-warn { color: var(--text); }
-.status-counts > span + span::before { content: "\00a0·\00a0"; }
 .status-action {
   margin-left: auto;
   height: 22px;
@@ -195,7 +194,7 @@
 .status-action:hover { border-color: var(--accent); }
 .status-action + .status-action { margin-left: 0; }
 
-.toolbar-field { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+.toolbar-field { display: flex; align-items: center; gap: 8px; color: var(--text-dim); }
 .grid-toolbar select,
 .grid-toolbar button {
   height: 28px;

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
 import { stopRename, useRename } from "../../stores/rename";
+import { useSingleUi } from "../../stores/singleUi";
 import TopBar from "./TopBar";
 
 vi.mock("../../ipc/api");
@@ -29,5 +30,19 @@ describe("TopBar 重命名", () => {
     act(() => stopRename());
     expect(container.querySelector("input")).toBeNull();
     expect(container.querySelector(".topbar-name")!.textContent).toBe("赵云.png");
+  });
+});
+
+describe("TopBar 按钮焦点", () => {
+  it("在按钮上按下指针被 preventDefault，点击仍然触发命令", () => {
+    const { container } = render(<TopBar id={1} />);
+    const btn = container.querySelector<HTMLButtonElement>(".topbar-info")!;
+    const notCancelled = fireEvent.mouseDown(btn);
+    expect(notCancelled).toBe(false);
+    const back = container.querySelector<HTMLButtonElement>(".topbar-back")!;
+    expect(fireEvent.mouseDown(back)).toBe(false);
+    const before = useSingleUi.getState().infoOpen;
+    fireEvent.click(btn);
+    expect(useSingleUi.getState().infoOpen).toBe(!before);
   });
 });

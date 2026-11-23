@@ -201,4 +201,27 @@ describe("详细信息面板", () => {
     await flush();
     expect(c.querySelector(".details-error")).not.toBeNull();
   });
+
+  it("修改时间无效（NaN）时显示 — 而不是抛错", async () => {
+    vi.mocked(imageDetails).mockResolvedValue(details({ mtimeMs: NaN }));
+    const c = setup();
+    press("i");
+    await flush();
+    expect(panel(c)!.textContent).toContain(`${t("details.modified")}—`);
+  });
+
+  it("连续渲染两次只创建一个日期格式化对象", async () => {
+    vi.mocked(imageDetails).mockImplementation(async (id) => details({ path: `/p/${id}.png`, mtimeMs: 1000 + id }));
+    const spy = vi.spyOn(Intl, "DateTimeFormat");
+    const c = setup();
+    press("i");
+    await flush();
+    const n = spy.mock.calls.length;
+    act(() => useNav.getState().setCurrent(2));
+    await flush();
+    expect(panel(c)!.textContent).toContain("/p/2.png");
+    expect(spy.mock.calls.length).toBe(n);
+    expect(n).toBeLessThanOrEqual(1);
+    spy.mockRestore();
+  });
 });

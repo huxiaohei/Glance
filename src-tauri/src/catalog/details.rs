@@ -495,7 +495,8 @@ fn exif_items(exif: &Exif) -> Vec<ExifItem> {
                 "exposure" => rational(exif, Tag::ExposureTime)
                     .filter(|t| *t > 0.0)
                     .map(|t| {
-                        if t < 1.0 {
+                        // 1/t 四舍五入后不到 2（如 0.8 s）写成 "1/1 s" 不对，改用秒数
+                        if t < 1.0 && (1.0 / t).round() >= 2.0 {
                             format!("1/{} s", (1.0 / t).round())
                         } else {
                             format!("{} s", decimal(t))
@@ -887,6 +888,26 @@ mod tests {
                 item("focalLength", "50 mm")
             ]
         );
+    }
+
+    #[test]
+    fn exposure_near_one_second_is_written_in_seconds() {
+        let tmp = tempfile::tempdir().unwrap();
+        for (i, (num, den, want)) in [
+            (1, 1, "1 s"),
+            (4, 5, "0.8 s"),
+            (3, 5, "1/2 s"),
+            (1, 250, "1/250 s"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let t = tiff(&[], &[(0x829A, V::Rational(num, den))]);
+            let p = write(tmp.path(), &format!("x{i}.jpg"), &jpeg_with_exif(8, 8, &t));
+            let d = image_details(&p).unwrap();
+            assert_eq!(d.exif.len(), 1);
+            assert_eq!(d.exif[0].value, want);
+        }
     }
 
     #[test]

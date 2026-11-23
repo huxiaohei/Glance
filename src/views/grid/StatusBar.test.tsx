@@ -49,6 +49,16 @@ describe("StatusBar", () => {
     expect(screen.getByText(t("status.selected", { n: 2 }))).toBeTruthy();
   });
 
+  it("总数与已选数之间渲染 status.sep", () => {
+    useSelection.getState().set(selectOnly(1));
+    const { container } = render(<StatusBar total={3} />);
+    const spans = container.querySelectorAll(".status-counts > span");
+    expect(spans[1].textContent).toBe(t("status.sep"));
+    expect(container.querySelector(".status-counts")!.textContent).toBe(
+      `${t("grid.total", { n: 3 })}${t("status.sep")}${t("status.selected", { n: 1 })}`,
+    );
+  });
+
   it("没有选中时不显示已选", () => {
     render(<StatusBar total={3} />);
     expect(screen.queryByText(t("status.selected", { n: 0 }))).toBeNull();

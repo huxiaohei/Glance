@@ -33,15 +33,29 @@ function colorText(d: ImageDetails): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
+let dateFmt: { tag: string; fmt: Intl.DateTimeFormat } | null = null;
+
+/** 修改时间的显示文字。格式化对象按语言缓存（语言变了才重建）；时间无效或格式化抛错时显示 —。 */
+function formatModified(ms: number): string {
+  try {
+    if (!Number.isFinite(ms)) return "—";
+    const tag = locale();
+    if (!dateFmt || dateFmt.tag !== tag) {
+      dateFmt = { tag, fmt: new Intl.DateTimeFormat(tag, { dateStyle: "medium", timeStyle: "short" }) };
+    }
+    return dateFmt.fmt.format(ms);
+  } catch {
+    return "—";
+  }
+}
+
 /** 右侧详细信息面板：文件、图像、拍摄信息三组；缺失的项不显示。 */
 export default function DetailsPanel({ id }: { id: FileId }) {
   const entry = useCatalog((s) => s.entries.get(id));
   const version = entry ? `${entry.mtimeMs}-${entry.size}` : "";
   const { details, loading, error } = useImageDetails(id, version);
   const yesNo = (b: boolean) => t(b ? "details.yes" : "details.no");
-  const modified = details
-    ? new Intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(details.mtimeMs)
-    : null;
+  const modified = details ? formatModified(details.mtimeMs) : null;
   const color = details ? colorText(details) : null;
 
   return (

@@ -4,6 +4,8 @@ export interface KeyLike {
   ctrlKey: boolean;
   shiftKey: boolean;
   altKey: boolean;
+  /** 物理键位（如 "Digit1"）。Shift+数字靠它匹配，因为此时 key 是 "!" 之类。 */
+  code?: string;
 }
 
 export function detectMac(
@@ -25,13 +27,17 @@ function parse(combo: string): { mod: boolean; shift: boolean; alt: boolean; key
 }
 
 /** 组合键写法："Mod+A"、"Shift+ArrowLeft"、"F5"、"?"、"Tab"。Mod 在 macOS 上是 Cmd，其他平台是 Ctrl。
- *  字母不分大小写。单个非字母数字的可打印字符（如 "?"）不比较 Shift。其余修饰键必须完全一致。 */
+ *  字母不分大小写。单个非字母数字的可打印字符（如 "?"）按打出的字符匹配，不比较 Shift
+ *  （带 Shift 才能打出的符号照打出的字符写，如 "?"，不写 "Shift+/"）。
+ *  数字键例外：写了 Shift 的数字（如 "Shift+1"）按 e.code === "Digit1" 且 Shift 按下匹配，
+ *  因为此时 e.key 是 "!"、"@" 之类，不能比；不带 Shift 的数字在 Shift 按下时不匹配。其余修饰键必须完全一致。 */
 export function matchKey(e: KeyLike, combo: string, isMac: boolean): boolean {
   const c = parse(combo);
   const modDown = isMac ? e.metaKey : e.ctrlKey;
   const otherDown = isMac ? e.ctrlKey : e.metaKey;
   if (c.mod !== modDown || otherDown) return false;
   if (c.alt !== e.altKey) return false;
+  if (c.shift && /^[0-9]$/.test(c.key)) return e.shiftKey && e.code === `Digit${c.key}`;
   const printableSymbol = c.key.length === 1 && !/[a-z0-9]/i.test(c.key);
   if (!printableSymbol && c.shift !== e.shiftKey) return false;
   return c.key.length === 1 ? e.key.toLowerCase() === c.key.toLowerCase() : e.key === c.key;
