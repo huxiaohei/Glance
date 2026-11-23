@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { pickAndOpenFolder } from "../../app/openFolder";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { pickAndOpenFolder, useOpenError } from "../../app/openFolder";
 import { t } from "../../i18n";
 import { deriveList, type ListOptions } from "../../lib/deriveList";
 import { layoutGrid, type Row } from "../../lib/gridLayout";
@@ -33,6 +33,8 @@ export default function GridView() {
   const entries = useCatalog((s) => s.entries);
   const scanning = useCatalog((s) => s.scanning);
   const version = useCatalog((s) => s.version);
+  const openError = useOpenError((s) => s.error);
+  const generation = root?.generation;
 
   // 派生列表按 catalog.version 缓存
   const list = useMemo(() => deriveList(entries.values(), LIST_OPTIONS), [version]);
@@ -60,6 +62,12 @@ export default function GridView() {
     },
     overscan: 4,
   });
+  // estimateSize 不在虚拟器的缓存依赖里：布局变化（换目录、列数变化）后须手动让它重算
+  useLayoutEffect(() => virtualizer.measure(), [virtualizer, layout]);
+  // 打开新目录时回到顶部
+  useLayoutEffect(() => {
+    if (scroller) scroller.scrollTop = 0;
+  }, [scroller, generation]);
   const scrollTop = virtualizer.scrollOffset ?? 0;
   useVisibleThumbs(layout, scrollTop, size.height, TIER);
 
@@ -85,6 +93,7 @@ export default function GridView() {
       <div className="grid-toolbar">
         <span className="grid-root" title={root?.path}>{root?.name}</span>
         {scanning && <span className="grid-scanning">{t("grid.scanning", { n: entries.size })}</span>}
+        {openError && <span className="grid-error">{t(`error.${openError}`)}</span>}
         <span className="grid-spacer" />
         <button type="button" onClick={openOther}>{t("grid.openOther")}</button>
       </div>

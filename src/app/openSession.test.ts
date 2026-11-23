@@ -3,6 +3,7 @@ import type { CatalogEvent, RootInfo } from "../ipc/types";
 import { createOpener } from "./openSession";
 
 const info = (generation: number): RootInfo => ({ generation, path: "/r", name: "r", recursive: true, focus: null });
+const OK = { superseded: false, error: null };
 const done = (generation: number): CatalogEvent => ({ type: "done", generation, total: 0 });
 
 function setup() {
@@ -24,7 +25,7 @@ describe("createOpener", () => {
     pending[0].emit({ type: "batch", generation: 1, entries: [] });
     pending[0].emit(done(1));
     pending[0].resolve(info(1));
-    expect(await p).toBeNull();
+    expect(await p).toEqual(OK);
     pending[0].emit({ type: "dims", generation: 1, items: [] });
     expect(log).toEqual(["begin:1", "apply:batch:1", "apply:done:1", "apply:dims:1"]);
   });
@@ -38,7 +39,7 @@ describe("createOpener", () => {
     await b;
     pending[0].emit(done(1));
     pending[0].resolve(info(1));
-    await a;
+    expect(await a).toEqual({ superseded: true, error: null });
     pending[0].emit({ type: "dims", generation: 1, items: [] });
     expect(log).toEqual(["begin:2", "apply:done:2"]);
   });
@@ -48,7 +49,7 @@ describe("createOpener", () => {
     const p = open("/a", true);
     pending[0].emit(done(1));
     pending[0].reject({ code: "notFound" });
-    expect(await p).toBe("notFound");
+    expect(await p).toEqual({ superseded: false, error: "notFound" });
     expect(log).toEqual([]);
   });
 
@@ -56,6 +57,43 @@ describe("createOpener", () => {
     const { pending, open } = setup();
     const p = open("/a", true);
     pending[0].reject("boom");
-    expect(await p).toBe("unreadable");
+    expect(await p).toEqual({ superseded: false, error: "unreadable" });
+  });
+
+  it("已 begin 的会话在新调用失败后继续接收事件", async () => {
+    const { log, pending, open } = setup();
+    const a = open("/a", true);
+    pending[0].resolve(info(1));
+    await a;
+    const b = open("/b", true);
+    pending[0].emit({ type: "dims", generation: 1, items: [] }); // B 尚未 begin，A 仍有效
+    pending[1].reject({ code: "notFound" });
+    expect(await b).toEqual({ superseded: false, error: "notFound" });
+    pending[0].emit(done(1));
+    expect(log).toEqual(["begin:1", "apply:dims:1", "apply:done:1"]);
+  });
+
+  it("B 先 begin 后，尚未 begin 的 A 的结果和事件被忽略", async () => {
+    const { log, pending, open } = setup();
+    const a = open("/a", true);
+    const b = open("/b", true);
+    pending[1].resolve(info(2));
+    await b;
+    pending[0].emit(done(1));
+    pending[0].resolve(info(1));
+    expect(await a).toEqual({ superseded: true, error: null });
+    expect(log).toEqual(["begin:2"]);
+  });
+
+  it("B begin 后，A 已 begin 的会话的事件被丢弃", async () => {
+    const { log, pending, open } = setup();
+    const a = open("/a", true);
+    pending[0].resolve(info(1));
+    await a;
+    const b = open("/b", true);
+    pending[1].resolve(info(2));
+    await b;
+    pending[0].emit(done(1));
+    expect(log).toEqual(["begin:1", "begin:2"]);
   });
 });

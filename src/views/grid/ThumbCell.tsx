@@ -7,8 +7,8 @@ import { useThumbs } from "../../stores/thumbs";
 
 interface Props { entry: ImageEntry; cell: number }
 
-/** 文件名按 12px 字体粗略估算每格能放下的字符数。 */
-const nameChars = (cell: number) => Math.max(8, Math.floor(cell / 7));
+/** 12px 字体下窄字符约 6.5px、全角约 13px：按窄字符单位估算每格预算。 */
+const nameBudget = (cell: number) => Math.max(8, Math.floor(cell / 6.5));
 
 function ThumbCell({ entry, cell }: Props) {
   const tier = useThumbs((s) => s.ready.get(entry.id));
@@ -38,7 +38,7 @@ function ThumbCell({ entry, cell }: Props) {
         )}
       </div>
       <div className="thumb-name" title={entry.name}>
-        {middleEllipsis(entry.name, nameChars(cell))}
+        {middleEllipsis(entry.name, nameBudget(cell))}
       </div>
     </div>
   );
