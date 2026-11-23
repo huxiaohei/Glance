@@ -146,4 +146,8 @@ export const zhCN = {
   "error.notFound": "找不到这个位置",
   "error.notAnImage": "这不是图片或目录",
   "error.unreadable": "无法读取这个位置",
+  "menu.moveTo": "移动到",
+  "menu.copyTo": "复制到",
+  "menu.newDir": "新建子目录…",
+  "menu.pickDir": "选择目录…",
 } as const;

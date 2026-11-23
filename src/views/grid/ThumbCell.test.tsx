@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
+import { vi } from "vitest";
+vi.mock("../../app/contextMenu", () => ({ showImageMenu: vi.fn(async () => {}) }));
+import { showImageMenu } from "../../app/contextMenu";
 import { act, fireEvent, render } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { ImageEntry } from "../../lib/deriveList";
 import { useNav } from "../../stores/nav";
 import { stopRename, useRename } from "../../stores/rename";
 import { useThumbs } from "../../stores/thumbs";
+import { useSelection } from "../../stores/selection";
 import ThumbCell from "./ThumbCell";
 
 const entry: ImageEntry = { id: 1, relPath: "a.jpg", dir: "", name: "a.jpg", size: 10, mtimeMs: 5 };
@@ -48,5 +52,31 @@ describe("ThumbCell 重命名", () => {
     fireEvent.doubleClick(container.querySelector(".thumb-box")!);
     expect(openSingle).toHaveBeenCalledWith(1);
     openSingle.mockRestore();
+  });
+});
+
+describe("ThumbCell 右键菜单", () => {
+  beforeEach(() => {
+    useThumbs.getState().reset();
+    stopRename();
+    useSelection.getState().clear();
+    vi.mocked(showImageMenu).mockClear();
+  });
+
+  it("contextmenu 先调整选中再弹菜单，并阻止系统默认菜单", () => {
+    const { container } = render(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);
+    const notPrevented = fireEvent.contextMenu(container.querySelector(".thumb-cell")!);
+    expect(notPrevented).toBe(false);
+    expect([...useSelection.getState().ids]).toEqual([1]);
+    expect(showImageMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it("重命名输入框里的右键保持系统菜单", () => {
+    const { container } = render(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);
+    fireEvent.doubleClick(container.querySelector(".thumb-name")!);
+    const notPrevented = fireEvent.contextMenu(container.querySelector("input")!);
+    expect(notPrevented).toBe(true);
+    expect(showImageMenu).not.toHaveBeenCalled();
+    act(() => stopRename());
   });
 });

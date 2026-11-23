@@ -21,6 +21,11 @@ export function selectOnly(id: FileId): Selection {
   return { ids: new Set([id]), focus: id, anchor: id };
 }
 
+/** 右键落在一张图上：它已在选中集合里 → 选中不变，只把焦点移到它；否则 → 只选它。 */
+export function selectForContext(sel: Selection, id: FileId): Selection {
+  return sel.ids.has(id) ? { ids: sel.ids, focus: id, anchor: sel.anchor } : selectOnly(id);
+}
+
 /** Cmd/Ctrl + 单击：切换它；focus = anchor = id。 */
 export function toggle(sel: Selection, id: FileId): Selection {
   const ids = new Set(sel.ids);

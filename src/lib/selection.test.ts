@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImageList } from "./deriveList";
-import { EMPTY, moveTo, prune, selectAll, selectGroup, selectMany, selectOnly, selectRange, toggle, type Selection } from "./selection";
+import { EMPTY, moveTo, prune, selectAll, selectGroup, selectMany, selectOnly, selectForContext, selectRange, toggle, type Selection } from "./selection";
 
 const list: ImageList = {
   ids: [1, 2, 3, 4, 5, 6, 7],
@@ -121,5 +121,21 @@ describe("selection", () => {
     expect(arr(selectMany(base, [4, 5], false))).toEqual([4, 5]);
     expect(selectMany(base, [], true)).toBe(base);
     expect(selectMany(base, [], false)).toEqual({ ids: new Set(), focus: 2, anchor: 2 });
+  });
+
+  it("selectForContext：右键已选中的一张，选中集合不变、焦点移到它", () => {
+    const sel: Selection = { ids: new Set([1, 2, 3]), focus: 1, anchor: 2 };
+    const next = selectForContext(sel, 3);
+    expect(next.ids).toBe(sel.ids);
+    expect(next.anchor).toBe(2);
+    expect(next.focus).toBe(3);
+  });
+
+  it("selectForContext：右键未选中的一张，只选它", () => {
+    const sel: Selection = { ids: new Set([1, 2]), focus: 1, anchor: 1 };
+    const next = selectForContext(sel, 5);
+    expect([...next.ids]).toEqual([5]);
+    expect(next.focus).toBe(5);
+    expect(next.anchor).toBe(5);
   });
 });

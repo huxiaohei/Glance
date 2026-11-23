@@ -148,4 +148,8 @@ export const en: Record<MessageKey, string> = {
   "error.notFound": "Location not found",
   "error.notAnImage": "Not an image or a folder",
   "error.unreadable": "Cannot read this location",
+  "menu.moveTo": "Move to",
+  "menu.copyTo": "Copy to",
+  "menu.newDir": "New Subfolder…",
+  "menu.pickDir": "Choose Folder…",
 };

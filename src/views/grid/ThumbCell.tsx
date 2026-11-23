@@ -1,10 +1,11 @@
 import { memo, useState, type MouseEvent, type PointerEvent } from "react";
+import { showImageMenu } from "../../app/contextMenu";
 import { IS_MAC } from "../../app/keys";
 import { t } from "../../i18n";
 import type { ImageEntry } from "../../lib/deriveList";
 import { glanceUrl } from "../../lib/glanceUrl";
 import { middleEllipsis } from "../../lib/middleEllipsis";
-import { selectOnly, selectRange, toggle } from "../../lib/selection";
+import { selectForContext, selectOnly, selectRange, toggle } from "../../lib/selection";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useNav } from "../../stores/nav";
 import { startRename, useRename } from "../../stores/rename";
@@ -16,7 +17,7 @@ interface Props { entry: ImageEntry; cell: number; selected: boolean; focused: b
 
 /**
  * 按下主键时选中：单击只选它，Mod + 单击切换，Shift + 单击从锚点连选。
- * 右键（以及 macOS 上等同右键的 Ctrl + 单击）暂不改变选中。
+ * 右键（以及 macOS 上等同右键的 Ctrl + 单击）在 contextmenu 事件里处理，这里不管。
  * 模块级函数、id 取自 data-id：所有格子共用同一个处理函数，不破坏 memo。
  */
 function onCellPointerDown(e: PointerEvent<HTMLDivElement>): void {
@@ -26,6 +27,15 @@ function onCellPointerDown(e: PointerEvent<HTMLDivElement>): void {
   if (e.shiftKey) sel.set(selectRange(sel, useGridCtx.getState().list, id));
   else if (IS_MAC ? e.metaKey : e.ctrlKey) sel.set(toggle(sel, id));
   else sel.set(selectOnly(id));
+}
+
+/** 右键（含 macOS 的 Ctrl + 单击）：先调整选中再弹菜单，并阻止系统默认菜单。重命名输入框里保持系统菜单。 */
+function onCellContextMenu(e: MouseEvent<HTMLDivElement>): void {
+  if ((e.target as Element).closest(".rename-input")) return;
+  e.preventDefault();
+  const sel = useSelection.getState();
+  sel.set(selectForContext(sel, Number(e.currentTarget.dataset.id)));
+  void showImageMenu();
 }
 
 /** 主键双击进入单张视图；按着 Mod、Ctrl 或 Shift 时只是选择操作，不进入。 */
@@ -69,6 +79,7 @@ function ThumbCell({ entry, cell, selected, focused }: Props) {
       data-id={entry.id}
       onPointerDown={onCellPointerDown}
       onDoubleClick={onCellDoubleClick}
+      onContextMenu={onCellContextMenu}
     >
       <div className="thumb-box" style={{ width: cell, height: cell }}>
         {broken ? (

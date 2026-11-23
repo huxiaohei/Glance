@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { create, type StoreApi, type UseBoundStore } from "zustand";
+import { showImageMenu } from "../../app/contextMenu";
 import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
 import type { ImageEntry } from "../../lib/deriveList";
@@ -134,7 +135,14 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
   }, [painted, under]);
 
   return (
-    <div className="stage" ref={setBox}>
+    <div
+      className="stage"
+      ref={setBox}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        void showImageMenu();
+      }}
+    >
       <div className="stage-layer" ref={setSlot} />
       {thumbUrl && (
         <img key={thumbUrl} ref={setUnder} className="stage-img stage-underlay" src={thumbUrl} alt="" draggable={false} />
