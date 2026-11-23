@@ -1,7 +1,8 @@
 //! 目录监听的比对：拿到“可能变了”的路径提示后，查看磁盘现状并与已知状态比对，
 //! 得出新增、移除、改名与内容变化。只看磁盘、不信事件本身，所以重复的提示是幂等的。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
@@ -36,7 +37,8 @@ impl Changes {
 pub struct Reconciler {
     root: PathBuf,
     recursive: bool,
-    known: HashMap<PathBuf, (u32, Stamp)>,
+    /// 有序存放：Path 按组成部分比较，目录之下的条目在序列里连续，前缀查询是区间查询。
+    known: BTreeMap<PathBuf, (u32, Stamp)>,
 }
 
 /// 一批提示里某个 id 的累计结果。
@@ -132,7 +134,7 @@ impl Reconciler {
         Self {
             root,
             recursive,
-            known,
+            known: known.into_iter().collect(),
         }
     }
 
@@ -140,10 +142,17 @@ impl Reconciler {
     /// 最终只出现在 removed、renamed、upserts 之一（renamed 之后内容又变的，两处都出现）。
     pub fn apply(&mut self, hints: &[FsHint], registry: &Registry) -> Changes {
         let mut batch = Batch::default();
+        // 一次 apply 期间看到的磁盘是同一个最终状态：先处理全部改名（迁移 id），
+        // 再处理 Touched，否则先到的 Touched 会把改名看成“旧的消失、新的出现”。
+        // 两类各自保持原有顺序。
         for hint in hints {
-            match hint {
-                FsHint::Touched(p) => self.touched(p, registry, &mut batch),
-                FsHint::Renamed { from, to } => self.renamed(from, to, registry, &mut batch),
+            if let FsHint::Renamed { from, to } = hint {
+                self.renamed(from, to, registry, &mut batch);
+            }
+        }
+        for hint in hints {
+            if let FsHint::Touched(p) = hint {
+                self.touched(p, registry, &mut batch);
             }
         }
         batch.finish(&self.root)
@@ -161,16 +170,15 @@ impl Reconciler {
         p != self.root && p.starts_with(&self.root)
     }
 
-    /// known 里位于目录 dir 之下的条目，按路径排序以保证输出稳定。
+    /// known 里位于目录 dir 之下的条目，按路径有序。dir 之下的条目在 BTreeMap 里
+    /// 紧跟 dir 连续排列（如 sub/… 排在 sub.png、sub2 之前），所以是 O(log n + k) 的区间查询。
     fn known_under(&self, dir: &Path) -> Vec<PathBuf> {
-        let mut v: Vec<PathBuf> = self
-            .known
-            .keys()
-            .filter(|k| k.as_path() != dir && k.starts_with(dir))
+        self.known
+            .range::<Path, _>((Bound::Excluded(dir), Bound::Unbounded))
+            .map(|(k, _)| k)
+            .take_while(|k| k.starts_with(dir))
             .cloned()
-            .collect();
-        v.sort();
-        v
+            .collect()
     }
 
     fn remove(&mut self, p: &Path, batch: &mut Batch) {
@@ -225,6 +233,8 @@ impl Reconciler {
     }
 
     /// 整棵子树对账：扫描 dir，新增或变化的 upsert，已知但没扫到的移除。
+    /// 注意：scan 静默跳过读不了的目录和文件，这里无法区分“读不了”和“已删除”，
+    /// 两者都会被当作移除。
     fn rescan(&mut self, dir: &Path, recursive: bool, registry: &Registry, batch: &mut Batch) {
         let mut found = Vec::new();
         scan(dir, recursive, &AtomicBool::new(false), &mut |b| {
@@ -285,7 +295,7 @@ impl Reconciler {
                 self.touched(to, registry, batch);
                 return;
             }
-        } else if from_id.is_none() {
+        } else {
             let under = self.known_under(from);
             if !under.is_empty() && to_meta.as_ref().is_some_and(|m| m.is_dir()) {
                 let to_ok = self.in_scope(to);
@@ -723,10 +733,9 @@ mod tests {
     fn atomic_save_via_image_named_temp_keeps_the_id() {
         let mut f = Fixture::new(&["a.png"], true);
         let id = f.id("a.png");
-        // 一次 apply 里磁盘状态是固定的。要让 Touched(tmp.png) 先把临时文件登记上，
-        // 这里让 tmp.png 和改名后的 a.png 同时存在（a.png 是新内容）
+        // 编辑器用图片扩展名的临时文件保存，监听层先报临时文件出现，再报改名覆盖
         write(&f.root, "tmp.png", 20);
-        fs::copy(f.p("tmp.png"), f.p("a.png")).unwrap();
+        fs::rename(f.p("tmp.png"), f.p("a.png")).unwrap();
         let c = f.reconciler.apply(
             &[
                 FsHint::Touched(f.p("tmp.png")),
@@ -734,6 +743,7 @@ mod tests {
                     from: f.p("tmp.png"),
                     to: f.p("a.png"),
                 },
+                FsHint::Touched(f.p("a.png")),
             ],
             &f.registry,
         );
@@ -748,9 +758,8 @@ mod tests {
     #[test]
     fn new_file_renamed_in_the_same_batch_is_one_upsert() {
         let mut f = Fixture::new(&[], true);
-        // 同上：让 x.png 与改名后的 y.png 同时在盘上，Touched(x) 才会先登记 x
         write(&f.root, "x.png", 4);
-        fs::copy(f.p("x.png"), f.p("y.png")).unwrap();
+        fs::rename(f.p("x.png"), f.p("y.png")).unwrap();
         let c = f.reconciler.apply(
             &[
                 FsHint::Touched(f.p("x.png")),
@@ -761,12 +770,86 @@ mod tests {
             ],
             &f.registry,
         );
-        // x 是本批第一个登记的（id 1），改名沿用它，不出 renamed
+        // 前端没见过 x：只出一条新增，不出 renamed / removed，也不给 x 白白登记 id
         assert_eq!(c.upserts.len(), 1, "{c:?}");
         assert_eq!(c.upserts[0].id, 1);
         assert_eq!(c.upserts[0].rel_path, "y.png");
         assert_eq!(c.upsert_paths, vec![(1, f.p("y.png"))]);
         assert!(c.removed.is_empty() && c.renamed.is_empty());
+    }
+
+    #[test]
+    fn rename_is_honoured_when_its_directory_was_touched_first() {
+        let mut f = Fixture::new(&["sub/a.png"], true);
+        let id = f.id("sub/a.png");
+        fs::rename(f.p("sub/a.png"), f.p("sub/b.png")).unwrap();
+        let c = f.reconciler.apply(
+            &[
+                FsHint::Touched(f.p("sub")),
+                FsHint::Renamed {
+                    from: f.p("sub/a.png"),
+                    to: f.p("sub/b.png"),
+                },
+            ],
+            &f.registry,
+        );
+        assert_eq!(
+            c.renamed,
+            vec![RenamedItem {
+                id,
+                rel_path: "sub/b.png".into()
+            }],
+            "{c:?}"
+        );
+        assert!(c.removed.is_empty() && c.upserts.is_empty());
+    }
+
+    #[test]
+    fn rename_is_honoured_when_its_source_was_touched_first() {
+        let mut f = Fixture::new(&["a.png"], true);
+        let id = f.id("a.png");
+        fs::rename(f.p("a.png"), f.p("b.png")).unwrap();
+        let c = f.reconciler.apply(
+            &[
+                FsHint::Touched(f.p("a.png")),
+                FsHint::Renamed {
+                    from: f.p("a.png"),
+                    to: f.p("b.png"),
+                },
+                FsHint::Touched(f.p("b.png")),
+            ],
+            &f.registry,
+        );
+        assert_eq!(
+            c.renamed,
+            vec![RenamedItem {
+                id,
+                rel_path: "b.png".into()
+            }],
+            "{c:?}"
+        );
+        assert!(c.removed.is_empty() && c.upserts.is_empty());
+    }
+
+    #[test]
+    fn known_under_is_exactly_the_subtree() {
+        let f = Fixture::new(
+            &[
+                "sub/a.png",
+                "sub/deep/b.png",
+                "sub2/c.png",
+                "sub.png",
+                "su/d.png",
+                "a.png",
+            ],
+            true,
+        );
+        assert_eq!(
+            f.reconciler.known_under(&f.p("sub")),
+            vec![f.p("sub/a.png"), f.p("sub/deep/b.png")]
+        );
+        assert!(f.reconciler.known_under(&f.p("sub.png")).is_empty());
+        assert_eq!(f.reconciler.known_under(&f.root).len(), 6);
     }
 
     #[test]
