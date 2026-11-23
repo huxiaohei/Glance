@@ -1,7 +1,7 @@
 //! 目录监听的比对：拿到“可能变了”的路径提示后，查看磁盘现状并与已知状态比对，
 //! 得出新增、移除、改名与内容变化。只看磁盘、不信事件本身，所以重复的提示是幂等的。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
@@ -65,6 +65,11 @@ impl Batch {
             was_known,
             ..Outcome::default()
         })
+    }
+
+    /// 这个 id 是本批里才第一次登记的（前端还没见过）。
+    fn is_fresh(&self, id: u32) -> bool {
+        self.outcomes.get(&id).is_some_and(|o| !o.was_known)
     }
 
     fn removed(&mut self, id: u32) {
@@ -146,14 +151,14 @@ impl Reconciler {
 
     /// 在监听范围内：root 之下（不含 root 自身）、未被跳过、非递归时是 root 的直接下级。
     fn in_scope(&self, p: &Path) -> bool {
-        match p.strip_prefix(&self.root) {
-            Ok(rel) if rel.as_os_str().is_empty() => false,
-            Ok(_) => {
-                (self.recursive || p.parent() == Some(self.root.as_path()))
-                    && !is_skipped_path(&self.root, p)
-            }
-            Err(_) => false,
-        }
+        self.under_root(p)
+            && (self.recursive || p.parent() == Some(self.root.as_path()))
+            && !is_skipped_path(&self.root, p)
+    }
+
+    /// 严格位于 root 之下（不含 root 自身）。
+    fn under_root(&self, p: &Path) -> bool {
+        p != self.root && p.starts_with(&self.root)
     }
 
     /// known 里位于目录 dir 之下的条目，按路径排序以保证输出稳定。
@@ -174,19 +179,33 @@ impl Reconciler {
         }
     }
 
+    /// p 处的已知文件，或 p 之下的全部已知条目，一并移除。
+    fn remove_at(&mut self, p: &Path, batch: &mut Batch) {
+        if self.known.contains_key(p) {
+            self.remove(p, batch);
+        } else {
+            for k in self.known_under(p) {
+                self.remove(&k, batch);
+            }
+        }
+    }
+
     fn touched(&mut self, p: &Path, registry: &Registry, batch: &mut Batch) {
+        if p == self.root {
+            self.rescan(p, self.recursive, registry, batch);
+            return;
+        }
+        if !self.under_root(p) {
+            return;
+        }
         if !self.in_scope(p) {
+            // 仍在 root 之下但已不在范围内（如变成隐藏）：之前登记过的移除
+            self.remove_at(p, batch);
             return;
         }
         let Ok(meta) = std::fs::symlink_metadata(p) else {
             // 不存在：已知文件被删，或整个目录被删
-            if self.known.contains_key(p) {
-                self.remove(p, batch);
-            } else {
-                for k in self.known_under(p) {
-                    self.remove(&k, batch);
-                }
-            }
+            self.remove_at(p, batch);
             return;
         };
         if meta.is_file() && is_image_path(p) {
@@ -195,20 +214,35 @@ impl Reconciler {
                 None => self.remove(p, batch),
             }
         } else if meta.is_dir() {
+            // 非递归时子目录不在监听范围内
             if self.recursive {
-                let mut found = Vec::new();
-                scan(p, true, &AtomicBool::new(false), &mut |b| found.extend(b));
-                for item in found {
-                    let stamp = Stamp {
-                        size: item.size,
-                        mtime_ms: item.mtime_ms,
-                    };
-                    self.saw_image(&item.path, stamp, registry, batch);
-                }
+                self.rescan(p, true, registry, batch);
             }
         } else {
             // 存在但不是图片文件（仅防御，改扩展名走改名分支）
             self.remove(p, batch);
+        }
+    }
+
+    /// 整棵子树对账：扫描 dir，新增或变化的 upsert，已知但没扫到的移除。
+    fn rescan(&mut self, dir: &Path, recursive: bool, registry: &Registry, batch: &mut Batch) {
+        let mut found = Vec::new();
+        scan(dir, recursive, &AtomicBool::new(false), &mut |b| {
+            found.extend(b)
+        });
+        let mut seen = HashSet::new();
+        for item in found {
+            let stamp = Stamp {
+                size: item.size,
+                mtime_ms: item.mtime_ms,
+            };
+            self.saw_image(&item.path, stamp, registry, batch);
+            seen.insert(item.path);
+        }
+        for k in self.known_under(dir) {
+            if !seen.contains(&k) {
+                self.remove(&k, batch);
+            }
         }
     }
 
@@ -230,7 +264,20 @@ impl Reconciler {
 
     fn renamed(&mut self, from: &Path, to: &Path, registry: &Registry, batch: &mut Batch) {
         let to_meta = std::fs::symlink_metadata(to).ok();
-        if self.known.contains_key(from) {
+        let from_id = self.known.get(from).map(|&(id, _)| id);
+        let from_known_before = from_id.is_some_and(|id| !batch.is_fresh(id));
+        if !from_known_before && from != to && self.known.contains_key(to) {
+            // 原子保存：临时文件（未知，或本批才登记的）改名覆盖已知文件，
+            // 是 to 那个 id 的内容变化；临时文件本批的登记作废
+            if from_id.is_some() {
+                self.remove(from, batch);
+            }
+            self.touched(to, registry, batch);
+            return;
+        }
+        if from_id.is_some() {
+            // 已知文件（含本批才登记的）改名：迁移 id；覆盖已知目标的情况只会是
+            // from 在本批之前就已知，见上一分支
             let to_ok = self.in_scope(to)
                 && is_image_path(to)
                 && to_meta.as_ref().is_some_and(|m| m.is_file());
@@ -238,11 +285,7 @@ impl Reconciler {
                 self.touched(to, registry, batch);
                 return;
             }
-        } else if self.known.contains_key(to) {
-            // 原子保存：临时文件改名覆盖已知文件，是同一 id 的内容变化
-            self.touched(to, registry, batch);
-            return;
-        } else {
+        } else if from_id.is_none() {
             let under = self.known_under(from);
             if !under.is_empty() && to_meta.as_ref().is_some_and(|m| m.is_dir()) {
                 let to_ok = self.in_scope(to);
@@ -606,6 +649,170 @@ mod tests {
         assert_eq!(c.upserts[0].id, a);
         assert_eq!(c.upserts[0].rel_path, "b.png");
         assert_eq!(c.upsert_paths, vec![(a, f.p("b.png"))]);
+    }
+
+    #[test]
+    fn touched_root_is_a_full_rescan() {
+        let mut f = Fixture::new(&["gone.png", "same.png", "changed.png"], true);
+        let gone = f.id("gone.png");
+        let changed = f.id("changed.png");
+        fs::remove_file(f.p("gone.png")).unwrap();
+        write(&f.root, "changed.png", 9);
+        write(&f.root, "sub/new.png", 1);
+        let root = f.root.clone();
+        let c = f.reconciler.apply(&[FsHint::Touched(root)], &f.registry);
+        assert_eq!(c.removed, vec![gone]);
+        assert!(c.renamed.is_empty());
+        let mut got: Vec<_> = c
+            .upserts
+            .iter()
+            .map(|e| (e.rel_path.clone(), e.id))
+            .collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                ("changed.png".to_string(), changed),
+                ("sub/new.png".to_string(), f.id("sub/new.png")),
+            ]
+        );
+    }
+
+    #[test]
+    fn touched_directory_removes_files_that_vanished_under_it() {
+        let mut f = Fixture::new(&["sub/a.png", "sub/b.png", "sub2/c.png"], true);
+        let a = f.id("sub/a.png");
+        fs::remove_file(f.p("sub/a.png")).unwrap();
+        write(&f.root, "sub/d.png", 1);
+        let c = f.touch("sub");
+        assert_eq!(c.removed, vec![a]);
+        assert_eq!(rels(&c), vec!["sub/d.png"]);
+        assert!(c.renamed.is_empty());
+    }
+
+    #[test]
+    fn touched_root_when_not_recursive_only_sees_the_top_level() {
+        let mut f = Fixture::new(&["a.png", "b.png"], false);
+        let b = f.id("b.png");
+        fs::remove_file(f.p("b.png")).unwrap();
+        write(&f.root, "c.png", 1);
+        write(&f.root, "sub/x.png", 1);
+        let root = f.root.clone();
+        let c = f.reconciler.apply(&[FsHint::Touched(root)], &f.registry);
+        assert_eq!(c.removed, vec![b]);
+        assert_eq!(rels(&c), vec!["c.png"]);
+        // 非递归时子目录本身仍被忽略
+        assert!(f.touch("sub").is_empty());
+    }
+
+    #[test]
+    fn known_path_that_is_now_skipped_is_removed() {
+        // known 里混进了被跳过位置的条目（例如 Windows 上目录刚被设为隐藏）
+        let mut f = Fixture::new(&[".hidden/a.png", ".hidden/b.png", ".c.png"], true);
+        let c_id = f.id(".c.png");
+        let mut want = vec![f.id(".hidden/a.png"), f.id(".hidden/b.png")];
+        want.sort();
+        assert_eq!(f.touch(".c.png").removed, vec![c_id]);
+        let mut c = f.touch(".hidden");
+        c.removed.sort();
+        assert_eq!(c.removed, want);
+        assert!(c.upserts.is_empty() && c.renamed.is_empty());
+    }
+
+    #[test]
+    fn atomic_save_via_image_named_temp_keeps_the_id() {
+        let mut f = Fixture::new(&["a.png"], true);
+        let id = f.id("a.png");
+        // 一次 apply 里磁盘状态是固定的。要让 Touched(tmp.png) 先把临时文件登记上，
+        // 这里让 tmp.png 和改名后的 a.png 同时存在（a.png 是新内容）
+        write(&f.root, "tmp.png", 20);
+        fs::copy(f.p("tmp.png"), f.p("a.png")).unwrap();
+        let c = f.reconciler.apply(
+            &[
+                FsHint::Touched(f.p("tmp.png")),
+                FsHint::Renamed {
+                    from: f.p("tmp.png"),
+                    to: f.p("a.png"),
+                },
+            ],
+            &f.registry,
+        );
+        assert_eq!(c.upserts.len(), 1, "{c:?}");
+        assert_eq!(c.upserts[0].id, id);
+        assert_eq!(c.upserts[0].rel_path, "a.png");
+        assert_eq!(c.upserts[0].size, 20);
+        assert!(c.removed.is_empty() && c.renamed.is_empty());
+        assert_eq!(f.registry.path(FileId(id)), Some(f.p("a.png")));
+    }
+
+    #[test]
+    fn new_file_renamed_in_the_same_batch_is_one_upsert() {
+        let mut f = Fixture::new(&[], true);
+        // 同上：让 x.png 与改名后的 y.png 同时在盘上，Touched(x) 才会先登记 x
+        write(&f.root, "x.png", 4);
+        fs::copy(f.p("x.png"), f.p("y.png")).unwrap();
+        let c = f.reconciler.apply(
+            &[
+                FsHint::Touched(f.p("x.png")),
+                FsHint::Renamed {
+                    from: f.p("x.png"),
+                    to: f.p("y.png"),
+                },
+            ],
+            &f.registry,
+        );
+        // x 是本批第一个登记的（id 1），改名沿用它，不出 renamed
+        assert_eq!(c.upserts.len(), 1, "{c:?}");
+        assert_eq!(c.upserts[0].id, 1);
+        assert_eq!(c.upserts[0].rel_path, "y.png");
+        assert_eq!(c.upsert_paths, vec![(1, f.p("y.png"))]);
+        assert!(c.removed.is_empty() && c.renamed.is_empty());
+    }
+
+    #[test]
+    fn known_file_moved_out_of_root_is_removed() {
+        let mut f = Fixture::new(&["a.png"], true);
+        let id = f.id("a.png");
+        let outside = f.root.parent().unwrap().join("a.png");
+        fs::rename(f.p("a.png"), &outside).unwrap();
+        let c = f.reconciler.apply(
+            &[FsHint::Renamed {
+                from: f.p("a.png"),
+                to: outside,
+            }],
+            &f.registry,
+        );
+        assert_eq!(c.removed, vec![id]);
+        assert!(c.renamed.is_empty() && c.upserts.is_empty());
+    }
+
+    #[test]
+    fn directory_moved_out_of_root_is_removed() {
+        let mut f = Fixture::new(&["sub/a.png", "sub/deep/b.png", "c.png"], true);
+        let mut want = vec![f.id("sub/a.png"), f.id("sub/deep/b.png")];
+        want.sort();
+        let outside = f.root.parent().unwrap().join("sub");
+        fs::rename(f.p("sub"), &outside).unwrap();
+        let mut c = f.reconciler.apply(
+            &[FsHint::Renamed {
+                from: f.p("sub"),
+                to: outside,
+            }],
+            &f.registry,
+        );
+        c.removed.sort();
+        assert_eq!(c.removed, want);
+        assert!(c.renamed.is_empty() && c.upserts.is_empty());
+    }
+
+    #[test]
+    fn deleted_image_is_removed_when_not_recursive() {
+        let mut f = Fixture::new(&["a.png", "b.png"], false);
+        let id = f.id("a.png");
+        fs::remove_file(f.p("a.png")).unwrap();
+        let c = f.touch("a.png");
+        assert_eq!(c.removed, vec![id]);
+        assert!(c.upserts.is_empty() && c.renamed.is_empty());
     }
 
     #[test]

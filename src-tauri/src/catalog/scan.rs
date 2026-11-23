@@ -52,17 +52,38 @@ fn is_hidden_attr(_meta: &std::fs::Metadata) -> bool {
     false
 }
 
+/// 单级是否要跳过：名称规则，加上（仅 Windows 提供的）元数据里的隐藏属性。
+/// scan 与 is_skipped_path 都按这一条逐级判断。
+fn is_skipped_level(name: &str, is_dir: bool, meta: Option<&std::fs::Metadata>) -> bool {
+    is_skipped_name(name, is_dir) || meta.is_some_and(is_hidden_attr)
+}
+
+/// 只有 Windows 需要为隐藏属性多读一次元数据，其他系统返回 None 省掉这次读取。
+fn meta_for_hidden_check(path: &Path) -> Option<std::fs::Metadata> {
+    if cfg!(windows) {
+        std::fs::symlink_metadata(path).ok()
+    } else {
+        None
+    }
+}
+
 /// root 的下级条目是否要跳过：点开头、被忽略的目录、Windows 隐藏属性。
 fn is_skipped(entry: &DirEntry) -> bool {
-    let name = entry.file_name().to_string_lossy();
-    is_skipped_name(&name, entry.file_type().is_dir())
-        // 只有 Windows 需要多读一次元数据
-        || (cfg!(windows) && entry.metadata().is_ok_and(|m| is_hidden_attr(&m)))
+    let meta = if cfg!(windows) {
+        entry.metadata().ok()
+    } else {
+        None
+    };
+    is_skipped_level(
+        &entry.file_name().to_string_lossy(),
+        entry.file_type().is_dir(),
+        meta.as_ref(),
+    )
 }
 
 /// root 之下的 path 是否要跳过：root 之后的任一级名称以点开头、或某级目录名在
-/// IGNORED_DIRS 里；Windows 上再看 path 自身的隐藏属性。root 自身不参与判断。
-/// path 不在 root 之下时返回 false，范围由调用方另行判断。
+/// IGNORED_DIRS 里；Windows 上再逐级看隐藏属性（与 scan 跳过整个隐藏目录一致）。
+/// root 自身不参与判断。path 不在 root 之下时返回 false，范围由调用方另行判断。
 /// 末级若已不存在（如刚被删除的目录），按目录看待。
 pub fn is_skipped_path(root: &Path, path: &Path) -> bool {
     let Ok(rel) = path.strip_prefix(root) else {
@@ -72,16 +93,17 @@ pub fn is_skipped_path(root: &Path, path: &Path) -> bool {
     let Some((last, parents)) = names.split_last() else {
         return false;
     };
-    if parents
-        .iter()
-        .any(|n| is_skipped_name(&n.to_string_lossy(), true))
-    {
-        return true;
+    let mut cur = root.to_path_buf();
+    for name in parents {
+        cur.push(name);
+        let meta = meta_for_hidden_check(&cur);
+        if is_skipped_level(&name.to_string_lossy(), true, meta.as_ref()) {
+            return true;
+        }
     }
     let meta = std::fs::symlink_metadata(path).ok();
     let last_is_dir = meta.as_ref().is_none_or(|m| m.is_dir());
-    is_skipped_name(&last.to_string_lossy(), last_is_dir)
-        || meta.is_some_and(|m| is_hidden_attr(&m))
+    is_skipped_level(&last.to_string_lossy(), last_is_dir, meta.as_ref())
 }
 
 /// 文件的大小与修改时间：内容有没有变的判据。
@@ -280,6 +302,23 @@ mod tests {
         assert!(skipped("deep/.git/z.png"));
         assert!(!skipped("node_modules2/c.png"));
         assert!(!is_skipped_path(&root, &root));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn skipped_path_checks_hidden_attribute_on_every_level() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        touch(root, "secret/deep/a.png");
+        let status = std::process::Command::new("attrib")
+            .arg("+h")
+            .arg(root.join("secret"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(is_skipped_path(root, &root.join("secret")));
+        assert!(is_skipped_path(root, &root.join("secret/deep/a.png")));
+        assert!(collect(root, true).is_empty());
     }
 
     #[test]
