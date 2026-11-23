@@ -1,9 +1,12 @@
 import { memo } from "react";
+import { popup } from "../../app/nativeMenu";
 import { openFolder, pickAndOpenFolder } from "../../app/openFolder";
+import { recentsMenu } from "../../app/recentsMenu";
 import { t } from "../../i18n";
 import type { SortKey } from "../../lib/deriveList";
 import { useCatalog } from "../../stores/catalog";
 import { CELL_MAX, CELL_MIN, useListView } from "../../stores/listView";
+import { loadRecents, useRecents } from "../../stores/recents";
 
 const SORTS: SortKey[] = ["name", "mtime", "size"];
 
@@ -27,14 +30,21 @@ function GridToolbar() {
     }
   };
 
+  const onPickRoot = async () => {
+    await loadRecents();
+    await popup(recentsMenu(useRecents.getState().list, root?.path ?? null)).catch(() => {});
+  };
+
   return (
     <div className="grid-toolbar">
-      <span className="grid-root" title={root?.path}>{root?.name}</span>
+      <button type="button" className="grid-root" title={root?.path} onClick={() => void onPickRoot()}>
+        {root?.name}
+      </button>
       {scanning && <span className="grid-scanning">{t("grid.scanning", { n: found })}</span>}
       <span className="grid-spacer" />
       <label className="toolbar-field">
-        <span>{t("toolbar.sort")}</span>
-        <select value={sort} onChange={(e) => useListView.getState().setSort(e.target.value as SortKey)}>
+        <span className="toolbar-label">{t("toolbar.sort")}</span>
+        <select aria-label={t("toolbar.sort")} value={sort} onChange={(e) => useListView.getState().setSort(e.target.value as SortKey)}>
           {SORTS.map((k) => <option key={k} value={k}>{t(`sort.${k}`)}</option>)}
         </select>
       </label>
@@ -43,8 +53,9 @@ function GridToolbar() {
         <span>{t("toolbar.includeSubdirs")}</span>
       </label>
       <label className="toolbar-field">
-        <span>{t("toolbar.size")}</span>
+        <span className="toolbar-label">{t("toolbar.size")}</span>
         <input
+          aria-label={t("toolbar.size")}
           type="range"
           min={CELL_MIN}
           max={CELL_MAX}
