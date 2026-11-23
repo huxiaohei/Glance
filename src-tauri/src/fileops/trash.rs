@@ -1,10 +1,10 @@
-//! 移入系统废纸篓与放回。放回供将来的撤销日志使用。
+//! 移入系统废纸篓与放回。撤销日志用放回来撤回删除。
 
 use std::path::{Path, PathBuf};
 
 use super::fsx::FsError;
 
-/// 放回所需的全部信息。可序列化，将来写进撤销日志。
+/// 放回所需的全部信息。撤销日志的放回步骤（`Step::Restore`）带着它。
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TrashHandle {
     pub original: PathBuf,

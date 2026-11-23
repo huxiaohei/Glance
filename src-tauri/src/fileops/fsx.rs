@@ -17,7 +17,7 @@ pub enum FsError {
     Denied,        // 其他权限问题
     RestoreDenied, // 系统拒绝从废纸篓放回，需要用户手动恢复
     NotInTrash,
-    TooLarge, // 任务 10 用
+    TooLarge, // 复制图片到剪贴板时超过像素上限
     Other,    // 其余系统错误
 }
 
@@ -130,9 +130,10 @@ fn after_source_removal(removed: io::Result<()>, copy: &Path) -> Result<(), FsEr
     }
 }
 
-/// 复制文件：写目标目录的临时文件并 fsync → rename_noreplace；失败时删掉临时文件。保留修改时间。
+/// 复制文件：写目标目录的临时文件并 fsync → rename_noreplace；失败时删掉临时文件。
+/// 保留修改时间与权限（macOS 上还有扩展属性，如访达标签）。
 pub fn copy_noreplace(from: &Path, to: &Path) -> Result<(), FsError> {
-    let mut source = File::open(from).map_err(|e| FsError::from(&e))?;
+    let source = File::open(from).map_err(|e| FsError::from(&e))?;
     // 只为尽早失败、省掉一次白复制；真正的保证在最后的不覆盖改名。
     if to.symlink_metadata().is_ok() {
         return Err(FsError::Exists);
@@ -141,9 +142,13 @@ pub fn copy_noreplace(from: &Path, to: &Path) -> Result<(), FsError> {
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         _ => Path::new("."),
     };
-    let (temp_path, mut temp) = create_temp_file(dir).map_err(|e| FsError::from(&e))?;
+    let (temp_path, temp) = create_temp_file(dir).map_err(|e| FsError::from(&e))?;
+    // 先用 create_new 占住临时文件名，再让 fs::copy 写进去：它会覆盖的只是这个刚建的临时文件，
+    // 而它会顺带带上权限（macOS 上用 fcopyfile，连扩展属性一起）。
+    drop(temp);
     let written = (|| -> io::Result<()> {
-        io::copy(&mut source, &mut temp)?;
+        fs::copy(from, &temp_path)?;
+        let temp = OpenOptions::new().write(true).open(&temp_path)?;
         temp.set_modified(source.metadata()?.modified()?)?;
         temp.sync_all()?;
         drop(temp);
@@ -373,6 +378,25 @@ mod tests {
         assert_eq!(fs::read(&to).unwrap(), b"pixels");
         assert_eq!(fs::read(&from).unwrap(), b"pixels");
         assert_eq!(fs::metadata(&to).unwrap().modified().unwrap(), mtime);
+        assert_eq!(names_in(dst_dir.path()), vec!["a.png".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_noreplace_preserves_permission_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        let src_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let from = src_dir.path().join("a.png");
+        let to = dst_dir.path().join("a.png");
+        fs::write(&from, b"pixels").unwrap();
+        fs::set_permissions(&from, fs::Permissions::from_mode(0o640)).unwrap();
+
+        assert_eq!(copy_noreplace(&from, &to), Ok(()));
+        assert_eq!(
+            fs::metadata(&to).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
         assert_eq!(names_in(dst_dir.path()), vec!["a.png".to_string()]);
     }
 

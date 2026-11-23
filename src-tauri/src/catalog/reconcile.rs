@@ -1181,7 +1181,6 @@ mod tests {
         assert!(c.removed.is_empty() && c.upserts.is_empty());
     }
 
-    /// 临时目录所在的卷不区分大小写（macOS 默认的 APFS、Windows 的 NTFS）。
     // 文件操作之后会立即投递提示，约 300 ms 后监听器再把同一变化报一遍：第二遍不应产生任何结果
     fn repeat(f: &mut Fixture, mut all: Vec<FsHint>) -> Changes {
         all.push(FsHint::Listed(f.root.clone()));
@@ -1225,6 +1224,7 @@ mod tests {
         assert!(again.is_empty(), "{again:?}");
     }
 
+    /// 临时目录所在的卷不区分大小写（macOS 默认的 APFS、Windows 的 NTFS）。
     fn case_insensitive_volume() -> bool {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("a"), b"").unwrap();

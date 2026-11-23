@@ -1,5 +1,6 @@
-//! 删除、重命名、移动、复制四种操作，以及按撤销步骤还原。都直接作用于路径；
-//! 符号链接一律当作链接本身处理，不跟随。
+//! 删除、重命名、移动、复制四种操作，以及按撤销步骤还原。都直接作用于路径。
+//! 删除、重命名和同卷移动把符号链接当作链接本身处理；复制和跨卷移动会跟随它，
+//! 得到的是链接所指文件的一份普通副本。
 
 use std::fs;
 use std::io::ErrorKind;
@@ -140,7 +141,8 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     a == b || matches!((fs::canonicalize(a), fs::canonicalize(b)), (Ok(x), Ok(y)) if x == y)
 }
 
-/// 在 parent 下新建目录；已存在同名目录时直接用它（不算错，也不产生撤销步骤）。
+/// 在 parent 下新建目录；已存在同名目录时直接用它（不算错，也不产生撤销步骤），
+/// 返回它在磁盘上的写法（不分大小写的卷上输入 "Sub" 而已有 "sub" 时得到 "sub"）。
 pub fn make_dir(parent: &Path, name: &str) -> Result<(PathBuf, Option<Step>), FsError> {
     fsx::validate_name(name)?;
     let path = parent.join(name);
@@ -149,12 +151,30 @@ pub fn make_dir(parent: &Path, name: &str) -> Result<(PathBuf, Option<Step>), Fs
         // 同名的是真目录才复用；文件或符号链接都算重名。
         Err(e) if e.kind() == ErrorKind::AlreadyExists => {
             if path.symlink_metadata().is_ok_and(|m| m.is_dir()) {
-                Ok((path, None))
+                Ok((on_disk_spelling(parent, name).unwrap_or(path), None))
             } else {
                 Err(FsError::Exists)
             }
         }
         Err(e) => Err(FsError::from(&e)),
+    }
+}
+
+/// parent 里与 name 对应的条目的真实路径：先找完全相同的名字，否则找唯一一个只差大小写的；
+/// 都没有（或读不了目录、有多个候选）时返回 None。
+fn on_disk_spelling(parent: &Path, name: &str) -> Option<PathBuf> {
+    let names: Vec<String> = fs::read_dir(parent)
+        .ok()?
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .collect();
+    if names.iter().any(|n| n == name) {
+        return Some(parent.join(name));
+    }
+    let lower = name.to_lowercase();
+    let mut matches = names.iter().filter(|n| n.to_lowercase() == lower);
+    match (matches.next(), matches.next()) {
+        (Some(only), None) => Some(parent.join(only)),
+        _ => None,
     }
 }
 
@@ -199,8 +219,10 @@ fn undo_one(step: &Step) -> Result<Option<FsHint>, FsError> {
         }
         Step::RemoveEmptyDir(path) => match fs::remove_dir(path) {
             Ok(()) => Ok(None),
-            // 目录里已有东西：跳过，不算失败。
-            Err(e) if e.kind() == ErrorKind::DirectoryNotEmpty => Ok(None),
+            // 目录里已有东西：跳过，不算失败。目录已经不在：目的已达到，也算完成。
+            Err(e) if matches!(e.kind(), ErrorKind::DirectoryNotEmpty | ErrorKind::NotFound) => {
+                Ok(None)
+            }
             Err(e) => Err(FsError::from(&e)),
         },
     }
@@ -593,6 +615,31 @@ mod tests {
         // 同名的是文件：不能当目录用。
         write(&dir.path().join("文件"), b"f");
         assert_eq!(make_dir(dir.path(), "文件"), Err(FsError::Exists));
+    }
+
+    #[test]
+    fn make_dir_reuses_the_on_disk_spelling() {
+        let dir = tempfile::tempdir().unwrap();
+        let existing = dir.path().join("sub");
+        write(&existing.join("a.png"), b"a");
+
+        assert_eq!(make_dir(dir.path(), "sub"), Ok((existing.clone(), None)));
+        // 不分大小写的卷上 "Sub" 就是 "sub"：返回磁盘上的写法，不是输入的写法。
+        if dir.path().join("SUB").symlink_metadata().is_ok() {
+            assert_eq!(make_dir(dir.path(), "Sub"), Ok((existing.clone(), None)));
+        }
+        assert_eq!(snapshot(dir.path()).len(), 2);
+    }
+
+    #[test]
+    fn undo_counts_an_already_removed_directory_as_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let (made, step) = make_dir(dir.path(), "新文件夹").unwrap();
+        fs::remove_dir(&made).unwrap();
+
+        let undone = undo(&[step.unwrap()]);
+        assert_no_failures(&undone);
+        assert_eq!(undone.done, 1);
     }
 
     #[test]

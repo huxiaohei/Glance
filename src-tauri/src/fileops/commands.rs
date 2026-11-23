@@ -43,7 +43,15 @@ pub enum Dest {
 pub struct UndoReport {
     pub kind: Option<OpKind>,
     pub done: usize,
-    pub failed: Vec<FsError>,
+    pub failed: Vec<UndoFailure>,
+}
+
+/// 撤销失败的一步。name 只是那一步所针对文件的名字（最后一级），不是路径。
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoFailure {
+    pub name: String,
+    pub code: FsError,
 }
 
 const RECENT_LIMIT: usize = 5;
@@ -248,7 +256,17 @@ pub fn run_undo(sessions: &Sessions, undo: &UndoLog) -> UndoReport {
     UndoReport {
         kind: Some(entry.kind),
         done: outcome.done,
-        failed: outcome.failed.into_iter().map(|(_, code)| code).collect(),
+        failed: outcome
+            .failed
+            .into_iter()
+            .map(|(path, code)| UndoFailure {
+                name: path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                code,
+            })
+            .collect(),
     }
 }
 
@@ -258,7 +276,7 @@ fn resolve_dest(sessions: &Sessions, dest: &Dest) -> Result<(PathBuf, Option<Ste
         Dest::Path { path } => {
             let path = PathBuf::from(path);
             if path.is_absolute() {
-                Ok((path, None))
+                Ok((canonical_dest(path)?, None))
             } else {
                 Err(FsError::InvalidName)
             }
@@ -269,6 +287,20 @@ fn resolve_dest(sessions: &Sessions, dest: &Dest) -> Result<(PathBuf, Option<Ste
             ops::make_dir(&root, name)
         }
     }
+}
+
+/// 会话根在 macOS 上是规范化的路径（见 catalog::session）；目标目录也要规范化，否则经由符号链接
+/// 写法移进根下的子目录时，提示里的路径落在根外，条目会被删掉再以新 id 加回。
+/// 解析失败（多半是目录不存在）→ NotFound。
+#[cfg(not(windows))]
+fn canonical_dest(path: PathBuf) -> Result<PathBuf, FsError> {
+    std::fs::canonicalize(&path).map_err(|_| FsError::NotFound)
+}
+
+/// Windows 上会话根不做规范化（规范化会加 `\\?\` 前缀），目标目录也照原样用。（未在本机编译）
+#[cfg(windows)]
+fn canonical_dest(path: PathBuf) -> Result<PathBuf, FsError> {
+    Ok(path)
 }
 
 /// 输入的 id 去重（只留第一次出现）后逐个换成路径。
@@ -380,7 +412,8 @@ mod tests {
     use std::sync::mpsc::{Receiver, channel};
 
     struct World {
-        dir: tempfile::TempDir,
+        _dir: tempfile::TempDir,
+        root: PathBuf, // 规范化后的临时目录，与真实会话的根一致
         registry: Registry,
         sessions: Sessions,
         undo: UndoLog,
@@ -401,8 +434,10 @@ mod tests {
         }
 
         fn without_session() -> Self {
+            let dir = tempfile::tempdir().unwrap();
             Self {
-                dir: tempfile::tempdir().unwrap(),
+                root: fs::canonicalize(dir.path()).unwrap(),
+                _dir: dir,
                 registry: Registry::default(),
                 sessions: Sessions::default(),
                 undo: UndoLog::default(),
@@ -412,7 +447,7 @@ mod tests {
         }
 
         fn root(&self) -> PathBuf {
-            self.dir.path().to_path_buf()
+            self.root.clone()
         }
 
         fn ctx(&self) -> Ctx<'_> {
@@ -426,14 +461,14 @@ mod tests {
 
         /// 在根目录下写文件并登记，返回 id。
         fn file(&self, rel: &str, content: &[u8]) -> u32 {
-            let path = self.dir.path().join(rel);
+            let path = self.root.join(rel);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, content).unwrap();
             self.registry.register(&path).0
         }
 
         fn mkdir(&self, rel: &str) -> PathBuf {
-            let path = self.dir.path().join(rel);
+            let path = self.root.join(rel);
             fs::create_dir_all(&path).unwrap();
             path
         }
@@ -693,6 +728,93 @@ mod tests {
     }
 
     #[test]
+    fn new_child_reusing_an_existing_directory_keeps_it_after_undo() {
+        let w = World::new();
+        let existing = w.mkdir("sub");
+        let a = w.file("a.png", b"a");
+        // 不分大小写的卷上输入的写法与磁盘上的不同，结果仍应落在磁盘上的写法。
+        let typed = if w.root().join("SUB").exists() {
+            "Sub"
+        } else {
+            "sub"
+        };
+
+        let report = w.mv(
+            &[a],
+            Dest::NewChild { name: typed.into() },
+            Conflict::Skip,
+            None,
+        );
+        assert_eq!(report.done, vec![a]);
+        let existing_str = existing.to_string_lossy().into_owned();
+        assert_eq!(report.dest.as_deref(), Some(existing_str.as_str()));
+        assert_eq!(w.recents.list(), vec![existing_str]);
+        assert_eq!(
+            w.hints(),
+            vec![vec![FsHint::Renamed {
+                from: w.root().join("a.png"),
+                to: existing.join("a.png")
+            }]]
+        );
+
+        let undone = run_undo(&w.sessions, &w.undo);
+        assert_eq!(undone.done, 1);
+        assert!(undone.failed.is_empty());
+        assert_eq!(fs::read(w.root().join("a.png")).unwrap(), b"a");
+        assert!(existing.is_dir());
+    }
+
+    #[test]
+    fn new_child_reusing_an_existing_directory_with_no_success_keeps_it() {
+        let w = World::new();
+        let existing = w.mkdir("sub");
+
+        let report = w.mv(
+            &[999],
+            Dest::NewChild { name: "sub".into() },
+            Conflict::Skip,
+            None,
+        );
+        assert_eq!(report.failed, vec![fail(999, FsError::NotFound)]);
+        assert_eq!(report.token, None);
+        assert!(existing.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn destination_path_is_canonicalised() {
+        let w = World::new();
+        let real = w.mkdir("real");
+        let link = w.root().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let a = w.file("a.png", b"a");
+
+        let report = w.mv(&[a], to_path(&link), Conflict::Skip, None);
+        assert_eq!(report.done, vec![a]);
+        let real_str = real.to_string_lossy().into_owned();
+        assert_eq!(report.dest.as_deref(), Some(real_str.as_str()));
+        assert_eq!(w.recents.list(), vec![real_str]);
+        assert_eq!(
+            w.hints(),
+            vec![vec![FsHint::Renamed {
+                from: w.root().join("a.png"),
+                to: real.join("a.png")
+            }]]
+        );
+
+        // 解析不了（不存在）：每一项都是 NotFound。
+        let b = w.file("b.png", b"b");
+        let missing = w.mv(
+            &[b],
+            to_path(&w.root().join("missing")),
+            Conflict::Skip,
+            None,
+        );
+        assert_eq!(missing.failed, vec![fail(b, FsError::NotFound)]);
+        assert_eq!(missing.dest, None);
+    }
+
+    #[test]
     fn new_child_without_a_session_fails_every_item() {
         let w = World::without_session();
         let a = w.file("a.png", b"a");
@@ -763,7 +885,10 @@ mod tests {
             UndoReport {
                 kind: Some(OpKind::Rename),
                 done: 0,
-                failed: vec![FsError::NotFound]
+                failed: vec![UndoFailure {
+                    name: "b.png".into(),
+                    code: FsError::NotFound
+                }]
             }
         );
         assert!(w.hints().is_empty());
@@ -816,11 +941,17 @@ mod tests {
         let undo = UndoReport {
             kind: Some(OpKind::Copy),
             done: 1,
-            failed: vec![FsError::RestoreDenied],
+            failed: vec![UndoFailure {
+                name: "a.png".into(),
+                code: FsError::RestoreDenied,
+            }],
         };
         assert_eq!(
             serde_json::to_value(&undo).unwrap(),
-            serde_json::json!({ "kind": "copy", "done": 1, "failed": ["restoreDenied"] })
+            serde_json::json!({
+                "kind": "copy", "done": 1,
+                "failed": [{ "name": "a.png", "code": "restoreDenied" }]
+            })
         );
         let none = UndoReport {
             kind: None,
