@@ -76,18 +76,11 @@ export const useThumbs = create<ThumbsState>((set) => ({
   reset: () => set({ ready: new Map(), broken: new Set() }),
 }));
 
-/** 版本串 "{mtimeMs}-{size}" 里的修改时间（可能为负）；解析不了时视为最旧。 */
-function mtimeOf(v: string): number {
-  const m = /^-?\d+/.exec(v);
-  return m ? Number(m[0]) : -Infinity;
-}
-
 /**
- * 新状态是否替换旧状态：版本不同时，修改时间不早于旧版本才替换（迟到的旧版本结果不能
- * 盖掉新的）；版本相同时档位更高才替换。
+ * 版本不同，或同版本下档位更高，新状态才替换旧状态。版本不同时不比较修改时间的先后：
+ * 替换文件（Finder 替换、cp -p、解压）会保留源文件更早的修改时间。后端生成时读完再核对
+ * 一次文件状态，迟到的结果描述的也是它读到的那份字节。
  */
 function supersedes(old: ReadyThumb | undefined, tier: Tier, v: string): boolean {
-  if (!old) return true;
-  if (old.v !== v) return mtimeOf(v) >= mtimeOf(old.v);
-  return old.tier < tier;
+  return !old || old.v !== v || old.tier < tier;
 }

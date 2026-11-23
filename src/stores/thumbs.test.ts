@@ -56,19 +56,13 @@ describe("thumbs store", () => {
     s.applyMany([{ type: "ready", id: 4, tier: 320, v: "1-1" }, { type: "broken", id: 4 }]);
     expect(useThumbs.getState().broken.has(4)).toBe(true);
   });
-  it("较旧版本的 ready 不覆盖较新的", () => {
+  it("修改时间更早的版本也会替换（Finder 替换、cp -p、解压会保留源文件的旧修改时间）", () => {
     const s = useThumbs.getState();
     s.apply({ type: "ready", id: 1, tier: 320, v: "2000-12" });
-    s.apply({ type: "ready", id: 1, tier: 640, v: "1000-10" });
-    s.markReady([{ id: 1, v: "1500-10" }], 640);
-    expect(ready().get(1)).toEqual({ tier: 320, v: "2000-12" });
-    // 修改时间相同、大小不同：仍算较新（不早于），可以替换
-    s.apply({ type: "ready", id: 1, tier: 320, v: "2000-13" });
-    expect(ready().get(1)).toEqual({ tier: 320, v: "2000-13" });
-    // 修改时间为负（1970 年以前）也按数值比较
-    s.apply({ type: "ready", id: 2, tier: 320, v: "-5-1" });
-    s.apply({ type: "ready", id: 2, tier: 320, v: "-9-1" });
-    expect(ready().get(2)).toEqual({ tier: 320, v: "-5-1" });
+    s.apply({ type: "ready", id: 1, tier: 320, v: "1000-10" });
+    expect(ready().get(1)).toEqual({ tier: 320, v: "1000-10" });
+    s.markReady([{ id: 1, v: "500-10" }], 320);
+    expect(ready().get(1)).toEqual({ tier: 320, v: "500-10" });
   });
   it("forget 只清除损坏标记，保留就绪状态", () => {
     const s = useThumbs.getState();

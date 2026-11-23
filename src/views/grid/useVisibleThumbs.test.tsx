@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { thumbsWant } from "../../ipc/api";
 import { layoutGrid, type GridLayout } from "../../lib/gridLayout";
+import { useCatalog } from "../../stores/catalog";
 import { useThumbs } from "../../stores/thumbs";
 import { useVisibleThumbs } from "./useVisibleThumbs";
 
@@ -19,6 +20,7 @@ describe("useVisibleThumbs", () => {
     vi.useFakeTimers();
     vi.mocked(thumbsWant).mockResolvedValue([]);
     useThumbs.getState().reset();
+    useCatalog.getState().reset();
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -31,6 +33,17 @@ describe("useVisibleThumbs", () => {
     expect(thumbsWant).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(50);
     expect(thumbsWant).toHaveBeenCalledWith("grid", [1, 3], 320);
+  });
+
+  it("只有 generation 变化（刷新且布局未变）也会重新请求", async () => {
+    const root = (generation: number) => ({ generation, path: "/r", name: "r", recursive: true, focus: null });
+    useCatalog.getState().begin(root(1));
+    renderHook(() => useVisibleThumbs(layout, 0, 600, 320));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(thumbsWant).toHaveBeenCalledTimes(1);
+    act(() => useCatalog.getState().begin(root(2), { keep: true }));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(thumbsWant).toHaveBeenCalledTimes(2);
   });
 
   it("后端回报已缓存的项后，按带版本的形状标记就绪", async () => {
