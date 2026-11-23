@@ -3,6 +3,7 @@ import type { RootInfo } from "../ipc/types";
 import { useCatalog } from "./catalog";
 import { useSelection } from "./selection";
 import { useListView } from "./listView";
+import { EMPTY_GRID_CTX, useGridCtx } from "./gridCtx";
 import { selectOnly, toggle } from "../lib/selection";
 
 const root = (generation: number, path = "/r"): RootInfo => ({ generation, path, name: "r", recursive: true, focus: null });
@@ -12,6 +13,7 @@ beforeEach(() => {
   useCatalog.getState().reset();
   useListView.getState().setDirFilter(null);
   useSelection.getState().clear();
+  useGridCtx.setState(EMPTY_GRID_CTX);
 });
 
 describe("selection store", () => {
@@ -24,6 +26,18 @@ describe("selection store", () => {
     const s = useSelection.getState();
     expect([...s.ids]).toEqual([1]);
     expect(s.focus).toBeNull();
+  });
+  it("焦点所在的图被删后按网格变化前的列表落到相邻的图，只移动焦点不选中", () => {
+    const c = useCatalog.getState();
+    c.begin(root(1));
+    c.apply({ type: "batch", generation: 1, entries: [w(1), w(2), w(3)] });
+    useGridCtx.setState({ list: { ids: [1, 2, 3], groups: [{ dir: "", start: 0, count: 3, total: 3 }] } });
+    useSelection.getState().set(selectOnly(2));
+    c.apply({ type: "removed", generation: 1, ids: [2] });
+    const s = useSelection.getState();
+    expect(s.focus).toBe(3);
+    expect(s.anchor).toBe(3);
+    expect(s.ids.size).toBe(0);
   });
   it("修剪直接查条目表，不另建 id 集合", () => {
     const c = useCatalog.getState();

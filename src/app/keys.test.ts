@@ -57,4 +57,10 @@ describe("formatKey", () => {
     expect(formatKey("F5", true)).toBe("F5");
     expect(formatKey("?", false)).toBe("?");
   });
+  it("Backspace 各平台都是 ⌫；Delete 在 macOS 上是 ⌦，其他平台 Del", () => {
+    expect(formatKey("Mod+Backspace", true)).toBe("⌘⌫");
+    expect(formatKey("Backspace", false)).toBe("⌫");
+    expect(formatKey("Mod+Delete", true)).toBe("⌘⌦");
+    expect(formatKey("Delete", false)).toBe("Del");
+  });
 });

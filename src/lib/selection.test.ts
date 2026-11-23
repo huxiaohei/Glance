@@ -83,17 +83,35 @@ describe("selection", () => {
   it("空列表 selectAll 返回原对象", () => {
     expect(selectAll(EMPTY, { ids: [], groups: [] })).toBe(EMPTY);
   });
-  it("prune 去掉已消失的 id，焦点和锚点消失时置空", () => {
-    const p = prune(sel([1, 2, 3], 3, 1), new Set([2, 3]));
+  const alive = (...ids: number[]) => new Map(ids.map((id) => [id, true]));
+  it("prune 去掉已消失的 id；锚点消失时按原顺序落到相邻的", () => {
+    const p = prune(sel([1, 2, 3], 3, 1), alive(2, 3), [1, 2, 3]);
     expect(arr(p)).toEqual([2, 3]);
     expect(p.focus).toBe(3);
+    expect(p.anchor).toBe(2);
+  });
+  it("焦点被移除后落到原顺序里的下一张；它是最后一张时落到上一张；全没了为 null", () => {
+    expect(prune(sel([2], 2), alive(1, 3, 4), [1, 2, 3, 4]).focus).toBe(3);
+    expect(prune(sel([2], 2), alive(1, 4), [1, 2, 3, 4]).focus).toBe(4);
+    expect(prune(sel([4], 4), alive(1, 2), [1, 2, 3, 4]).focus).toBe(2);
+    expect(prune(sel([1], 1), alive(), [1]).focus).toBeNull();
+  });
+  it("焦点移动后不自动选中", () => {
+    const p = prune(sel([2], 2), alive(1, 3), [1, 2, 3]);
+    expect(p.focus).toBe(3);
+    expect(p.ids.size).toBe(0);
+  });
+  it("焦点还在时不动；prevOrder 里没有焦点时置空", () => {
+    const s = sel([1, 2], 2, 1);
+    expect(prune(s, alive(1, 2, 3), [3, 1, 2])).toBe(s);
+    const p = prune(sel([2], 2), alive(1, 3), [1, 3]);
+    expect(p.focus).toBeNull();
     expect(p.anchor).toBeNull();
-    expect(prune(sel([1], 1), new Set()).focus).toBeNull();
   });
   it("prune 无变化时返回原对象", () => {
     const s = sel([1, 2], 2, 1);
-    expect(prune(s, new Set([1, 2, 3]))).toBe(s);
-    expect(prune(EMPTY, new Set())).toBe(EMPTY);
+    expect(prune(s, alive(1, 2, 3), [1, 2, 3])).toBe(s);
+    expect(prune(EMPTY, alive(), [])).toBe(EMPTY);
   });
   it("selectMany 叠加时取并集", () => {
     const base = sel([1, 2], 2);

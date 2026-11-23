@@ -61,10 +61,11 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
   const full = loaded?.state === "ready" ? loaded.img : null;
   const failed = loaded?.state === "error";
 
-  // 同一张图改写后（地址变了）新版本还没解码好：继续显示上一次的原图，连同它的尺寸与视口
+  // 同一张图改写后（地址变了）新版本还没解码好：继续显示上一次的原图，连同它的尺寸与视口。
+  // 条目已被移除（图被删了）时不保留
   const lastFull = useRef<ShownFull | null>(null);
   const prev = lastFull.current;
-  const hold = !full && !failed && prev && prev.id === id && prev.url !== url ? prev : null;
+  const hold = !full && !failed && entry && prev && prev.id === id && prev.url !== url ? prev : null;
   const display = full ?? hold?.img ?? null;
 
   // 垫底的缩略图要按原图尺寸铺放：尺寸未知时不垫；缩略图须是当前版本的，旧内容不按新尺寸拉伸

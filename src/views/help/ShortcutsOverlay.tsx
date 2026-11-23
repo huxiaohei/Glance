@@ -11,13 +11,14 @@ function viewLabel(c: Command): string {
   return c.views.flatMap((v) => (names[v] ? [t(names[v])] : [])).join(" / ");
 }
 
-/** 快捷键一览：按分类分组，分类内再按适用视图分组并标出视图；都按注册顺序首次出现的先后。 */
+/** 快捷键一览：没有快捷键的命令不列出；按分类分组，分类内再按适用视图分组并标出视图；都按注册顺序首次出现的先后。 */
 export default function ShortcutsOverlay() {
   const open = useHelp((s) => s.open);
   if (!open) return null;
 
   const groups = new Map<MessageKey, Map<string, Command[]>>();
   for (const c of allCommands()) {
+    if (c.keys.length === 0) continue;
     const byView = groups.get(c.category) ?? new Map<string, Command[]>();
     groups.set(c.category, byView);
     const label = viewLabel(c);

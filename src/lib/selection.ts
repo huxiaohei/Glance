@@ -70,14 +70,28 @@ export function selectAll(sel: Selection, list: ImageList): Selection {
   });
 }
 
-/** 丢弃不在 alive 里的 id；focus、anchor 不在时置 null。alive 可以直接传条目表。 */
-export function prune(sel: Selection, alive: { has(id: FileId): boolean }): Selection {
-  const focus = sel.focus !== null && alive.has(sel.focus) ? sel.focus : null;
-  const anchor = sel.anchor !== null && alive.has(sel.anchor) ? sel.anchor : null;
+/** 被移除的 x 落到哪里：x 仍在 → x；否则 prevOrder 里它后面最近的仍存在的 id，没有则前面最近的；
+ *  都没有、或 prevOrder 里没有 x → null。 */
+function landing(x: FileId | null, entries: ReadonlyMap<FileId, unknown>, prevOrder: readonly FileId[]): FileId | null {
+  if (x === null || entries.has(x)) return x;
+  const i = prevOrder.indexOf(x);
+  if (i < 0) return null;
+  for (let j = i + 1; j < prevOrder.length; j++) if (entries.has(prevOrder[j])) return prevOrder[j];
+  for (let j = i - 1; j >= 0; j--) if (entries.has(prevOrder[j])) return prevOrder[j];
+  return null;
+}
+
+/**
+ * 修剪：ids 去掉不存在的；焦点（与锚点）不存在时落到 prevOrder 里它后面最近的仍存在的 id，没有则前面最近的，
+ * 再没有则 null。只移动焦点，不把落到的图加入选中。entries 直接传条目表；prevOrder 是变化前的列表顺序。
+ */
+export function prune(sel: Selection, entries: ReadonlyMap<FileId, unknown>, prevOrder: readonly FileId[]): Selection {
+  const focus = landing(sel.focus, entries, prevOrder);
+  const anchor = landing(sel.anchor, entries, prevOrder);
   let drop = false;
-  for (const id of sel.ids) if (!alive.has(id)) { drop = true; break; }
+  for (const id of sel.ids) if (!entries.has(id)) { drop = true; break; }
   if (!drop && focus === sel.focus && anchor === sel.anchor) return sel;
-  return { ids: drop ? new Set([...sel.ids].filter((id) => alive.has(id))) : sel.ids, focus, anchor };
+  return { ids: drop ? new Set([...sel.ids].filter((id) => entries.has(id))) : sel.ids, focus, anchor };
 }
 
 /** 框选：选中 ids；additive 为真时与 base 取并集。focus = anchor = ids 的最后一个（为空时沿用 base 的）。 */

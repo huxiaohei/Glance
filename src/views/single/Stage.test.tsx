@@ -252,6 +252,13 @@ describe("Stage", () => {
     expect(percent(container)).toBe("30%");
   });
 
+  it("当前图的条目被移除后不再保留旧图", () => {
+    const { container } = render(<Stage id={1} preloader={preloader} />);
+    expect(img(container)).not.toBeNull();
+    act(() => useCatalog.getState().apply({ type: "removed", generation: 1, ids: [1] }));
+    expect(img(container)).toBeNull();
+  });
+
   it("条目没有宽高时，图片 load 之后按自然尺寸适应", () => {
     const { container } = render(<Stage id={3} preloader={preloader} />);
     const el = img(container);

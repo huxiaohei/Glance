@@ -7,7 +7,7 @@ import { glanceUrl } from "../../lib/glanceUrl";
 import { markSwitchStart } from "../../lib/perfMarks";
 import { layoutStrip, scrollToShow, STRIP_DIVIDER, STRIP_GAP, STRIP_ITEM, stripVisible } from "../../lib/stripLayout";
 import { useCatalog } from "../../stores/catalog";
-import { topView, useNav } from "../../stores/nav";
+import { useNav } from "../../stores/nav";
 import { useThumbs } from "../../stores/thumbs";
 
 const TIER = 320;
@@ -32,14 +32,13 @@ const StripCell = memo(function StripCell({ id, left, current }: { id: FileId; l
   );
 });
 
-/** 点击某项跳到那张图（计入切图耗时）。所有方格共用这一个处理函数。 */
-function onStripClick(e: MouseEvent<HTMLDivElement>): void {
+/** 点击某项跳到那张图（计入切图耗时）。所有方格共用这一个处理函数；current 是画面上实际显示的那张。 */
+function onStripClick(e: MouseEvent<HTMLDivElement>, current: FileId): void {
   const item = (e.target as HTMLElement).closest<HTMLElement>(".strip-item");
   if (!item) return;
   const id = Number(item.dataset.id);
   // 点当前项不算切图：不会有随后的绘制，留下的开始标记会与之后无关的绘制配对
-  const top = topView();
-  if (top.kind === "single" && top.id === id) return;
+  if (id === current) return;
   markSwitchStart();
   useNav.getState().setCurrent(id);
 }
@@ -149,7 +148,7 @@ export default function Filmstrip({ list, current }: { list: ImageList; current:
 
   return (
     <div className="single-strip">
-      <div ref={ref} className="strip-scroller" onClick={onStripClick}>
+      <div ref={ref} className="strip-scroller" onClick={(e) => onStripClick(e, current)}>
         <div className="strip-content" style={{ width: layout.width }}>
           {shown.map((id) => {
             const { left, groupStart } = layout.items[indexOf.get(id)!];

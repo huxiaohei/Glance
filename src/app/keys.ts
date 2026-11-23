@@ -39,10 +39,17 @@ export function matchKey(e: KeyLike, combo: string, isMac: boolean): boolean {
 
 const ARROWS: Record<string, string> = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓" };
 
-/** 显示用：macOS "⌘A" "⇧←" "F5"；其他平台 "Ctrl+A" "Shift+←"。 */
+/** 显示用的键名：方向键与退格各平台都用符号；向前删除在 macOS 上是 ⌦，其他平台 Del。 */
+function keyLabel(key: string, isMac: boolean): string {
+  if (key === "Backspace") return "⌫";
+  if (key === "Delete") return isMac ? "⌦" : "Del";
+  return ARROWS[key] ?? (key.length === 1 ? key.toUpperCase() : key);
+}
+
+/** 显示用：macOS "⌘A" "⇧←" "F5" "⌘⌫"；其他平台 "Ctrl+A" "Shift+←" "Del"。 */
 export function formatKey(combo: string, isMac: boolean): string {
   const c = parse(combo);
-  const key = ARROWS[c.key] ?? (c.key.length === 1 ? c.key.toUpperCase() : c.key);
+  const key = keyLabel(c.key, isMac);
   if (isMac) return `${c.alt ? "⌥" : ""}${c.shift ? "⇧" : ""}${c.mod ? "⌘" : ""}${key}`;
   return [c.mod ? "Ctrl" : "", c.alt ? "Alt" : "", c.shift ? "Shift" : "", key].filter(Boolean).join("+");
 }

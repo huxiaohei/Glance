@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { registerAppCommands } from "./app/appCommands";
+import { registerFileCommands } from "./app/fileCommands";
 import { subscribeThumbs } from "./app/openFolder";
 import { useFolderDrop } from "./app/useFolderDrop";
 import { useKeyboard } from "./app/useKeyboard";
@@ -21,13 +22,15 @@ export default function App() {
   const [lab, setLab] = useState(false);
   useKeyboard();
 
-  // 应用级与单张视图的命令启动时注册一次（单张视图的命令按视图生效），快捷键一览从哪个视图打开都列得全
+  // 应用级、文件操作与单张视图的命令启动时注册一次（单张视图的命令按视图生效），快捷键一览从哪个视图打开都列得全
   useEffect(() => {
     subscribeThumbs();
     const offApp = registerAppCommands();
+    const offFile = registerFileCommands();
     const offSingle = registerSingleCommands();
     return () => {
       offSingle();
+      offFile();
       offApp();
     };
   }, []);

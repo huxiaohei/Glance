@@ -145,6 +145,17 @@ describe("Filmstrip", () => {
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 1 });
   });
 
+  it("点击与实际显示的那张比较，而不是视图栈里的 id", () => {
+    act(() => useNav.getState().openSingle(5));
+    // 画面上显示的是 1（视图栈尚未跟上）：点 1 不算切图，也不改视图栈
+    const { container } = render(<Filmstrip list={flat(20)} current={1} />);
+    const before = switchStats().count;
+    fireEvent.click(container.querySelector('.strip-item[data-id="1"]')!);
+    markSwitchPainted();
+    expect(switchStats().count).toBe(before);
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 5 });
+  });
+
   describe("保持当前项可见，但不与用户的滚动较劲", () => {
     /** 渲染后接管滚动区的 scrollLeft，模拟用户把条滚到 5000（当前项 50 在 [2940, 2996) 早已不可见）。 */
     function scrolledAway(list: ImageList) {

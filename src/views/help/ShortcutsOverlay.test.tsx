@@ -42,6 +42,17 @@ describe("ShortcutsOverlay", () => {
     expect(sub(groups[1])).toEqual([{ view: t("help.view.all"), rows: [t("cmd.view.fullscreen")] }]);
   });
 
+  it("没有快捷键的命令不列出", () => {
+    off = registerCommands([
+      { id: "t.nokey", title: "cmd.view.refresh", category: "cmd.cat.view", keys: [], views: "all", run() {} },
+      { id: "t.full", title: "cmd.view.fullscreen", category: "cmd.cat.view", keys: ["F"], views: "all", run() {} },
+    ]);
+    useHelp.setState({ open: true });
+    const { container } = render(<ShortcutsOverlay />);
+    const rows = [...container.querySelectorAll(".help-row > span")].map((r) => r.textContent);
+    expect(rows).toEqual([t("cmd.view.fullscreen")]);
+  });
+
   it("关闭时不渲染", () => {
     const { container } = render(<ShortcutsOverlay />);
     expect(container.firstChild).toBeNull();

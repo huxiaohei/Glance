@@ -176,6 +176,17 @@
 }
 .status-warn { color: var(--text); }
 .status-counts > span + span::before { content: "\00a0·\00a0"; }
+.status-action {
+  margin-left: auto;
+  height: 22px;
+  padding: 0 8px;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+.status-action:hover { border-color: var(--accent); }
 
 .toolbar-field { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
 .grid-toolbar select,
