@@ -10,8 +10,14 @@ const entry: ImageEntry = { id: 1, relPath: "a.jpg", dir: "", name: "a.jpg", siz
 describe("ThumbCell", () => {
   beforeEach(() => useThumbs.getState().reset());
 
+  it("地址里的版本来自就绪状态，而不是条目", () => {
+    useThumbs.setState({ ready: new Map([[1, { tier: 320, v: "99-77" }]]) });
+    const { container } = render(<ThumbCell entry={entry} cell={160} />);
+    expect(container.querySelector("img")!.getAttribute("src")).toMatch(/thumb\/1\/320\?v=99-77$/);
+  });
+
   it("缩略图加载失败后改显占位", () => {
-    useThumbs.setState({ ready: new Map([[1, 320]]) }); // 任务 3 会改这个形状，届时同步改测试
+    useThumbs.setState({ ready: new Map([[1, { tier: 320, v: "5-10" }]]) });
     const { container } = render(<ThumbCell entry={entry} cell={160} />);
     fireEvent.error(container.querySelector("img")!);
     expect(container.querySelector("img")).toBeNull();

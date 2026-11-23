@@ -55,16 +55,42 @@ fn is_skipped(entry: &DirEntry) -> bool {
     false
 }
 
-fn to_entry(entry: &DirEntry) -> Option<ScanEntry> {
-    let meta = entry.metadata().ok()?;
-    let mtime_ms = match meta.modified().ok()?.duration_since(UNIX_EPOCH) {
+/// 文件的大小与修改时间：内容有没有变的判据。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stamp {
+    pub size: u64,
+    pub mtime_ms: i64,
+}
+
+impl Stamp {
+    /// 供地址里的 `?v=` 使用的版本串。
+    pub fn version(&self) -> String {
+        format!("{}-{}", self.mtime_ms, self.size)
+    }
+}
+
+/// 读文件当前的状态；文件不存在或读不了返回 None。取不到修改时间时按 0 处理。
+pub fn stamp_of(path: &Path) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some(Stamp {
+        size: meta.len(),
+        mtime_ms: mtime_ms_of(&meta).unwrap_or(0),
+    })
+}
+
+fn mtime_ms_of(meta: &std::fs::Metadata) -> Option<i64> {
+    Some(match meta.modified().ok()?.duration_since(UNIX_EPOCH) {
         Ok(d) => d.as_millis() as i64,
         Err(e) => -(e.duration().as_millis() as i64),
-    };
+    })
+}
+
+fn to_entry(entry: &DirEntry) -> Option<ScanEntry> {
+    let meta = entry.metadata().ok()?;
     Some(ScanEntry {
         path: entry.path().to_path_buf(),
         size: meta.len(),
-        mtime_ms,
+        mtime_ms: mtime_ms_of(&meta)?,
     })
 }
 

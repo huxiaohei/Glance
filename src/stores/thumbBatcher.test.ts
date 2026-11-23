@@ -15,9 +15,9 @@ describe("createThumbBatcher", () => {
     let updates = 0;
     const unsub = useThumbs.subscribe(() => updates++);
     const batcher = createThumbBatcher((es) => useThumbs.getState().applyMany(es), sch.schedule);
-    for (let i = 1; i <= 100; i++) batcher.push({ type: "ready", id: i, tier: 320 });
-    batcher.push({ type: "ready", id: 1, tier: 640 });
-    batcher.push({ type: "ready", id: 1, tier: 320 });
+    for (let i = 1; i <= 100; i++) batcher.push({ type: "ready", id: i, tier: 320, v: "1-1" });
+    batcher.push({ type: "ready", id: 1, tier: 640, v: "1-1" });
+    batcher.push({ type: "ready", id: 1, tier: 320, v: "1-1" });
     batcher.push({ type: "broken", id: 200 });
     expect(sch.queue.length).toBe(1);
     expect(updates).toBe(0);
@@ -25,7 +25,7 @@ describe("createThumbBatcher", () => {
     expect(updates).toBe(1);
     const s = useThumbs.getState();
     expect(s.ready.size).toBe(100);
-    expect(s.ready.get(1)).toBe(640);
+    expect(s.ready.get(1)).toEqual({ tier: 640, v: "1-1" });
     expect(s.broken.has(200)).toBe(true);
     unsub();
   });

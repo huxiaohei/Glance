@@ -20,6 +20,6 @@ export function thumbsSubscribe(onEvent: (e: ThumbEvent) => void): Promise<void>
   return invoke<void>("thumbs_subscribe", { onEvent: channel(onEvent) });
 }
 
-export function thumbsWant(consumer: string, ids: FileId[], tier: Tier): Promise<FileId[]> {
-  return invoke<FileId[]>("thumbs_want", { consumer, ids, tier });
+export function thumbsWant(consumer: string, ids: FileId[], tier: Tier): Promise<{ id: FileId; v: string }[]> {
+  return invoke<{ id: FileId; v: string }[]>("thumbs_want", { consumer, ids, tier });
 }

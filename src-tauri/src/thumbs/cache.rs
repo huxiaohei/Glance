@@ -1,11 +1,10 @@
 //! 缩略图磁盘缓存。键由路径、大小、修改时间与档位决定，原图变化后旧缓存自然失效。
 
+use super::Tier;
+use crate::catalog::scan::{Stamp, stamp_of};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::UNIX_EPOCH;
-
-use super::Tier;
 
 /// 32 个十六进制字符。路径、大小、修改时间、档位任一不同，键就不同。
 pub fn cache_key(path: &Path, size: u64, mtime_ms: i64, tier: Tier) -> String {
@@ -72,16 +71,12 @@ impl ThumbCache {
 
     /// 读文件当前的大小和修改时间来算键；文件不存在返回 None。
     pub fn key_for_file(path: &Path, tier: Tier) -> Option<String> {
-        let meta = std::fs::metadata(path).ok()?;
-        let mtime_ms = meta
-            .modified()
-            .ok()
-            .map(|t| match t.duration_since(UNIX_EPOCH) {
-                Ok(d) => d.as_millis() as i64,
-                Err(e) => -(e.duration().as_millis() as i64),
-            })
-            .unwrap_or(0);
-        Some(cache_key(path, meta.len(), mtime_ms, tier))
+        Some(Self::key_for_stamp(path, stamp_of(path)?, tier))
+    }
+
+    /// 用已读到的文件状态算键。
+    pub fn key_for_stamp(path: &Path, stamp: Stamp, tier: Tier) -> String {
+        cache_key(path, stamp.size, stamp.mtime_ms, tier)
     }
 }
 

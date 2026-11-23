@@ -32,4 +32,11 @@ describe("useVisibleThumbs", () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(thumbsWant).toHaveBeenCalledWith("grid", [1, 3], 320);
   });
+
+  it("后端回报已缓存的项后，按带版本的形状标记就绪", async () => {
+    vi.mocked(thumbsWant).mockResolvedValue([{ id: 1, v: "5-10" }]);
+    renderHook(() => useVisibleThumbs(layout, 0, 600, 320));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(useThumbs.getState().ready.get(1)).toEqual({ tier: 320, v: "5-10" });
+  });
 });

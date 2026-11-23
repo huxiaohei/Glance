@@ -11,10 +11,11 @@ interface Props { entry: ImageEntry; cell: number }
 const nameBudget = (cell: number) => Math.max(8, Math.floor(cell / 6.5));
 
 function ThumbCell({ entry, cell }: Props) {
-  const tier = useThumbs((s) => s.ready.get(entry.id));
+  const ready = useThumbs((s) => s.ready.get(entry.id));
   const broken = useThumbs((s) => s.broken.has(entry.id));
   const { width, height } = entry;
-  const src = tier ? glanceUrl(`thumb/${entry.id}/${tier}?v=${entry.mtimeMs}-${entry.size}`) : null;
+  // 版本号来自后端生成这张缩略图时读到的文件状态
+  const src = ready ? glanceUrl(`thumb/${entry.id}/${ready.tier}?v=${ready.v}`) : null;
   // 扫描后文件被改动或删除时协议返回 404：这张缩略图加载失败，改显占位
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
 

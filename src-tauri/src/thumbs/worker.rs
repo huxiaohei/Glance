@@ -7,11 +7,12 @@ use super::Tier;
 use super::cache::ThumbCache;
 use super::queue::{Job, WantQueue};
 use crate::catalog::registry::{FileId, Registry};
+use crate::catalog::scan::stamp_of;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ThumbEvent {
-    Ready { id: u32, tier: u32 },
+    Ready { id: u32, tier: u32, v: String },
     Broken { id: u32 },
 }
 
@@ -19,19 +20,22 @@ pub enum ThumbEvent {
 /// 文件未登记、已不存在、读失败或解码失败 → Broken。绝不 panic。
 pub fn process(job: Job, registry: &Registry, cache: &ThumbCache) -> ThumbEvent {
     let (id, tier) = job;
-    let ready = ThumbEvent::Ready {
-        id: id.0,
-        tier: tier.px(),
-    };
     let broken = ThumbEvent::Broken { id: id.0 };
     let Some(path) = registry.path(id) else {
         return broken;
     };
-    let Some(key) = ThumbCache::key_for_file(&path, tier) else {
+    // 只读一次文件状态：缓存键和版本号出自同一份，版本号描述的就是缓存的那份字节。
+    let Some(stamp) = stamp_of(&path) else {
         return broken;
     };
+    let key = ThumbCache::key_for_stamp(&path, stamp, tier);
+    let ready = || ThumbEvent::Ready {
+        id: id.0,
+        tier: tier.px(),
+        v: stamp.version(),
+    };
     if cache.contains(&key) {
-        return ready;
+        return ready();
     }
     let Ok(bytes) = std::fs::read(&path) else {
         return broken;
@@ -41,7 +45,7 @@ pub fn process(job: Job, registry: &Registry, cache: &ThumbCache) -> ThumbEvent 
         glance_imaging::make_thumbnail(&bytes, tier.px())
     }));
     match made {
-        Ok(Ok(thumb)) if cache.put(&key, &thumb.webp).is_ok() => ready,
+        Ok(Ok(thumb)) if cache.put(&key, &thumb.webp).is_ok() => ready(),
         _ => broken,
     }
 }
@@ -110,20 +114,19 @@ impl Thumbs {
         *self.shared.sink.lock().unwrap() = Some(Arc::from(sink));
     }
 
-    /// 返回其中已有缓存的 ID；其余进入队列。
-    pub fn want(&self, consumer: &str, ids: &[FileId], tier: Tier) -> Vec<FileId> {
+    /// 返回其中已有缓存的 (ID, 版本号)；其余进入队列。
+    pub fn want(&self, consumer: &str, ids: &[FileId], tier: Tier) -> Vec<(FileId, String)> {
         // 磁盘检查在队列锁之外进行。
         let mut cached = Vec::new();
         let mut jobs = Vec::new();
         for &id in ids {
-            let hit = self
-                .shared
-                .registry
-                .path(id)
-                .and_then(|p| ThumbCache::key_for_file(&p, tier))
-                .is_some_and(|key| self.shared.cache.contains(&key));
-            if hit {
-                cached.push(id);
+            let hit = self.shared.registry.path(id).and_then(|p| {
+                let stamp = stamp_of(&p)?;
+                let key = ThumbCache::key_for_stamp(&p, stamp, tier);
+                self.shared.cache.contains(&key).then(|| stamp.version())
+            });
+            if let Some(v) = hit {
+                cached.push((id, v));
             } else {
                 jobs.push((id, tier));
             }
@@ -138,6 +141,7 @@ impl Thumbs {
 mod tests {
     use super::*;
     use crate::catalog::registry::{FileId, Registry};
+    use crate::catalog::scan::stamp_of;
     use crate::thumbs::Tier;
     use crate::thumbs::cache::ThumbCache;
     use glance_imaging::{RgbaView, encode_png_lossless};
@@ -170,13 +174,69 @@ mod tests {
     #[test]
     fn thumb_events_serialize_to_the_agreed_shape() {
         assert_eq!(
-            serde_json::to_string(&ThumbEvent::Ready { id: 1, tier: 320 }).unwrap(),
-            r#"{"type":"ready","id":1,"tier":320}"#
+            serde_json::to_string(&ThumbEvent::Ready {
+                id: 1,
+                tier: 320,
+                v: "7-9".into()
+            })
+            .unwrap(),
+            r#"{"type":"ready","id":1,"tier":320,"v":"7-9"}"#
         );
         assert_eq!(
             serde_json::to_string(&ThumbEvent::Broken { id: 1 }).unwrap(),
             r#"{"type":"broken","id":1}"#
         );
+    }
+
+    #[test]
+    fn ready_carries_the_stamp_the_thumbnail_was_made_from() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.png");
+        write_png(&img);
+        let registry = Registry::default();
+        let id = registry.register(&img);
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let v = stamp_of(&img).unwrap().version();
+        assert_eq!(
+            process((id, Tier::S), &registry, &cache),
+            ThumbEvent::Ready {
+                id: id.0,
+                tier: 320,
+                v
+            }
+        );
+    }
+
+    #[test]
+    fn rewritten_file_yields_a_new_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.png");
+        write_png(&img);
+        let registry = Registry::default();
+        let id = registry.register(&img);
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let version = |e: ThumbEvent| match e {
+            ThumbEvent::Ready { v, .. } => v,
+            other => panic!("expected ready, got {other:?}"),
+        };
+        let first = version(process((id, Tier::S), &registry, &cache));
+        let bigger = {
+            let (w, h) = (500u32, 300u32);
+            let data: Vec<u8> = (0..w * h)
+                .flat_map(|i| [(i % 7) as u8, 1, 2, 255])
+                .collect();
+            encode_png_lossless(RgbaView {
+                width: w,
+                height: h,
+                data: &data,
+            })
+            .unwrap()
+        };
+        std::fs::write(&img, bigger).unwrap();
+        let second = version(process((id, Tier::S), &registry, &cache));
+        assert_ne!(first, second);
     }
 
     #[test]
@@ -191,6 +251,7 @@ mod tests {
         let expect = ThumbEvent::Ready {
             id: id.0,
             tier: 320,
+            v: stamp_of(&img).unwrap().version(),
         };
         assert_eq!(process((id, Tier::S), &registry, &cache), expect);
         let key = ThumbCache::key_for_file(&img, Tier::S).unwrap();
@@ -243,17 +304,18 @@ mod tests {
             .collect();
         let (a, b, c) = (ids[0], ids[1], ids[2]);
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
-        assert_eq!(
+        assert!(matches!(
             process((a, Tier::S), &registry, &cache),
-            ThumbEvent::Ready { id: a.0, tier: 320 }
-        );
+            ThumbEvent::Ready { .. }
+        ));
         let thumbs = Thumbs::start(cache, registry.clone());
         let (tx, rx) = mpsc::channel();
         let tx = std::sync::Mutex::new(tx);
         thumbs.subscribe(Box::new(move |e| {
             let _ = tx.lock().unwrap().send(e);
         }));
-        assert_eq!(thumbs.want("grid", &[a, b, c], Tier::S), vec![a]);
+        let va = stamp_of(&registry.path(a).unwrap()).unwrap().version();
+        assert_eq!(thumbs.want("grid", &[a, b, c], Tier::S), vec![(a, va)]);
         let mut got = Vec::new();
         for _ in 0..2 {
             got.push(rx.recv_timeout(Duration::from_secs(5)).unwrap());
@@ -261,6 +323,7 @@ mod tests {
         let ready = |id: FileId| ThumbEvent::Ready {
             id: id.0,
             tier: 320,
+            v: stamp_of(&registry.path(id).unwrap()).unwrap().version(),
         };
         assert!(got.contains(&ready(b)) && got.contains(&ready(c)));
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());

@@ -30,9 +30,10 @@ pub async fn open_path(
     sessions.note(seq);
     let path = PathBuf::from(path);
     // stat 可能阻塞（网络盘等），不占异步运行时的核心线程。
-    let target = tauri::async_runtime::spawn_blocking(move || resolve_open_target(&path, recursive))
-        .await
-        .map_err(|_| OpenError::Unreadable)??;
+    let target =
+        tauri::async_runtime::spawn_blocking(move || resolve_open_target(&path, recursive))
+            .await
+            .map_err(|_| OpenError::Unreadable)??;
     let Some((generation, cancel)) = sessions.begin(seq) else {
         return Err(OpenError::Superseded);
     };
@@ -71,19 +72,26 @@ pub fn thumbs_subscribe(on_event: Channel<ThumbEvent>, thumbs: State<'_, Arc<Thu
     }));
 }
 
-/// 整体替换该消费者想要的缩略图集合；返回其中已有缓存的 ID，其余稍后经事件送达。
+/// 已有缓存的缩略图及其生成时的文件版本。
+#[derive(serde::Serialize)]
+pub struct ReadyThumb {
+    pub id: u32,
+    pub v: String,
+}
+
+/// 整体替换该消费者想要的缩略图集合；返回其中已有缓存的项，其余稍后经事件送达。
 #[tauri::command(async)]
 pub fn thumbs_want(
     consumer: String,
     ids: Vec<u32>,
     tier: u32,
     thumbs: State<'_, Arc<Thumbs>>,
-) -> Result<Vec<u32>, String> {
+) -> Result<Vec<ReadyThumb>, String> {
     let tier = Tier::from_px(tier).ok_or_else(|| format!("invalid thumbnail tier: {tier}"))?;
     let ids: Vec<FileId> = ids.into_iter().map(FileId).collect();
     Ok(thumbs
         .want(&consumer, &ids, tier)
         .into_iter()
-        .map(|id| id.0)
+        .map(|(id, v)| ReadyThumb { id: id.0, v })
         .collect())
 }

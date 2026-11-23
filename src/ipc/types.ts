@@ -12,4 +12,4 @@ export interface RootInfo { generation: number; path: string; name: string; recu
 
 export type OpenErrorCode = "notFound" | "notAnImage" | "unreadable";
 
-export type ThumbEvent = { type: "ready"; id: FileId; tier: Tier } | { type: "broken"; id: FileId };
+export type ThumbEvent = { type: "ready"; id: FileId; tier: Tier; v: string } | { type: "broken"; id: FileId };
