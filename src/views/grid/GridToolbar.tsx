@@ -30,8 +30,9 @@ function GridToolbar() {
     }
   };
 
+  // 用已有的列表立刻弹出菜单，同时在后台重新读取（下次打开菜单时用上），不让点击等后端
   const onPickRoot = async () => {
-    await loadRecents();
+    void loadRecents();
     await popup(recentsMenu(useRecents.getState().list, root?.path ?? null)).catch(() => {});
   };
 

@@ -17,7 +17,7 @@ export default function StartView() {
           <div className="start-hint">{t("start.dropHint")}</div>
           <button type="button" className="start-open" onClick={() => void pickAndOpenFolder()}>
             {t("start.open")}
-            <kbd>{formatKey("Mod+O", IS_MAC)}</kbd>
+            <kbd aria-hidden="true">{formatKey("Mod+O", IS_MAC)}</kbd>
           </button>
         </div>
         <RecentList />

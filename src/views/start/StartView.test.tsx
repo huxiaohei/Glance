@@ -58,7 +58,8 @@ describe("StartView", () => {
 
   it("打开按钮上显示 Mod+O 对应的键名", async () => {
     await mount([]);
-    const btn = screen.getByRole("button", { name: new RegExp(t("start.open")) });
+    // 键名对读屏隐藏：按钮的可访问名称就是文字本身
+    const btn = screen.getByRole("button", { name: t("start.open") });
     expect(btn.querySelector("kbd")?.textContent).toBe(formatKey("Mod+O", IS_MAC));
   });
 
@@ -138,5 +139,15 @@ describe("StartView", () => {
     expect(img.hidden).toBe(false);
     fireEvent.error(img);
     expect(img.hidden).toBe(true);
+  });
+
+  it("某个位置的缩略图换了缓存键后显示新图，不沿用之前失败时的隐藏", async () => {
+    const { container } = await mount([entry()]);
+    fireEvent.error(container.querySelectorAll("img")[0]);
+    expect(container.querySelectorAll("img")[0].hidden).toBe(true);
+    act(() => useRecents.setState({ list: [entry({ thumbs: ["cc33", "bb22"] })] }));
+    const img = container.querySelectorAll("img")[0];
+    expect(img.getAttribute("src")).toBe(thumbKeyUrl("cc33"));
+    expect(img.hidden).toBe(false);
   });
 });

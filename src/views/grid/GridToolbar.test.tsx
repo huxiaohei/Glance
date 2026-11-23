@@ -46,16 +46,20 @@ describe("GridToolbar", () => {
     expect(container.querySelector(".grid-error")).toBeNull();
   });
 
-  it("目录名是按钮，点击后弹出最近目录菜单", async () => {
+  it("目录名是按钮，点击后立刻用已有的最近目录弹出菜单，并在后台重新读取", async () => {
     const other = { path: "/q", name: "q", count: null, thumbs: [], pinned: false, exists: true, sort: null, includeSubdirs: null };
-    vi.mocked(recentsList).mockResolvedValue([other]);
-    useRecents.setState({ list: [] });
+    vi.mocked(popup).mockReset();
+    vi.mocked(popup).mockResolvedValue(undefined);
+    vi.mocked(recentsList).mockReset();
+    vi.mocked(recentsList).mockReturnValue(new Promise(() => {}));   // 后台读取一直不返回
+    useRecents.setState({ list: [other] });
     render(<GridToolbar />);
     const btn = screen.getByRole("button", { name: "p" });
     expect(btn.className).toContain("grid-root");
     expect(btn.getAttribute("title")).toBe("/p");
     fireEvent.click(btn);
     await waitFor(() => expect(popup).toHaveBeenCalled());
+    expect(recentsList).toHaveBeenCalledTimes(1);
     const nodes = vi.mocked(popup).mock.calls[0][0];
     expect(nodes.map((n) => (n.kind === "item" ? n.label : "|"))).toEqual(["q — /q", "|", t("grid.openOther")]);
   });

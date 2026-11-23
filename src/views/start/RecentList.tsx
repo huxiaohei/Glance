@@ -43,8 +43,9 @@ function RecentItem({ entry }: { entry: RecentEntry }) {
         <span className="recent-thumbs">
           {slots.map((key, i) => (
             <span key={i} className="recent-thumb">
+              {/* 按缓存键给 key：换了键的位置得到新元素，不沿用之前读不出时设的 hidden */}
               {key !== undefined && (
-                <img src={thumbKeyUrl(key)} loading="lazy" alt="" draggable={false} onError={hideOnError} />
+                <img key={key} src={thumbKeyUrl(key)} loading="lazy" alt="" draggable={false} onError={hideOnError} />
               )}
             </span>
           ))}
