@@ -38,6 +38,7 @@
   min-height: 0;
   overflow-y: auto;
   position: relative;
+  user-select: none; /* Shift + 单击连选时不触发文字选择 */
 }
 .grid-pin {
   position: sticky;
@@ -76,8 +77,24 @@
 .group-header-collapsed .group-arrow { transform: rotate(-90deg); }
 .group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-count { color: var(--text-dim); margin-left: 12px; flex: none; }
+.group-select {
+  flex: none;
+  visibility: hidden;
+  margin-left: 12px;
+  padding: 0 8px;
+  height: 22px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.group-header:hover .group-select,
+.group-select:focus-visible { visibility: visible; }
+.group-select:hover { color: var(--text); }
 
 .thumb-cell { flex: none; }
+/* 选中：2px 强调色边框；键盘焦点：强调色外发光。都用 box-shadow，不改变格子尺寸，两者可叠加 */
+.thumb-selected .thumb-box { box-shadow: 0 0 0 2px var(--accent); }
+.thumb-focused .thumb-box { box-shadow: 0 0 6px 2px var(--accent); }
+.thumb-selected.thumb-focused .thumb-box { box-shadow: 0 0 0 2px var(--accent), 0 0 8px 3px var(--accent); }
 .thumb-box {
   display: flex;
   align-items: center;
@@ -136,6 +153,7 @@
   gap: 16px;
 }
 .status-warn { color: var(--text); }
+.status-counts > span + span::before { content: "\00a0·\00a0"; }
 
 .toolbar-field { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
 .grid-toolbar select,

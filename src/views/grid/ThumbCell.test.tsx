@@ -12,13 +12,13 @@ describe("ThumbCell", () => {
 
   it("地址里的版本来自就绪状态，而不是条目", () => {
     useThumbs.setState({ ready: new Map([[1, { tier: 320, v: "99-77" }]]) });
-    const { container } = render(<ThumbCell entry={entry} cell={160} />);
+    const { container } = render(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);
     expect(container.querySelector("img")!.getAttribute("src")).toMatch(/thumb\/1\/320\?v=99-77$/);
   });
 
   it("缩略图加载失败后改显占位", () => {
     useThumbs.setState({ ready: new Map([[1, { tier: 320, v: "5-10" }]]) });
-    const { container } = render(<ThumbCell entry={entry} cell={160} />);
+    const { container } = render(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);
     fireEvent.error(container.querySelector("img")!);
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector(".thumb-placeholder")).not.toBeNull();

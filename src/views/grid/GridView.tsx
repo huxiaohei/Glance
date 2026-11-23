@@ -1,17 +1,22 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { IS_MAC } from "../../app/keys";
 import { pickAndOpenFolder } from "../../app/openFolder";
 import { useImageList } from "../../app/useImageList";
 import { t } from "../../i18n";
 import { dirTree } from "../../lib/deriveList";
-import { layoutGrid, type Row } from "../../lib/gridLayout";
+import { HEADER_HEIGHT, layoutGrid, rowIndexOf, type Row } from "../../lib/gridLayout";
+import { selectOnly } from "../../lib/selection";
 import { accumulateWheel } from "../../lib/wheelZoom";
 import { pickTier } from "../../lib/pickTier";
 import { useCatalog } from "../../stores/catalog";
+import { EMPTY_GRID_CTX, useGridCtx } from "../../stores/gridCtx";
 import { useListView } from "../../stores/listView";
+import { useSelection } from "../../stores/selection";
 import DirTree from "./DirTree";
 import GridToolbar from "./GridToolbar";
 import GroupHeader from "./GroupHeader";
+import { registerGridCommands } from "./gridCommands";
 import StatusBar from "./StatusBar";
 import ThumbCell from "./ThumbCell";
 import { useVisibleThumbs } from "./useVisibleThumbs";
@@ -31,6 +36,19 @@ function pinnedHeader(rows: Row[], y: number): number {
   return found;
 }
 
+/**
+ * 网格空白处按下主键：清空选中。按在格子、分组标题（含吸顶浮层）或滚动条上时不处理。
+ * 任务 10 的框选会接管空白处的指针处理，届时替换这里。
+ */
+function onBlankPointerDown(e: PointerEvent<HTMLDivElement>): void {
+  if (e.button !== 0 || (IS_MAC && e.ctrlKey)) return; // macOS 上 Ctrl + 单击等同右键
+  if ((e.target as Element).closest(".thumb-cell, .group-header")) return;
+  const el = e.currentTarget;
+  // 竖向滚动条在内容区右侧，按下点落在 clientWidth 之外
+  if (e.clientX - el.getBoundingClientRect().left >= el.clientLeft + el.clientWidth) return;
+  useSelection.getState().clear();
+}
+
 export default function GridView() {
   const root = useCatalog((s) => s.root);
   const entries = useCatalog((s) => s.entries);
@@ -39,6 +57,8 @@ export default function GridView() {
   const includeSubdirs = useListView((s) => s.includeSubdirs);
   const dirFilter = useListView((s) => s.dirFilter);
   const cell = useListView((s) => s.cell);
+  const selectedIds = useSelection((s) => s.ids);
+  const focusId = useSelection((s) => s.focus);
   const rootPath = root?.path;
   const tier = pickTier(cell, window.devicePixelRatio);
 
@@ -68,9 +88,33 @@ export default function GridView() {
       return next ? next.top - layout.rows[i].top : layout.rows[i].height;
     },
     overscan: 4,
+    scrollPaddingStart: HEADER_HEIGHT, // 滚入可见范围时不被吸顶的分组标题挡住
   });
   // estimateSize 不在虚拟器的缓存依赖里：布局变化（换目录、列数变化）后须手动让它重算
   useLayoutEffect(() => virtualizer.measure(), [virtualizer, layout]);
+  // 列表与布局发布给命令与指针处理（它们不各自派生列表）
+  useLayoutEffect(() => {
+    useGridCtx.setState({
+      list,
+      layout,
+      reveal: (id) => {
+        const i = rowIndexOf(layout, id);
+        if (i >= 0) virtualizer.scrollToIndex(i, { align: "auto" });
+      },
+    });
+  }, [list, layout, virtualizer]);
+  useLayoutEffect(() => () => useGridCtx.setState(EMPTY_GRID_CTX), []);
+  useEffect(() => registerGridCommands(), []);
+
+  // 打开单张图片：该条目到达且已在布局里后，选中并滚到它；每次打开（generation）只做一次
+  const focusedGeneration = useRef<number | null>(null);
+  useEffect(() => {
+    if (!root || root.focus === null || focusedGeneration.current === root.generation) return;
+    if (size.height === 0 || !entries.has(root.focus) || rowIndexOf(layout, root.focus) < 0) return;
+    focusedGeneration.current = root.generation;
+    useSelection.getState().set(selectOnly(root.focus));
+    useGridCtx.getState().reveal(root.focus);
+  }, [root, entries, layout, size.height]);
   // 排序、筛选、折叠、格子大小变化与刷新（同一路径重新打开）都不回到顶部，只有换根目录才回到顶部
   useLayoutEffect(() => {
     if (scroller) scroller.scrollTop = 0;
@@ -133,7 +177,7 @@ export default function GridView() {
               <button type="button" onClick={openOther}>{t("grid.openOther")}</button>
             </div>
           ) : (
-            <div className="grid-scroll" ref={setScroller}>
+            <div className="grid-scroll" ref={setScroller} onPointerDown={onBlankPointerDown}>
               <div className="grid-pin">
                 {pinnedRow?.kind === "header" && (
                   <div className="grid-pin-inner" style={{ transform: `translateY(${push}px)` }}>
@@ -156,7 +200,15 @@ export default function GridView() {
                       ) : (
                         row.ids.map((id) => {
                           const entry = entries.get(id);
-                          return entry ? <ThumbCell key={id} entry={entry} cell={cell} /> : null;
+                          return entry ? (
+                            <ThumbCell
+                              key={id}
+                              entry={entry}
+                              cell={cell}
+                              selected={selectedIds.has(id)}
+                              focused={focusId === id}
+                            />
+                          ) : null;
                         })
                       )}
                     </div>
