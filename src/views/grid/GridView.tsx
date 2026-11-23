@@ -60,7 +60,7 @@ export default function GridView() {
     return () => ro.disconnect();
   }, [scroller]);
 
-  const layout = useMemo(() => layoutGrid(list, Math.max(0, size.width - PAD * 2), cell), [list, size.width]);
+  const layout = useMemo(() => layoutGrid(list, Math.max(0, size.width - PAD * 2), cell), [list, size.width, cell]);
 
   const virtualizer = useVirtualizer({
     count: layout.rows.length,

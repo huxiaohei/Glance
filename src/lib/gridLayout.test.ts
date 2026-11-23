@@ -12,6 +12,18 @@ const list: ImageList = {
 };
 
 describe("layoutGrid", () => {
+  it("格子大小变化时列数和行位置都随之变化", () => {
+    const big: ImageList = {
+      ids: Array.from({ length: 40 }, (_, i) => i),
+      groups: [{ dir: "", start: 0, count: 20, total: 20 }, { dir: "a", start: 20, count: 20, total: 20 }],
+    };
+    const small = layoutGrid(big, 700, 160);
+    const large = layoutGrid(big, 700, 320);
+    expect(small.columns).not.toBe(large.columns);
+    expect(small.rows.map((r) => r.top)).not.toEqual(large.rows.map((r) => r.top));
+    expect(small.totalHeight).not.toBe(large.totalHeight);
+  });
+
   it("列数由宽度和格子大小决定，至少 1 列", () => {
     expect(layoutGrid(list, 496, 160).columns).toBe(3); // 3×160 + 2×8 = 496
     expect(layoutGrid(list, 495, 160).columns).toBe(2);
