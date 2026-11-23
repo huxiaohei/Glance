@@ -34,12 +34,26 @@ export default function RenameInput({ id, name }: { id: FileId; name: string }) 
     el.setSelectionRange(0, dot > 0 ? dot : name.length);
     // 只在挂载时选一次：之后条目改名（name 变化）不打断正在进行的输入
   }, []);
+  // 本次编辑对应的会话：useRename 的状态对象。每次开始、结束重命名都会换一个新对象，
+  // 所以只有它仍是同一个对象时才算“还是这次编辑”，之后同一张图重新开始的编辑不受影响
+  const session = useRef<object | null>(null);
+  const endSession = () => {
+    if (session.current !== null && useRename.getState() === session.current) stopRename();
+  };
+  // 真正卸载（例如格子被虚拟列表滚出可见范围）时结束这次编辑，但不提交。
+  // StrictMode 开发模式会卸载后立即重新挂载：推迟到微任务里，确认没有重新挂载再结束
   useEffect(() => {
     mounted.current = true;
+    const s = useRename.getState();
+    session.current = s.id === id ? s : null;
     return () => {
       mounted.current = false;
+      queueMicrotask(() => {
+        if (!mounted.current) endSession();
+      });
     };
-  }, []);
+    // endSession 只读 ref 与 store
+  }, [id]);
 
   const finish = () => {
     finished.current = true;
@@ -56,7 +70,10 @@ export default function RenameInput({ id, name }: { id: FileId; name: string }) 
     setBusy(true);
     const code = await renameTo(id, value);
     inFlight.current = false;
-    if (!mounted.current) return;
+    if (!mounted.current) {
+      endSession();
+      return;
+    }
     setBusy(false);
     if (code === null) finish();
     else {

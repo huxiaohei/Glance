@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renameTo } from "../../app/fileOps";
 import { t } from "../../i18n";
-import { stopRename, useRename } from "../../stores/rename";
+import { startRename, stopRename, useRename } from "../../stores/rename";
 import RenameInput from "./RenameInput";
 
 vi.mock("../../app/fileOps", () => ({
@@ -124,11 +125,47 @@ describe("RenameInput", () => {
     expect(useRename.getState().id).toBeNull();
   });
 
-  it("卸载时不提交", () => {
+  it("卸载时不提交，并结束这次编辑", async () => {
     const { input, unmount } = setup();
     fireEvent.change(input, { target: { value: "x.png" } });
     unmount();
+    await act(async () => {});
     expect(renameTo).not.toHaveBeenCalled();
+    expect(useRename.getState().id).toBeNull();
+  });
+
+  it("提交进行中卸载：提交返回后编辑已结束，不留下旧的编辑状态", async () => {
+    let resolve!: (v: null) => void;
+    vi.mocked(renameTo).mockReturnValue(new Promise((r) => (resolve = r)));
+    const { input, unmount } = setup();
+    fireEvent.change(input, { target: { value: "x.png" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    unmount();
+    await act(async () => resolve(null));
+    expect(renameTo).toHaveBeenCalledTimes(1);
+    expect(useRename.getState().id).toBeNull();
+  });
+
+  it("StrictMode 下挂载后编辑保持打开", async () => {
+    useRename.setState({ id: 1 });
+    const { container } = render(
+      <StrictMode>
+        <RenameInput id={1} name={NAME} />
+      </StrictMode>,
+    );
+    await act(async () => {});
+    const input = container.querySelector("input");
+    expect(useRename.getState().id).toBe(1);
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("卸载后同一张图重新开始的编辑不被旧实例的延迟清理结束", async () => {
+    const { unmount } = setup();
+    unmount();
+    startRename(1);
+    await act(async () => {});
+    expect(useRename.getState().id).toBe(1);
   });
 
   it("组字期间的回车不提交", () => {
