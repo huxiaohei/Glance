@@ -80,6 +80,8 @@ export const zhCN = {
   "help.view.grid": "网格",
   "help.view.single": "单张",
   "help.view.all": "全部视图",
+  "toast.details": "详情",
+  "toast.close": "关闭",
   "hint.first": "已是第一张",
   "hint.last": "已是最后一张",
   "error.notFound": "找不到这个位置",

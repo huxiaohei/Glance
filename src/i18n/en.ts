@@ -82,6 +82,8 @@ export const en: Record<MessageKey, string> = {
   "help.view.grid": "Grid",
   "help.view.single": "Single Image",
   "help.view.all": "All Views",
+  "toast.details": "Details",
+  "toast.close": "Close",
   "hint.first": "This is the first image",
   "hint.last": "This is the last image",
   "error.notFound": "Location not found",

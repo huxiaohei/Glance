@@ -11,6 +11,7 @@ import ShortcutsOverlay from "./views/help/ShortcutsOverlay";
 import SingleView from "./views/single/SingleView";
 import { registerSingleCommands } from "./views/single/singleCommands";
 import StartView from "./views/start/StartView";
+import Toast from "./views/toast/Toast";
 import "./app/app.css";
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
       {hasRoot ? <GridView hidden={single} /> : <StartView />}
       {hasRoot && single && <SingleView />}
       <ShortcutsOverlay />
+      <Toast />
       {dragging && <div className="drop-outline" />}
       {import.meta.env.DEV && (
         <button type="button" className="lab-entry" onClick={() => setLab(true)}>
