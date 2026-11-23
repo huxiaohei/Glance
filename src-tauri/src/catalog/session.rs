@@ -1,12 +1,13 @@
 //! 一次“打开目录”的完整流程：扫描登记、分批推送、补齐尺寸。
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::events::{CatalogEvent, Dim, Entry, OpenError};
 use super::registry::Registry;
-use super::scan::{is_image_path, scan};
+use super::scan::{Stamp, is_image_path, scan};
 
 #[derive(Debug, PartialEq)]
 pub struct OpenTarget {
@@ -19,6 +20,11 @@ pub struct OpenTarget {
 /// 图片文件 → 以父目录为根，recursive 固定为 false，focus_file 为该文件。
 /// 不存在 → NotFound；存在但既非目录也非支持的图片 → NotAnImage；
 /// 元数据读不出（如无权限）→ Unreadable。
+///
+/// 非 Windows 上根目录取规范路径（解开符号链接，macOS 上如 /var → /private/var），
+/// 因为监听器报告的是规范路径，登记表、已知条目与监听事件必须是同一种形式；
+/// focus_file 为规范化的父目录加原文件名。Windows 上保持原样（规范化会加 `\\?\` 前缀）。
+/// 显示用的名字另见 [`root_display_name`]。
 pub fn resolve_open_target(path: &Path, recursive: bool) -> Result<OpenTarget, OpenError> {
     let meta = std::fs::metadata(path).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => OpenError::NotFound,
@@ -26,20 +32,45 @@ pub fn resolve_open_target(path: &Path, recursive: bool) -> Result<OpenTarget, O
     })?;
     if meta.is_dir() {
         return Ok(OpenTarget {
-            root: path.to_path_buf(),
+            root: canonical_dir(path)?,
             recursive,
             focus_file: None,
         });
     }
     if meta.is_file() && is_image_path(path) {
         let parent = path.parent().ok_or(OpenError::NotAnImage)?;
+        let name = path.file_name().ok_or(OpenError::NotAnImage)?;
+        let root = canonical_dir(parent)?;
         return Ok(OpenTarget {
-            root: parent.to_path_buf(),
+            focus_file: Some(root.join(name)),
+            root,
             recursive: false,
-            focus_file: Some(path.to_path_buf()),
         });
     }
     Err(OpenError::NotAnImage)
+}
+
+#[cfg(not(windows))]
+fn canonical_dir(dir: &Path) -> Result<PathBuf, OpenError> {
+    std::fs::canonicalize(dir).map_err(|_| OpenError::Unreadable)
+}
+
+#[cfg(windows)]
+fn canonical_dir(dir: &Path) -> Result<PathBuf, OpenError> {
+    Ok(dir.to_path_buf())
+}
+
+/// 界面上显示的根目录名：取用户给的路径（打开图片时取其父目录）的最后一级，
+/// 所以经符号链接打开的目录显示链接自己的名字；取不到（如 `/`）时用根目录完整路径。
+pub fn root_display_name(requested: &Path, target: &OpenTarget) -> String {
+    let base = if target.focus_file.is_some() {
+        requested.parent()
+    } else {
+        Some(requested)
+    };
+    base.and_then(Path::file_name)
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| target.root.to_string_lossy().into_owned())
 }
 
 pub const DIMS_BATCH: usize = 256;
@@ -56,13 +87,16 @@ pub(crate) fn rel_path(root: &Path, path: &Path) -> String {
 /// 并行补齐尺寸，分批发 Dims（读不出尺寸的文件不出现在 Dims 里）。
 /// 取消是尽力而为：cancel 置位后会尽快停止，但已在途的少量事件仍可能发出；
 /// 它们带着旧的 generation，消费方据此丢弃。
+///
+/// 返回已登记并推送给前端的条目（路径 → id 与扫描时的版本），供之后的监听比对；
+/// 扫描期间被取消时返回空表。
 pub fn run(
     generation: u32,
     target: &OpenTarget,
     registry: &Registry,
     cancel: &AtomicBool,
     emit: &(dyn Fn(CatalogEvent) + Sync),
-) {
+) -> HashMap<PathBuf, (u32, Stamp)> {
     // 每次发出前检查取消；取消是尽力而为，见上方文档注释
     let send = |event: CatalogEvent| -> bool {
         if cancel.load(Ordering::Relaxed) {
@@ -73,6 +107,7 @@ pub fn run(
     };
 
     let mut registered: Vec<(u32, PathBuf)> = Vec::new();
+    let mut known: HashMap<PathBuf, (u32, Stamp)> = HashMap::new();
     let mut emitted = 0usize;
     scan(&target.root, target.recursive, cancel, &mut |batch| {
         let entries: Vec<Entry> = batch
@@ -80,6 +115,11 @@ pub fn run(
             .map(|item| {
                 let id = registry.register(&item.path).0;
                 let rel_path = rel_path(&target.root, &item.path);
+                let stamp = Stamp {
+                    size: item.size,
+                    mtime_ms: item.mtime_ms,
+                };
+                known.insert(item.path.clone(), (id, stamp));
                 registered.push((id, item.path));
                 Entry {
                     id,
@@ -98,7 +138,7 @@ pub fn run(
         generation,
         total: emitted,
     }) {
-        return;
+        return HashMap::new();
     }
 
     let threads = std::thread::available_parallelism()
@@ -136,6 +176,10 @@ pub fn run(
             });
         }
     });
+    if cancel.load(Ordering::Relaxed) {
+        return HashMap::new();
+    }
+    known
 }
 
 struct Current {
@@ -199,13 +243,18 @@ mod tests {
         encode_png_lossless(RgbaView { width: w, height: h, data: &data }).unwrap()
     }
 
+    /// 期望的根目录形式：非 Windows 上是规范路径（macOS 的临时目录在 /private/var 下）。
+    fn canonical(p: &Path) -> PathBuf {
+        if cfg!(windows) { p.to_path_buf() } else { fs::canonicalize(p).unwrap() }
+    }
+
     #[test]
     fn directory_target_keeps_requested_recursion() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         assert_eq!(
             resolve_open_target(dir, true).unwrap(),
-            OpenTarget { root: dir.to_path_buf(), recursive: true, focus_file: None }
+            OpenTarget { root: canonical(dir), recursive: true, focus_file: None }
         );
         assert!(!resolve_open_target(dir, false).unwrap().recursive);
     }
@@ -219,11 +268,58 @@ mod tests {
         assert_eq!(
             resolve_open_target(&file, true).unwrap(),
             OpenTarget {
-                root: dir.to_path_buf(),
+                root: canonical(dir),
                 recursive: false,
-                focus_file: Some(file.clone())
+                focus_file: Some(canonical(dir).join("a.PNG"))
             }
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_directory_resolves_to_its_canonical_form() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("real");
+        fs::create_dir(&real).unwrap();
+        fs::write(real.join("a.png"), png(1, 1)).unwrap();
+        let link = tmp.path().join("链接");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let target = resolve_open_target(&link, true).unwrap();
+        assert_eq!(target.root, fs::canonicalize(&real).unwrap());
+        assert_eq!(root_display_name(&link, &target), "链接");
+
+        let by_file = resolve_open_target(&link.join("a.png"), true).unwrap();
+        assert_eq!(by_file.root, target.root);
+        assert_eq!(by_file.focus_file, Some(target.root.join("a.png")));
+        assert_eq!(root_display_name(&link.join("a.png"), &by_file), "链接");
+    }
+
+    #[test]
+    fn root_display_name_falls_back_to_the_root_path() {
+        let target = OpenTarget { root: PathBuf::from("/"), recursive: false, focus_file: None };
+        assert_eq!(root_display_name(Path::new("/"), &target), "/");
+    }
+
+    #[test]
+    fn run_returns_what_it_registered_and_nothing_after_cancel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::write(dir.join("a.png"), png(4, 2)).unwrap();
+        fs::write(dir.join("b.png"), png(1, 1)).unwrap();
+        let registry = Registry::default();
+        let target = OpenTarget { root: dir.to_path_buf(), recursive: false, focus_file: None };
+
+        let known = run(1, &target, &registry, &AtomicBool::new(false), &|_| {});
+        assert_eq!(known.len(), 2);
+        let a = dir.join("a.png");
+        let (id, stamp) = known[&a];
+        assert_eq!(registry.path(crate::catalog::registry::FileId(id)), Some(a.clone()));
+        assert_eq!(Some(stamp), crate::catalog::scan::stamp_of(&a));
+
+        let cancel = AtomicBool::new(false);
+        let known = run(2, &target, &registry, &cancel, &|_| cancel.store(true, Ordering::Relaxed));
+        assert!(known.is_empty());
     }
 
     #[test]
@@ -341,10 +437,8 @@ mod tests {
                 done_seen.store(true, Ordering::Relaxed);
                 cancel.store(true, Ordering::Relaxed);
             }
-            CatalogEvent::Dims { .. } => {
-                if done_seen.load(Ordering::Relaxed) {
-                    *after_done_dims.lock().unwrap() += 1;
-                }
+            CatalogEvent::Dims { .. } if done_seen.load(Ordering::Relaxed) => {
+                *after_done_dims.lock().unwrap() += 1;
             }
             _ => {}
         });

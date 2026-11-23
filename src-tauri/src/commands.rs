@@ -3,22 +3,23 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use tauri::State;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, State};
 
 use crate::catalog::events::{CatalogEvent, OpenError, RootInfo};
 use crate::catalog::registry::FileId;
 use crate::catalog::registry::Registry;
-use crate::catalog::session::{Sessions, resolve_open_target, run};
+use crate::catalog::session::{Sessions, resolve_open_target, root_display_name};
+use crate::catalog::watch::serve;
 use crate::thumbs::{ThumbEvent, Thumbs, Tier};
 
-/// 打开目录或图片文件。扫描在后台线程里进行，事件经 on_event 推送。
+/// 打开目录或图片文件。扫描与之后的目录监听在一条专属的会话线程里进行，
+/// 事件经 on_event 推送，直到下一次打开取消本次会话。
 /// 命令的返回值与 Channel 消息是相互独立的 IPC 消息，后端不保证先后：事件可能先于
 /// 本命令的响应到达。约定由前端保证：拿到 RootInfo 之前先缓存收到的事件，
 /// 并丢弃 generation 与当前代号不一致的事件。
 #[tauri::command]
 pub async fn open_path(
-    app: AppHandle,
     path: String,
     recursive: bool,
     seq: u64,
@@ -30,10 +31,14 @@ pub async fn open_path(
     sessions.note(seq);
     let path = PathBuf::from(path);
     // stat 可能阻塞（网络盘等），不占异步运行时的核心线程。
-    let target =
-        tauri::async_runtime::spawn_blocking(move || resolve_open_target(&path, recursive))
-            .await
-            .map_err(|_| OpenError::Unreadable)??;
+    let (target, name) = tauri::async_runtime::spawn_blocking(move || {
+        resolve_open_target(&path, recursive).map(|t| {
+            let name = root_display_name(&path, &t);
+            (t, name)
+        })
+    })
+    .await
+    .map_err(|_| OpenError::Unreadable)??;
     let Some((generation, cancel)) = sessions.begin(seq) else {
         return Err(OpenError::Superseded);
     };
@@ -44,23 +49,29 @@ pub async fn open_path(
     let info = RootInfo {
         generation,
         path: target.root.to_string_lossy().into_owned(),
-        name: target
-            .root
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| target.root.to_string_lossy().into_owned()),
+        name,
         recursive: target.recursive,
         focus,
     };
 
-    // 扫描与读文件头不得占用主线程或异步运行时的核心线程。
-    tauri::async_runtime::spawn_blocking(move || {
-        let registry = app.state::<Arc<Registry>>();
-        run(generation, &target, &registry, &cancel, &|event| {
-            // webview 可能已经消失，发送失败不是错误。
-            let _ = on_event.send(event);
-        });
-    });
+    // 会话线程长期存活（监听直到下一次打开），不占 spawn_blocking 的线程池，
+    // 也不占主线程或异步运行时的核心线程。
+    let registry = Arc::clone(&registry);
+    std::thread::Builder::new()
+        .name("glance-session".into())
+        .spawn(move || {
+            serve(
+                generation,
+                target,
+                registry,
+                cancel,
+                Box::new(move |event| {
+                    // webview 可能已经消失，发送失败不是错误。
+                    let _ = on_event.send(event);
+                }),
+            );
+        })
+        .map_err(|_| OpenError::Unreadable)?;
     Ok(info)
 }
 

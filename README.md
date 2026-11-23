@@ -67,6 +67,12 @@ cargo run --release -p gen-fixtures -- many --out fixtures/many
 cargo test -p glance --test trash_roundtrip -- --ignored
 ```
 
+目录监听的端到端测试依赖系统的文件事件，时序不完全可控，默认不运行，需要显式指定：
+
+```bash
+cargo test -p glance --test watch_live -- --ignored
+```
+
 ## 目录结构
 
 ```

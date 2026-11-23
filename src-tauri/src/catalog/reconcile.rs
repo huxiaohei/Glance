@@ -16,6 +16,10 @@ use super::session::rel_path;
 pub enum FsHint {
     Touched(PathBuf),
     Renamed { from: PathBuf, to: PathBuf },
+    /// 目录的直接下级可能有消失而没有单独报告的（监听层把“新建后很快改名”
+    /// 合并成目标处的一次新建时，源的消失会被吞掉）：列一次目录，已知条目所在的
+    /// 直接下级已不存在的移除。只移除、不新增，也不深入子目录。
+    Listed(PathBuf),
 }
 
 #[derive(Default, Debug, PartialEq)]
@@ -144,7 +148,7 @@ impl Reconciler {
         let mut batch = Batch::default();
         // 一次 apply 期间看到的磁盘是同一个最终状态：先处理全部改名（迁移 id），
         // 再处理 Touched，否则先到的 Touched 会把改名看成“旧的消失、新的出现”。
-        // 两类各自保持原有顺序。
+        // 两类各自保持原有顺序。Listed 最后处理，只移除仍未迁走的已知条目。
         for hint in hints {
             if let FsHint::Renamed { from, to } = hint {
                 self.renamed(from, to, registry, &mut batch);
@@ -153,6 +157,11 @@ impl Reconciler {
         for hint in hints {
             if let FsHint::Touched(p) = hint {
                 self.touched(p, registry, &mut batch);
+            }
+        }
+        for hint in hints {
+            if let FsHint::Listed(dir) = hint {
+                self.listed(dir, &mut batch);
             }
         }
         batch.finish(&self.root)
@@ -229,6 +238,27 @@ impl Reconciler {
         } else {
             // 存在但不是图片文件（仅防御，改扩展名走改名分支）
             self.remove(p, batch);
+        }
+    }
+
+    /// 见 [`FsHint::Listed`]。dir 须是 root 或范围内的目录，读不了时什么也不做。
+    fn listed(&mut self, dir: &Path, batch: &mut Batch) {
+        if dir != self.root && !(self.recursive && self.in_scope(dir)) {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        let present: HashSet<std::ffi::OsString> =
+            entries.filter_map(|e| e.ok()).map(|e| e.file_name()).collect();
+        for k in self.known_under(dir) {
+            let child = k
+                .strip_prefix(dir)
+                .ok()
+                .and_then(|rel| rel.components().next());
+            if child.is_some_and(|c| !present.contains(c.as_os_str())) {
+                self.remove(&k, batch);
+            }
         }
     }
 
@@ -911,6 +941,60 @@ mod tests {
             &f.registry,
         );
         assert!(c.is_empty());
+    }
+
+    #[test]
+    fn listed_directory_drops_known_children_that_vanished() {
+        let mut f = Fixture::new(&["a.png", "b.png", "sub/c.png", "sub/deep/d.png", "gone/e.png"], true);
+        let (b, e) = (f.id("b.png"), f.id("gone/e.png"));
+        fs::remove_file(f.p("b.png")).unwrap();
+        fs::remove_file(f.p("sub/deep/d.png")).unwrap();
+        fs::remove_dir_all(f.p("gone")).unwrap();
+        write(&f.root, "new.png", 1);
+        let root = f.root.clone();
+        let c = f.reconciler.apply(&[FsHint::Listed(root)], &f.registry);
+        // 只看直接下级是否还在：b.png 与 gone/ 消失；sub/ 还在，其下不深究；不新增
+        let mut removed = c.removed.clone();
+        removed.sort();
+        assert_eq!(removed, vec![b, e]);
+        assert!(c.renamed.is_empty() && c.upserts.is_empty());
+        // 子目录同理
+        let sub = f.p("sub");
+        let d = f.id("sub/deep/d.png");
+        fs::remove_dir_all(f.p("sub/deep")).unwrap();
+        let c = f.reconciler.apply(&[FsHint::Listed(sub)], &f.registry);
+        assert_eq!(c.removed, vec![d]);
+    }
+
+    #[test]
+    fn listed_directory_outside_scope_or_missing_is_ignored() {
+        let mut f = Fixture::new(&["a.png", "sub/b.png"], false);
+        let other = f.root.parent().unwrap().join("other");
+        fs::create_dir_all(&other).unwrap();
+        let (sub, missing) = (f.p("sub"), f.p("missing"));
+        let c = f.reconciler.apply(
+            &[FsHint::Listed(other), FsHint::Listed(sub), FsHint::Listed(missing)],
+            &f.registry,
+        );
+        assert!(c.is_empty());
+    }
+
+    #[test]
+    fn listed_runs_after_renames() {
+        // Listed 排在前面也不会抢先把改名的源当作消失
+        let mut f = Fixture::new(&["a.png"], true);
+        let a = f.id("a.png");
+        fs::rename(f.p("a.png"), f.p("c.png")).unwrap();
+        let root = f.root.clone();
+        let c = f.reconciler.apply(
+            &[
+                FsHint::Listed(root),
+                FsHint::Renamed { from: f.p("a.png"), to: f.p("c.png") },
+            ],
+            &f.registry,
+        );
+        assert_eq!(c.renamed, vec![RenamedItem { id: a, rel_path: "c.png".into() }]);
+        assert!(c.removed.is_empty() && c.upserts.is_empty());
     }
 
     #[test]

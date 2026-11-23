@@ -23,6 +23,7 @@ npm test                                       # 前端测试（Vitest）
 npx tsc --noEmit                               # 类型检查
 cargo run --release -p gen-fixtures -- <preset> --out fixtures/<preset>   # 生成样张：transport | huge | many
 cargo test -p glance --test trash_roundtrip -- --ignored                  # 废纸篓测试（会动真实废纸篓）
+cargo test -p glance --test watch_live -- --ignored                       # 目录监听端到端测试（真实文件事件）
 ```
 
 每次改动结束前，前四条检查必须全部通过。
