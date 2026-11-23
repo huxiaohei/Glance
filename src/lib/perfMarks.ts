@@ -55,7 +55,7 @@ const timer = createSwitchTimer(() => performance.now());
 export function markSwitchStart(): void {
   timer.markSwitchStart();
 }
-/** 新图换上后的下一帧。 */
+/** 新内容提交后的第二帧（提交后又过了一帧）。 */
 export function markSwitchPainted(): void {
   timer.markSwitchPainted();
 }

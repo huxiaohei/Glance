@@ -3,9 +3,11 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { useLayoutEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleKeyDown } from "../../app/useKeyboard";
+import { markSwitchStart, switchStats } from "../../lib/perfMarks";
 import { wheelFactor } from "../../lib/viewport";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
+import { useThumbs } from "../../stores/thumbs";
 import { Preloader } from "./preloader";
 import Stage, { useStageApi } from "./Stage";
 import { registerSingleCommands } from "./singleCommands";
@@ -132,7 +134,8 @@ describe("Stage", () => {
 
   it("滚轮以鼠标位置为中心放大，并阻止默认行为", () => {
     const { container } = render(<Stage id={1} preloader={preloader} />);
-    // 先走完挂载时排下的帧
+    // 先走完挂载时排下的帧（切图计时要走两帧）
+    flush();
     flush();
     const px = 200;
     const py = 300;
@@ -340,6 +343,57 @@ describe("Stage", () => {
     expect(b.style.height).toBe("600px");
     // 800 / 1600 = 0.5
     expect(b.style.transform).toBe("translate(0px, 150px) scale(0.5)");
+  });
+
+  it("切图耗时在新内容提交后的第二帧记录：只走一帧不记", () => {
+    // 先让挂载时排下的帧走完，免得与下面的样本混在一起
+    const { rerender } = render(<Stage id={1} preloader={preloader} />);
+    flush();
+    flush();
+    const before = switchStats().count;
+    markSwitchStart();
+    rerender(<Stage id={2} preloader={preloader} />);
+    flush();
+    expect(switchStats().count).toBe(before);
+    flush();
+    expect(switchStats().count).toBe(before + 1);
+  });
+
+  it("垫底的缩略图加载完成后才开始数帧", () => {
+    useThumbs.getState().reset();
+    act(() => useThumbs.getState().markReady([{ id: 1, v: "1-1" }], 320));
+    // 什么都没预解码：只能垫缩略图
+    const empty = new Preloader();
+    const before = switchStats().count;
+    markSwitchStart();
+    const { container } = render(<Stage id={1} preloader={empty} />);
+    const under = container.querySelector(".stage-underlay") as HTMLImageElement;
+    expect(under).not.toBeNull();
+    expect(under.complete).toBe(false);
+    flush();
+    flush();
+    flush();
+    expect(switchStats().count).toBe(before);
+    fireEvent.load(under);
+    flush();
+    expect(switchStats().count).toBe(before);
+    flush();
+    expect(switchStats().count).toBe(before + 1);
+  });
+
+  it("解码好的原图按它自己的自然尺寸铺放，不按条目的宽高", () => {
+    const loaded = preloader.get(1, url(1));
+    if (loaded?.state !== "ready") throw new Error("1 should be ready");
+    Object.defineProperty(loaded.img, "naturalWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(loaded.img, "naturalHeight", { configurable: true, value: 2000 });
+    const { container } = render(<Stage id={1} preloader={preloader} />);
+    expect(img(container).style.width).toBe("1000px");
+    expect(img(container).style.height).toBe("2000px");
+    // 800×600 里适应 1000×2000：0.3，横向居中
+    const v = vp(container)!;
+    expect(v.scale).toBeCloseTo(0.3);
+    expect(v.x).toBeCloseTo(250);
+    expect(v.y).toBeCloseTo(0);
   });
 
   it("卸载后清除命令用的接口", () => {

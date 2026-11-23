@@ -109,6 +109,10 @@ function rewrite(id: number, dims?: { w: number; h: number }) {
 const url2 = (id: number) => `glance://localhost/image/${id}?v=9-5`;
 const shown = (c: HTMLElement) => [...c.querySelectorAll(".stage img")].map((i) => i.getAttribute("src"));
 const hint = (c: HTMLElement) => c.querySelector(".single-hint")?.textContent ?? null;
+/** 等过 n 帧：切图耗时在新内容提交后的第二帧才记录。 */
+async function nextFrames(n: number) {
+  for (let i = 0; i < n; i++) await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+}
 const current = () => {
   const v = topView();
   return v.kind === "single" ? v.id : null;
@@ -177,9 +181,9 @@ describe("单张视图切图", () => {
     expect(current()).toBe(1);
     key("Home");
     expect(hint(c)).toBe(t("hint.first"));
-    // 换上新图后的下一帧记录切图耗时（不换图的 Home/End 不计）
+    // 换上新图后的第二帧记录切图耗时（不换图的 Home/End 不计）
     await decodeOk(1);
-    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    await nextFrames(2);
     expect(switchStats().count).toBe(before + 1);
   });
 
@@ -354,14 +358,14 @@ describe("单张视图切图", () => {
     setup([1, 2, 3]);
     openAt(1);
     await decodeOk(1);
-    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    await nextFrames(2);
     const before = switchStats().count;
     // 2 没有解码也没有缩略图：什么都没画出
     key("ArrowRight");
     key("Escape");
     openAt(1);
     await decodeOk(1);
-    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    await nextFrames(2);
     expect(switchStats().count).toBe(before);
   });
 });

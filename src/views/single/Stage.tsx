@@ -91,10 +91,15 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
     slot.replaceChildren(display);
   }, [slot, display]);
 
+  // 解码好的原图按它自己的自然尺寸铺放（引擎对方向的处理、条目尺寸过时都可能与条目的宽高不符）；
+  // 条目尺寸只用于垫底的缩略图与解码之前
+  const nw = display?.naturalWidth ?? 0;
+  const nh = display?.naturalHeight ?? 0;
+  const natural = useMemo<Size | null>(() => (nw > 0 && nh > 0 ? { w: nw, h: nh } : null), [nw, nh]);
   const { api, percent } = useStageViewport({
     box,
     img: shown,
-    size: hold ? hold.size : size,
+    size: natural ?? (hold ? hold.size : size),
     imageKey: hold ? hold.url : (url ?? ""),
   });
 
@@ -105,13 +110,27 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
     };
   }, [api]);
 
-  // 新内容（原图、缩略图或占位）进入文档后的下一帧记录切图耗时
+  // 新内容（原图、缩略图或占位）提交后的第二帧记录切图耗时：第一帧的回调在该帧的样式、布局、绘制之前，
+  // 第二帧开始时上一帧已经画出。垫底的缩略图要等它加载完成才开始数帧
   const painted = shown ?? (failed ? url : null);
   useLayoutEffect(() => {
     if (painted === null) return;
-    const frame = requestAnimationFrame(() => markSwitchPainted());
-    return () => cancelAnimationFrame(frame);
-  }, [painted]);
+    let first = 0;
+    let second = 0;
+    const schedule = () => {
+      first = requestAnimationFrame(() => {
+        second = requestAnimationFrame(() => markSwitchPainted());
+      });
+    };
+    const waiting = typeof painted !== "string" && painted === under && !painted.complete ? painted : null;
+    if (waiting) waiting.addEventListener("load", schedule, { once: true });
+    else schedule();
+    return () => {
+      waiting?.removeEventListener("load", schedule);
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [painted, under]);
 
   return (
     <div className="stage" ref={setBox}>
