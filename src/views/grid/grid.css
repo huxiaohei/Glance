@@ -79,7 +79,7 @@
 .group-count { color: var(--text-dim); margin-left: 12px; flex: none; }
 .group-select {
   flex: none;
-  visibility: hidden;
+  opacity: 0; /* 不用 visibility：隐藏时仍在 Tab 顺序里，键盘可达 */
   margin-left: 12px;
   padding: 0 8px;
   height: 22px;
@@ -87,7 +87,7 @@
   color: var(--text-dim);
 }
 .group-header:hover .group-select,
-.group-select:focus-visible { visibility: visible; }
+.group-select:focus-visible { opacity: 1; }
 .group-select:hover { color: var(--text); }
 
 .thumb-cell { flex: none; }

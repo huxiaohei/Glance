@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n";
 import type { ImageEntry, ImageList } from "../../lib/deriveList";
-import { layoutGrid } from "../../lib/gridLayout";
+import { layoutGrid, rowIndexOf } from "../../lib/gridLayout";
 import { selectOnly } from "../../lib/selection";
 import { useCatalog } from "../../stores/catalog";
 import { useGridCtx } from "../../stores/gridCtx";
@@ -15,6 +15,19 @@ import GroupHeader from "./GroupHeader";
 import ThumbCell from "./ThumbCell";
 
 vi.mock("../../ipc/api");
+// 真实虚拟器，只把 scrollToIndex 换成可观察的替身（jsdom 里滚动本身看不出来）
+const scrollToIndex = vi.hoisted(() => vi.fn());
+vi.mock("@tanstack/react-virtual", async (importOriginal) => {
+  const m = await importOriginal<typeof import("@tanstack/react-virtual")>();
+  return {
+    ...m,
+    useVirtualizer: ((opts: Parameters<typeof m.useVirtualizer>[0]) => {
+      const v = m.useVirtualizer(opts);
+      v.scrollToIndex = scrollToIndex;
+      return v;
+    }) as typeof m.useVirtualizer,
+  };
+});
 vi.mock("../../app/keys", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../app/keys")>()),
   IS_MAC: true,
@@ -124,6 +137,7 @@ describe("GridView", () => {
     stubSize("clientWidth", 600);
     stubSize("clientHeight", 400);
     useCatalog.getState().reset();
+    scrollToIndex.mockClear();
   });
   afterEach(() => {
     for (const r of restore) r();
@@ -145,19 +159,83 @@ describe("GridView", () => {
     });
   };
 
+  /** scrollToIndex 是否被调用、且目标行正是 id 当前所在的行。 */
+  const revealedTo = (id: number) => {
+    const row = rowIndexOf(useGridCtx.getState().layout, id);
+    return row >= 0 && scrollToIndex.mock.calls.some(([i, o]) => i === row && o?.align === "auto");
+  };
+  const done = (generation: number) => {
+    act(() => useCatalog.getState().apply({ type: "done", generation, total: 0 }));
+  };
+
   it("打开单张图片：条目到达后选中并定位，同一次打开只做一次", () => {
     open(3);
     render(<GridView />);
     add(1, 1, 2);
     expect(ids()).toEqual([]);
+    expect(scrollToIndex).not.toHaveBeenCalled();
     add(1, 3);
     expect(ids()).toEqual([3]);
     expect(useSelection.getState().focus).toBe(3);
     expect(useGridCtx.getState().list.ids).toEqual([1, 2, 3]);
+    expect(revealedTo(3)).toBe(true);
 
     act(() => useSelection.getState().set(selectOnly(1)));
     add(1, 4);
     expect(ids()).toEqual([1]);
+  });
+
+  it("扫描期间后续批次把它挤开时再次定位，扫描结束时再定位一次，之后不再跟随", () => {
+    open(30);
+    render(<GridView />);
+    add(1, 30);
+    expect(revealedTo(30)).toBe(true);
+    scrollToIndex.mockClear();
+    add(1, ...Array.from({ length: 20 }, (_, i) => i + 1)); // 排在 30 前面
+    expect(revealedTo(30)).toBe(true);
+    scrollToIndex.mockClear();
+    done(1);
+    expect(revealedTo(30)).toBe(true);
+    scrollToIndex.mockClear();
+    add(1, 21);
+    expect(scrollToIndex).not.toHaveBeenCalled();
+    expect(ids()).toEqual([30]);
+  });
+
+  it("用户滚动滚轮后，后续批次不再定位", () => {
+    open(30);
+    const { container } = render(<GridView />);
+    add(1, 30);
+    scrollToIndex.mockClear();
+    fireEvent.wheel(container.querySelector(".grid-scroll")!, { deltaY: 40 });
+    add(1, 1, 2, 3);
+    expect(scrollToIndex).not.toHaveBeenCalled();
+    done(1);
+    expect(scrollToIndex).not.toHaveBeenCalled();
+  });
+
+  it("用户在滚动区按下指针后，后续批次不再定位", () => {
+    open(30);
+    const { container } = render(<GridView />);
+    add(1, 30);
+    scrollToIndex.mockClear();
+    fireEvent.pointerDown(container.querySelector('[data-id="30"]')!, { button: 0, clientX: 10 });
+    add(1, 1, 2, 3);
+    expect(scrollToIndex).not.toHaveBeenCalled();
+  });
+
+  it("用户选了别的图（例如键盘），后续批次不再定位，也不重新选中", () => {
+    open(30);
+    render(<GridView />);
+    add(1, 30, 40);
+    scrollToIndex.mockClear();
+    act(() => useSelection.getState().set(selectOnly(40)));
+    add(1, 1, 2, 3);
+    expect(scrollToIndex).not.toHaveBeenCalled();
+    expect(ids()).toEqual([40]);
+    act(() => useSelection.getState().set(selectOnly(30)));
+    add(1, 4);
+    expect(scrollToIndex).not.toHaveBeenCalled();
   });
 
   it("打开目录（无 focus）不自动选中", () => {
