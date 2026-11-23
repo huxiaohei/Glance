@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod fsx;
 pub mod ops;
 pub mod trash;

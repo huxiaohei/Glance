@@ -8,6 +8,8 @@ mod thumbs;
 
 use catalog::registry::Registry;
 use catalog::session::Sessions;
+use fileops::commands::RecentTargets;
+use fileops::undo::UndoLog;
 use std::sync::Arc;
 use tauri::Manager;
 use thumbs::{ThumbCache, Thumbs};
@@ -19,6 +21,8 @@ pub fn run() {
         .plugin(tauri_plugin_drag::init())
         .manage(Arc::new(Registry::default()))
         .manage(Sessions::default())
+        .manage(UndoLog::default())
+        .manage(RecentTargets::default())
         .setup(|app| {
             let registry = app.state::<Arc<Registry>>().inner().clone();
             let cache = ThumbCache::new(app.path().app_cache_dir()?.join("thumbs"));
@@ -46,6 +50,12 @@ pub fn run() {
         commands::thumbs_subscribe,
         commands::thumbs_want,
         commands::image_details,
+        fileops::commands::fs_trash,
+        fileops::commands::fs_rename,
+        fileops::commands::fs_move,
+        fileops::commands::fs_copy,
+        fileops::commands::fs_undo,
+        fileops::commands::fs_recent_targets,
         lab::lab_register_dir,
         lab::lab_paths,
         lab::lab_protocol_hits,
@@ -58,7 +68,13 @@ pub fn run() {
         commands::open_path,
         commands::thumbs_subscribe,
         commands::thumbs_want,
-        commands::image_details
+        commands::image_details,
+        fileops::commands::fs_trash,
+        fileops::commands::fs_rename,
+        fileops::commands::fs_move,
+        fileops::commands::fs_copy,
+        fileops::commands::fs_undo,
+        fileops::commands::fs_recent_targets
     ]);
 
     builder
