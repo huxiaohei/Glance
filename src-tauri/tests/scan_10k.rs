@@ -53,6 +53,7 @@ fn scan_10k() {
                 s.last_dims_ms = Some(ms);
                 s.dims += items.len();
             }
+            other => panic!("打开流程不应发出 {other:?}"),
         }
     });
 

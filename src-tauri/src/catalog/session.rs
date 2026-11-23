@@ -44,7 +44,7 @@ pub fn resolve_open_target(path: &Path, recursive: bool) -> Result<OpenTarget, O
 
 pub const DIMS_BATCH: usize = 256;
 
-fn rel_path(root: &Path, path: &Path) -> String {
+pub(crate) fn rel_path(root: &Path, path: &Path) -> String {
     let rel = path.strip_prefix(root).unwrap_or(path);
     rel.components()
         .map(|c| c.as_os_str().to_string_lossy())
@@ -269,6 +269,7 @@ mod tests {
                 CatalogEvent::Batch { .. } => assert!(i < done_at),
                 CatalogEvent::Dims { .. } => assert!(i > done_at),
                 CatalogEvent::Done { .. } => {}
+                other => panic!("打开流程不应发出 {other:?}"),
             }
         }
 
@@ -292,6 +293,7 @@ mod tests {
                     }
                 }
                 CatalogEvent::Done { generation, .. } => assert_eq!(*generation, 9),
+                other => panic!("打开流程不应发出 {other:?}"),
             }
         }
         assert_eq!(

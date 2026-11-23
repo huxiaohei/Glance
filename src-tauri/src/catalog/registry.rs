@@ -39,8 +39,6 @@ impl Registry {
         self.inner.read().unwrap().by_id.get(&id).cloned()
     }
 
-    // 暂无生产调用方，后续的文件监听/改名流程会使用。
-    #[allow(dead_code)]
     /// 改名后 ID 不变。旧路径未登记时返回 None。
     pub fn rename(&self, from: &Path, to: &Path) -> Option<FileId> {
         let mut inner = self.inner.write().unwrap();

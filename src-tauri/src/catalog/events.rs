@@ -25,6 +25,20 @@ pub enum CatalogEvent {
     Batch { generation: u32, entries: Vec<Entry> },
     Done { generation: u32, total: usize },
     Dims { generation: u32, items: Vec<Dim> },
+    /// 文件从磁盘上消失（或移出了监听范围）。
+    Removed { generation: u32, ids: Vec<u32> },
+    /// 文件改名或移动，FileId 不变。
+    Renamed { generation: u32, items: Vec<RenamedItem> },
+    /// 目录监听启动失败或中途失效，网格不再自动跟随磁盘变化。
+    WatchFailed { generation: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenamedItem {
+    pub id: u32,
+    /// 新的相对路径，一律用 `/` 分隔。
+    pub rel_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -98,6 +112,33 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&OpenError::Superseded).unwrap(),
             r#"{"code":"superseded"}"#
+        );
+    }
+
+    #[test]
+    fn watch_events_serialize_to_the_agreed_shape() {
+        assert_eq!(
+            serde_json::to_string(&CatalogEvent::Removed {
+                generation: 3,
+                ids: vec![7, 8]
+            })
+            .unwrap(),
+            r#"{"type":"removed","generation":3,"ids":[7,8]}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&CatalogEvent::Renamed {
+                generation: 3,
+                items: vec![RenamedItem {
+                    id: 7,
+                    rel_path: "蜀国/赵云.png".into()
+                }]
+            })
+            .unwrap(),
+            r#"{"type":"renamed","generation":3,"items":[{"id":7,"relPath":"蜀国/赵云.png"}]}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&CatalogEvent::WatchFailed { generation: 3 }).unwrap(),
+            r#"{"type":"watchFailed","generation":3}"#
         );
     }
 }
