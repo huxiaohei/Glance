@@ -2,9 +2,11 @@
 //! 得出新增、移除、改名与内容变化。只看磁盘、不信事件本身，所以重复的提示是幂等的。
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::{OsStr, OsString};
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::events::{Entry, RenamedItem};
 use super::registry::{FileId, Registry};
@@ -43,6 +45,8 @@ pub struct Reconciler {
     recursive: bool,
     /// 有序存放：Path 按组成部分比较，目录之下的条目在序列里连续，前缀查询是区间查询。
     known: BTreeMap<PathBuf, (u32, Stamp)>,
+    /// 会话的取消标志：子树扫描据此提前结束。
+    cancel: Arc<AtomicBool>,
 }
 
 /// 一批提示里某个 id 的累计结果。
@@ -55,14 +59,40 @@ struct Outcome {
     upsert: Option<(PathBuf, Stamp)>,
 }
 
-/// 按 id 合并一批里的结果，保持首次出现的顺序。
+/// 按 id 合并一批里的结果，保持首次出现的顺序；另存本次 apply 内列过的目录。
 #[derive(Default)]
 struct Batch {
     order: Vec<u32>,
     outcomes: HashMap<u32, Outcome>,
+    /// 目录 → 直接下级的确切名字（None：读不了）。每个目录每次 apply 只列一次。
+    listings: HashMap<PathBuf, Option<HashSet<OsString>>>,
+    /// 目录 → 已知、但确切名字已不在目录里的直接下级，按大小写无关的名字归类。
+    /// 首次需要时建立；用到时再对照 known 核实（本批里可能已经迁走）。
+    gone: HashMap<PathBuf, HashMap<String, Vec<OsString>>>,
+}
+
+/// 名字的大小写无关形式；不是合法 UTF-8 的名字不参与大小写比较。
+fn fold(name: &OsStr) -> Option<String> {
+    name.to_str().map(str::to_lowercase)
+}
+
+/// 目录直接下级的确切名字；目录读不了，或有任何一项读出错时为 None。
+fn read_names(dir: &Path) -> Option<HashSet<OsString>> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .map(|e| e.map(|e| e.file_name()))
+        .collect::<Result<_, _>>()
+        .ok()
 }
 
 impl Batch {
+    fn names(&mut self, dir: &Path) -> Option<&HashSet<OsString>> {
+        self.listings
+            .entry(dir.to_path_buf())
+            .or_insert_with(|| read_names(dir))
+            .as_ref()
+    }
+
     fn outcome(&mut self, id: u32, was_known: bool) -> &mut Outcome {
         if !self.outcomes.contains_key(&id) {
             self.order.push(id);
@@ -134,16 +164,25 @@ impl Batch {
 }
 
 impl Reconciler {
-    pub fn new(root: PathBuf, recursive: bool, known: HashMap<PathBuf, (u32, Stamp)>) -> Self {
+    pub fn new(
+        root: PathBuf,
+        recursive: bool,
+        known: HashMap<PathBuf, (u32, Stamp)>,
+        cancel: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             root,
             recursive,
             known: known.into_iter().collect(),
+            cancel,
         }
     }
 
     /// 按顺序处理提示，查看磁盘现状并更新 known。同一批里对同一 id 的结果合并：
     /// 最终只出现在 removed、renamed、upserts 之一（renamed 之后内容又变的，两处都出现）。
+    ///
+    /// 会话取消后尽快返回已得出的部分（子树扫描中途取消时不据此移除任何条目）；
+    /// 此时 known 可能只更新了一部分，调用方不应再发出结果，也不应再使用这个比对器。
     pub fn apply(&mut self, hints: &[FsHint], registry: &Registry) -> Changes {
         let mut batch = Batch::default();
         // 一次 apply 期间看到的磁盘是同一个最终状态：先处理全部改名（迁移 id），
@@ -155,16 +194,26 @@ impl Reconciler {
             }
         }
         for hint in hints {
+            if self.cancelled() {
+                break;
+            }
             if let FsHint::Touched(p) = hint {
                 self.touched(p, registry, &mut batch);
             }
         }
         for hint in hints {
+            if self.cancelled() {
+                break;
+            }
             if let FsHint::Listed(dir) = hint {
-                self.listed(dir, &mut batch);
+                self.listed(dir, registry, &mut batch);
             }
         }
         batch.finish(&self.root)
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
     }
 
     /// 在监听范围内：root 之下（不含 root 自身）、未被跳过、非递归时是 root 的直接下级。
@@ -188,6 +237,111 @@ impl Reconciler {
             .take_while(|k| k.starts_with(dir))
             .cloned()
             .collect()
+    }
+
+    /// p 是已知文件，或 p 之下有已知条目。
+    fn is_known(&self, p: &Path) -> bool {
+        self.known.contains_key(p)
+            || self
+                .known
+                .range::<Path, _>((Bound::Excluded(p), Bound::Unbounded))
+                .next()
+                .is_some_and(|(k, _)| k.starts_with(p))
+    }
+
+    /// p 从 root 往下的每一级是否都以确切的写法出现在上一级目录里。不区分大小写的卷上，
+    /// 写法不同的旧路径也能 stat 成功，只有对照目录里的名字才分得出。
+    /// 某一级目录读不了时返回 None。
+    fn exact_exists(&self, p: &Path, batch: &mut Batch) -> Option<bool> {
+        let rel = p.strip_prefix(&self.root).ok()?;
+        let mut dir = self.root.clone();
+        for c in rel.components() {
+            let name = c.as_os_str();
+            if !batch.names(&dir)?.contains(name) {
+                return Some(false);
+            }
+            dir.push(name);
+        }
+        Some(true)
+    }
+
+    /// dir 下已知、名字与 name 只差大小写、确切名字已不在目录里的直接下级。
+    fn gone_case_variant(&self, dir: &Path, name: &OsStr, batch: &mut Batch) -> Option<PathBuf> {
+        let key = fold(name)?;
+        if !batch.gone.contains_key(dir) {
+            let present = batch.names(dir)?;
+            let mut index: HashMap<String, Vec<OsString>> = HashMap::new();
+            let mut last: Option<&OsStr> = None;
+            for k in self
+                .known
+                .range::<Path, _>((Bound::Excluded(dir), Bound::Unbounded))
+                .map(|(k, _)| k)
+                .take_while(|k| k.starts_with(dir))
+            {
+                let Some(child) = k.strip_prefix(dir).ok().and_then(|r| r.components().next())
+                else {
+                    continue;
+                };
+                let child = child.as_os_str();
+                // 同一子目录下的条目连续排列，只看一次
+                if last == Some(child) {
+                    continue;
+                }
+                last = Some(child);
+                if !present.contains(child)
+                    && let Some(f) = fold(child)
+                {
+                    index.entry(f).or_default().push(child.to_os_string());
+                }
+            }
+            batch.gone.insert(dir.to_path_buf(), index);
+        }
+        batch.gone[dir]
+            .get(&key)?
+            .iter()
+            .map(|n| dir.join(n))
+            .find(|c| self.is_known(c))
+    }
+
+    /// 已知文件 from 与磁盘上的 to 类型相符（都是图片文件，或 from 是有已知条目的目录、to 是目录）。
+    fn same_kind(&self, from: &Path, to: &Path) -> bool {
+        let Ok(meta) = std::fs::symlink_metadata(to) else {
+            return false;
+        };
+        if self.known.contains_key(from) {
+            meta.is_file() && is_image_path(to)
+        } else {
+            meta.is_dir()
+        }
+    }
+
+    /// p 是新出现的确切写法：父目录里有只差大小写、确切名字已消失的已知条目时，
+    /// 是一次只改大小写的改名（监听层不给两半配对），把它迁到 p，id 不变。
+    fn adopt_case_variant(&mut self, p: &Path, registry: &Registry, batch: &mut Batch) {
+        let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else {
+            return;
+        };
+        if let Some(from) = self.gone_case_variant(dir, name, batch)
+            && self.same_kind(&from, p)
+        {
+            self.move_tree(&from, p, registry, batch);
+        }
+    }
+
+    /// 已知文件 from，或 from 之下的全部已知条目，迁到 to（之下），id 不变；迁不了的移除。
+    fn move_tree(&mut self, from: &Path, to: &Path, registry: &Registry, batch: &mut Batch) {
+        if self.known.contains_key(from) {
+            if !self.move_known(from, to, registry, batch) {
+                self.remove(from, batch);
+            }
+            return;
+        }
+        for old in self.known_under(from) {
+            let new = to.join(old.strip_prefix(from).unwrap_or(&old));
+            if !self.move_known(&old, &new, registry, batch) {
+                self.remove(&old, batch);
+            }
+        }
     }
 
     fn remove(&mut self, p: &Path, batch: &mut Batch) {
@@ -220,6 +374,15 @@ impl Reconciler {
             self.remove_at(p, batch);
             return;
         }
+        if !self.is_known(p) {
+            // 不区分大小写的卷上旧写法也能 stat 成功：未知路径以目录里的确切名字为准
+            match self.exact_exists(p, batch) {
+                // 不存在，或只是写法不同的旧路径；未知的也无从移除
+                Some(false) => return,
+                Some(true) => self.adopt_case_variant(p, registry, batch),
+                None => {}
+            }
+        }
         let Ok(meta) = std::fs::symlink_metadata(p) else {
             // 不存在：已知文件被删，或整个目录被删
             self.remove_at(p, batch);
@@ -241,35 +404,59 @@ impl Reconciler {
         }
     }
 
-    /// 见 [`FsHint::Listed`]。dir 须是 root 或范围内的目录，读不了时什么也不做。
-    fn listed(&mut self, dir: &Path, batch: &mut Batch) {
+    /// 见 [`FsHint::Listed`]。dir 须是 root 或范围内的目录；读不了，或有任何一项读出错时
+    /// 什么也不做。消失的已知下级若在目录里有只差大小写、尚未登记的名字，是一次只改
+    /// 大小写的改名，迁过去、id 不变，而不是移除。
+    fn listed(&mut self, dir: &Path, registry: &Registry, batch: &mut Batch) {
         if dir != self.root && !(self.recursive && self.in_scope(dir)) {
             return;
         }
-        let Ok(entries) = std::fs::read_dir(dir) else {
+        let Some(present) = batch.names(dir).cloned() else {
             return;
         };
-        let present: HashSet<std::ffi::OsString> =
-            entries.filter_map(|e| e.ok()).map(|e| e.file_name()).collect();
+        let mut gone: Vec<OsString> = Vec::new();
         for k in self.known_under(dir) {
             let child = k
                 .strip_prefix(dir)
                 .ok()
                 .and_then(|rel| rel.components().next());
-            if child.is_some_and(|c| !present.contains(c.as_os_str())) {
-                self.remove(&k, batch);
+            if let Some(c) = child
+                && !present.contains(c.as_os_str())
+                && gone.last().map(OsString::as_os_str) != Some(c.as_os_str())
+            {
+                gone.push(c.as_os_str().to_os_string());
+            }
+        }
+        for name in gone {
+            let old = dir.join(&name);
+            let variant = fold(&name).and_then(|f| {
+                present
+                    .iter()
+                    .map(|n| dir.join(n))
+                    .find(|n| {
+                        n.file_name().and_then(fold).as_deref() == Some(f.as_str())
+                            && !self.is_known(n)
+                            && self.in_scope(n)
+                    })
+            });
+            match variant {
+                Some(new) if self.same_kind(&old, &new) => {
+                    self.move_tree(&old, &new, registry, batch)
+                }
+                _ => self.remove_at(&old, batch),
             }
         }
     }
 
     /// 整棵子树对账：扫描 dir，新增或变化的 upsert，已知但没扫到的移除。
     /// 注意：scan 静默跳过读不了的目录和文件，这里无法区分“读不了”和“已删除”，
-    /// 两者都会被当作移除。
+    /// 两者都会被当作移除。会话取消时扫描提前结束，什么也不做。
     fn rescan(&mut self, dir: &Path, recursive: bool, registry: &Registry, batch: &mut Batch) {
         let mut found = Vec::new();
-        scan(dir, recursive, &AtomicBool::new(false), &mut |b| {
-            found.extend(b)
-        });
+        scan(dir, recursive, &self.cancel, &mut |b| found.extend(b));
+        if self.cancelled() {
+            return;
+        }
         let mut seen = HashSet::new();
         for item in found {
             let stamp = Stamp {
@@ -326,17 +513,11 @@ impl Reconciler {
                 return;
             }
         } else {
-            let under = self.known_under(from);
-            if !under.is_empty() && to_meta.as_ref().is_some_and(|m| m.is_dir()) {
-                let to_ok = self.in_scope(to);
-                for old in under {
-                    if to_ok {
-                        let new = to.join(old.strip_prefix(from).unwrap_or(&old));
-                        if self.move_known(&old, &new, registry, batch) {
-                            continue;
-                        }
-                    }
-                    self.remove(&old, batch);
+            if self.is_known(from) && to_meta.as_ref().is_some_and(|m| m.is_dir()) {
+                if self.in_scope(to) {
+                    self.move_tree(from, to, registry, batch);
+                } else {
+                    self.remove_at(from, batch);
                 }
                 return;
             }
@@ -386,6 +567,7 @@ mod tests {
         _dir: tempfile::TempDir,
         root: PathBuf,
         registry: Registry,
+        cancel: Arc<AtomicBool>,
         reconciler: Reconciler,
     }
 
@@ -403,11 +585,13 @@ mod tests {
                 let id = registry.register(&p).0;
                 known.insert(p.clone(), (id, stamp_of(&p).unwrap()));
             }
-            let reconciler = Reconciler::new(root.clone(), recursive, known);
+            let cancel = Arc::new(AtomicBool::new(false));
+            let reconciler = Reconciler::new(root.clone(), recursive, known, cancel.clone());
             Fixture {
                 _dir: dir,
                 root,
                 registry,
+                cancel,
                 reconciler,
             }
         }
@@ -995,6 +1179,109 @@ mod tests {
         );
         assert_eq!(c.renamed, vec![RenamedItem { id: a, rel_path: "c.png".into() }]);
         assert!(c.removed.is_empty() && c.upserts.is_empty());
+    }
+
+    /// 临时目录所在的卷不区分大小写（macOS 默认的 APFS、Windows 的 NTFS）。
+    fn case_insensitive_volume() -> bool {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a"), b"").unwrap();
+        dir.path().join("A").exists()
+    }
+
+    #[test]
+    fn case_only_rename_keeps_the_id() {
+        if !case_insensitive_volume() {
+            eprintln!("临时目录区分大小写，跳过");
+            return;
+        }
+        // 监听层不给两半配对，两半各成一条 Touched，先后顺序不定；旧写法在不区分
+        // 大小写的卷上仍能 stat 成功
+        for old_first in [true, false] {
+            let mut f = Fixture::new(&["Case.png", "other.png"], true);
+            let id = f.id("Case.png");
+            fs::rename(f.p("Case.png"), f.p("case.png")).unwrap();
+            let (old, new) = (FsHint::Touched(f.p("Case.png")), FsHint::Touched(f.p("case.png")));
+            let mut hints = if old_first { vec![old, new] } else { vec![new, old] };
+            hints.push(FsHint::Listed(f.root.clone()));
+            let c = f.reconciler.apply(&hints, &f.registry);
+            assert_eq!(
+                c.renamed,
+                vec![RenamedItem {
+                    id,
+                    rel_path: "case.png".into()
+                }],
+                "old_first={old_first} {c:?}"
+            );
+            assert!(c.removed.is_empty() && c.upserts.is_empty(), "{c:?}");
+            assert_eq!(f.registry.path(FileId(id)), Some(f.p("case.png")));
+            // 之后两种写法的提示都不再有变化
+            assert!(f.touch("case.png").is_empty());
+            assert!(f.touch("Case.png").is_empty());
+        }
+    }
+
+    #[test]
+    fn case_only_rename_with_only_the_listing_keeps_the_id() {
+        if !case_insensitive_volume() {
+            eprintln!("临时目录区分大小写，跳过");
+            return;
+        }
+        // 只剩旧写法那一半加上父目录的 Listed
+        let mut f = Fixture::new(&["Case.png"], true);
+        let id = f.id("Case.png");
+        fs::rename(f.p("Case.png"), f.p("case.png")).unwrap();
+        let c = f.reconciler.apply(
+            &[FsHint::Touched(f.p("Case.png")), FsHint::Listed(f.root.clone())],
+            &f.registry,
+        );
+        assert_eq!(
+            c.renamed,
+            vec![RenamedItem {
+                id,
+                rel_path: "case.png".into()
+            }],
+            "{c:?}"
+        );
+        assert!(c.removed.is_empty() && c.upserts.is_empty());
+    }
+
+    #[test]
+    fn case_only_directory_rename_keeps_ids() {
+        if !case_insensitive_volume() {
+            eprintln!("临时目录区分大小写，跳过");
+            return;
+        }
+        for old_first in [true, false] {
+            let mut f = Fixture::new(&["Sub/a.png", "Sub/deep/b.png", "c.png"], true);
+            let (a, b) = (f.id("Sub/a.png"), f.id("Sub/deep/b.png"));
+            fs::rename(f.p("Sub"), f.p("sub")).unwrap();
+            let (old, new) = (FsHint::Touched(f.p("Sub")), FsHint::Touched(f.p("sub")));
+            let mut hints = if old_first { vec![old, new] } else { vec![new, old] };
+            hints.push(FsHint::Listed(f.root.clone()));
+            let c = f.reconciler.apply(&hints, &f.registry);
+            let mut got: Vec<_> = c.renamed.iter().map(|r| (r.id, r.rel_path.clone())).collect();
+            got.sort();
+            let mut want = vec![(a, "sub/a.png".to_string()), (b, "sub/deep/b.png".to_string())];
+            want.sort();
+            assert_eq!(got, want, "old_first={old_first} {c:?}");
+            assert!(c.removed.is_empty() && c.upserts.is_empty(), "{c:?}");
+            assert_eq!(f.registry.path(FileId(b)), Some(f.p("sub/deep/b.png")));
+            assert!(f.touch("sub").is_empty());
+            assert!(f.touch("Sub").is_empty());
+        }
+    }
+
+    #[test]
+    fn cancelled_rescan_removes_nothing() {
+        let mut f = Fixture::new(&["a.png", "sub/b.png", "sub/c.png"], true);
+        fs::remove_file(f.p("a.png")).unwrap();
+        // 会话已取消：子树扫描提前结束，没扫到的不能当作已删除
+        f.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        let (root, sub) = (f.root.clone(), f.p("sub"));
+        let c = f
+            .reconciler
+            .apply(&[FsHint::Touched(sub), FsHint::Touched(root)], &f.registry);
+        assert!(c.removed.is_empty(), "{c:?}");
     }
 
     #[test]

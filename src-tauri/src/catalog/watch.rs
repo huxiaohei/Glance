@@ -27,12 +27,13 @@ const CANCEL_POLL: Duration = Duration::from_millis(200);
 /// 把去抖后的事件翻译成提示：改名且新旧路径齐全（RenameMode::Both）→ Renamed；
 /// 其余每个路径一条 Touched（同一路径只留第一条）；Access 类事件丢弃。
 /// 带 Rescan 标志的事件（系统丢了事件，或要求重新核对）→ Touched(root)，整棵重扫。
-/// 改名的两半没能配对时（FSEvents 上常见），各自成为 Touched，比对器据此
-/// 得出“移除 + 新增”。
+/// 改名的两半没能配对时（FSEvents 上常见，只改大小写的改名也是这样），各自成为
+/// Touched，由比对器查看磁盘判断。
 ///
-/// 新建事件另给父目录一条 Listed（每个目录一条，排在最后）：FSEvents 会把刚新建的
-/// 文件在约一秒内又被改名报告成“新建 + 改名”，去抖器据此把整件事合并成目标处的
-/// 一次新建，源的消失被吞掉；列一次父目录把它补回来。
+/// 新建事件与没能配对的改名事件另给父目录一条 Listed（每个目录一条，排在最后）：
+/// FSEvents 会把刚新建的文件在约一秒内又被改名报告成“新建 + 改名”，去抖器据此把
+/// 整件事合并成目标处的一次新建，源的消失被吞掉；改名也可能只报了一半。列一次父目录
+/// 把它补回来。
 pub fn hints_from(root: &Path, events: &[DebouncedEvent]) -> Vec<FsHint> {
     let mut hints = Vec::new();
     let mut listed: Vec<PathBuf> = Vec::new();
@@ -56,9 +57,14 @@ pub fn hints_from(root: &Path, events: &[DebouncedEvent]) -> Vec<FsHint> {
                 });
             }
             kind => {
+                // 新建，或没能配对的改名半边：父目录各列一次
+                let list_parent = matches!(
+                    kind,
+                    EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_))
+                );
                 for p in &e.paths {
                     touch(&mut hints, p);
-                    if let EventKind::Create(_) = kind
+                    if list_parent
                         && let Some(parent) = p.parent()
                         && parent.starts_with(root)
                         && !listed.iter().any(|d| d == parent)
@@ -162,7 +168,7 @@ pub fn serve(
     }
 
     let known = session::run(generation, &target, &registry, &cancel, &*emit);
-    let mut reconciler = Reconciler::new(target.root.clone(), target.recursive, known);
+    let mut reconciler = Reconciler::new(target.root.clone(), target.recursive, known, cancel.clone());
 
     while !cancel.load(Ordering::Relaxed) {
         let Some(results) = next_results(&rx) else {
@@ -189,6 +195,10 @@ pub fn serve(
             continue;
         }
         let changes = reconciler.apply(&hints, &registry);
+        // 比对途中取消：结果可能不完整（子树扫描提前结束），不发
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
         emit_changes(generation, changes, &send);
     }
     drop(watcher);
@@ -254,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn unpaired_rename_halves_become_touched_hints() {
+    fn unpaired_rename_halves_become_touched_hints_and_list_the_parent() {
         let hints = hints_from(
             Path::new(ROOT),
             &[
@@ -268,7 +278,7 @@ mod tests {
                 ),
                 ev(
                     EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
-                    &["/r/c.png"],
+                    &["/r/sub/c.png"],
                 ),
             ],
         );
@@ -277,7 +287,9 @@ mod tests {
             vec![
                 touched("/r/a.png"),
                 touched("/r/b.png"),
-                touched("/r/c.png")
+                touched("/r/sub/c.png"),
+                FsHint::Listed(PathBuf::from(ROOT)),
+                FsHint::Listed(PathBuf::from("/r/sub")),
             ]
         );
     }

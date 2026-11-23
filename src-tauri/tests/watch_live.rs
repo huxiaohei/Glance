@@ -44,6 +44,11 @@ struct Live {
 
 impl Live {
     fn start(path: &Path) -> Live {
+        Live::start_with(path, |_| {})
+    }
+
+    /// hook 在 serve 发出每个事件时、于会话线程上同步调用（先于测试线程收到它）。
+    fn start_with(path: &Path, hook: impl Fn(&CatalogEvent) + Send + Sync + 'static) -> Live {
         let target = resolve_open_target(path, true).unwrap();
         let (tx, rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -56,6 +61,7 @@ impl Live {
                 registry,
                 c,
                 Box::new(move |e| {
+                    hook(&e);
                     let _ = tx.send(e);
                 }),
             )
@@ -185,11 +191,32 @@ fn changes_during_and_after_scan_are_reported() {
         assert!(live.removed.contains(&b));
     }
 
+    // 只改大小写：不区分大小写的卷上监听层不给两半配对，也不能留下重复的格子
+    let c = live.id_of("c.png").unwrap();
+    fs::rename(dir.join("c.png"), dir.join("C.png")).unwrap();
+    live.until("c.png 改名为 C.png", |l| {
+        l.id_of("c.png").is_none() && l.id_of("C.png").is_some()
+    });
+    live.drain_for(Duration::from_secs(1));
+    assert_eq!(live.grid.len(), 2, "{:?}", live.grid);
+    if case_insensitive(dir) {
+        assert_eq!(live.id_of("C.png"), Some(c), "只改大小写应保持 id");
+    }
+
     fs::remove_file(dir.join("a.png")).unwrap();
     live.until("删除 a.png", |l| l.removed.contains(&a));
     assert_eq!(live.grid.len(), 1);
 
     live.stop();
+}
+
+/// dir 所在的卷不区分大小写。
+fn case_insensitive(dir: &Path) -> bool {
+    let probe = dir.join("case-probe");
+    fs::write(&probe, b"").unwrap();
+    let yes = dir.join("CASE-PROBE").exists();
+    fs::remove_file(probe).unwrap();
+    yes
 }
 
 #[test]
@@ -202,9 +229,14 @@ fn events_queued_before_scan_finishes_are_not_lost() {
         fs::write(dir.join(format!("{i:03}.png")), &bytes).unwrap();
     }
 
-    let mut live = Live::start(dir);
-    // 不等 Done，立刻新建
-    fs::write(dir.join("late.png"), &bytes).unwrap();
+    // 在发出 Done 时（会话线程上，扫描已列完目录、监听循环尚未开始取事件）新建：
+    // 只有扫描前就已启动、事件先排队的监听器能报告它
+    let late = dir.join("late.png");
+    let mut live = Live::start_with(dir, move |e| {
+        if matches!(e, CatalogEvent::Done { .. }) {
+            fs::write(&late, png()).unwrap();
+        }
+    });
     live.until("Done", |l| l.done);
     live.until("late.png 出现", |l| l.id_of("late.png").is_some());
     // 去抖窗口过后再看一会儿，确认没有重复
