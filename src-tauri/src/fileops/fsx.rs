@@ -131,9 +131,9 @@ fn after_source_removal(removed: io::Result<()>, copy: &Path) -> Result<(), FsEr
 }
 
 /// 复制文件：写目标目录的临时文件并 fsync → rename_noreplace；失败时删掉临时文件。
-/// 保留修改时间与权限（macOS 上还有扩展属性，如访达标签）。
+/// 保留修改时间与权限位。扩展属性（如 macOS 的访达标签）不保留，已记入后续事项。
 pub fn copy_noreplace(from: &Path, to: &Path) -> Result<(), FsError> {
-    let source = File::open(from).map_err(|e| FsError::from(&e))?;
+    let mut source = File::open(from).map_err(|e| FsError::from(&e))?;
     // 只为尽早失败、省掉一次白复制；真正的保证在最后的不覆盖改名。
     if to.symlink_metadata().is_ok() {
         return Err(FsError::Exists);
@@ -142,23 +142,37 @@ pub fn copy_noreplace(from: &Path, to: &Path) -> Result<(), FsError> {
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         _ => Path::new("."),
     };
-    let (temp_path, temp) = create_temp_file(dir).map_err(|e| FsError::from(&e))?;
-    // 先用 create_new 占住临时文件名，再让 fs::copy 写进去：它会覆盖的只是这个刚建的临时文件，
-    // 而它会顺带带上权限（macOS 上用 fcopyfile，连扩展属性一起）。
-    drop(temp);
+    // 始终通过 create_new 独占建出的这个句柄写入，不再按名字重新打开临时文件。
+    let (temp_path, mut temp) = create_temp_file(dir).map_err(|e| FsError::from(&e))?;
     let written = (|| -> io::Result<()> {
-        fs::copy(from, &temp_path)?;
-        let temp = OpenOptions::new().write(true).open(&temp_path)?;
-        temp.set_modified(source.metadata()?.modified()?)?;
+        let meta = source.metadata()?;
+        io::copy(&mut source, &mut temp)?;
+        temp.set_modified(meta.modified()?)?;
         temp.sync_all()?;
+        // 权限放在最后设：源是只读时，临时文件变只读也不会挡住前面的写入。
+        temp.set_permissions(meta.permissions())?;
         drop(temp);
         rename_noreplace_io(&temp_path, to)
     })();
     if let Err(e) = written {
-        let _ = fs::remove_file(&temp_path);
+        remove_temp(&temp_path);
         return Err(FsError::from(&e));
     }
     Ok(())
+}
+
+/// 尽力删掉临时文件。它可能已经被设成只读：Windows 上只读文件删不掉，先清掉只读标记
+/// （unix 上能不能删只看目录权限，清不清都无妨）。
+fn remove_temp(path: &Path) {
+    if let Ok(meta) = path.symlink_metadata() {
+        let mut perms = meta.permissions();
+        if perms.readonly() {
+            #[allow(clippy::permissions_set_readonly_false)]
+            perms.set_readonly(false);
+            let _ = fs::set_permissions(path, perms);
+        }
+    }
+    let _ = fs::remove_file(path);
 }
 
 /// 在 dir 里新建临时文件 `.glance-tmp-<进程号>-<递增序号>`（点开头，扫描会跳过）。
@@ -398,6 +412,73 @@ mod tests {
             0o640
         );
         assert_eq!(names_in(dst_dir.path()), vec!["a.png".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_noreplace_copies_a_read_only_source() {
+        use std::os::unix::fs::PermissionsExt;
+        let src_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let from = src_dir.path().join("a.png");
+        let to = dst_dir.path().join("a.png");
+        fs::write(&from, b"pixels").unwrap();
+        fs::set_permissions(&from, fs::Permissions::from_mode(0o444)).unwrap();
+
+        assert_eq!(copy_noreplace(&from, &to), Ok(()));
+        assert_eq!(fs::read(&to).unwrap(), b"pixels");
+        assert_eq!(
+            fs::metadata(&to).unwrap().permissions().mode() & 0o777,
+            0o444
+        );
+        assert_eq!(names_in(dst_dir.path()), vec!["a.png".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_noreplace_with_a_read_only_source_refuses_an_existing_target() {
+        use std::os::unix::fs::PermissionsExt;
+        let src_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let from = src_dir.path().join("a.png");
+        let to = dst_dir.path().join("a.png");
+        fs::write(&from, b"source").unwrap();
+        fs::set_permissions(&from, fs::Permissions::from_mode(0o444)).unwrap();
+        fs::write(&to, b"target").unwrap();
+
+        assert_eq!(copy_noreplace(&from, &to), Err(FsError::Exists));
+        assert_eq!(fs::read(&to).unwrap(), b"target");
+        assert_eq!(names_in(dst_dir.path()), vec!["a.png".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cross_volume_fallback_moves_a_read_only_source() {
+        use std::os::unix::fs::PermissionsExt;
+        let src_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let from = src_dir.path().join("a.png");
+        let to = dst_dir.path().join("a.png");
+        fs::write(&from, b"pixels").unwrap();
+        fs::set_permissions(&from, fs::Permissions::from_mode(0o444)).unwrap();
+
+        assert_eq!(copy_then_remove(&from, &to), Ok(()));
+        assert!(from.symlink_metadata().is_err());
+        assert_eq!(fs::read(&to).unwrap(), b"pixels");
+        assert_eq!(names_in(dst_dir.path()), vec!["a.png".to_string()]);
+    }
+
+    #[test]
+    fn temp_cleanup_removes_a_read_only_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".glance-tmp-test");
+        fs::write(&temp, b"x").unwrap();
+        let mut perms = fs::metadata(&temp).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&temp, perms).unwrap();
+
+        remove_temp(&temp);
+        assert!(names_in(dir.path()).is_empty());
     }
 
     #[test]
