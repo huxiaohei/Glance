@@ -1,5 +1,6 @@
 import { registerCommands, type Command } from "./commands";
 import { trashTargets, undoLast } from "./fileOps";
+import { startRename } from "../stores/rename";
 import { IS_MAC } from "./keys";
 
 /** 文件操作的命令。删除键按平台习惯：macOS 用 ⌘⌫（⌘⌦ 同样可用），其他平台用 Delete。 */
@@ -14,6 +15,14 @@ export function fileCommands(isMac: boolean): Command[] {
       run: (ctx) => {
         if (!ctx.repeat) void trashTargets();
       },
+    },
+    {
+      id: "file.rename",
+      title: "cmd.file.rename",
+      category: "cmd.cat.file",
+      keys: ["F2"],
+      views: ["grid", "single"],
+      run: () => startRename(),
     },
     {
       id: "file.undo",

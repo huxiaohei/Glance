@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { fireEvent, render } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { act, fireEvent, render } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImageEntry } from "../../lib/deriveList";
+import { useNav } from "../../stores/nav";
+import { stopRename, useRename } from "../../stores/rename";
 import { useThumbs } from "../../stores/thumbs";
 import ThumbCell from "./ThumbCell";
 
@@ -22,5 +24,29 @@ describe("ThumbCell", () => {
     fireEvent.error(container.querySelector("img")!);
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector(".thumb-placeholder")).not.toBeNull();
+  });
+});
+
+describe("ThumbCell 重命名", () => {
+  beforeEach(() => {
+    useThumbs.getState().reset();
+    useNav.getState().reset();
+    stopRename();
+  });
+
+  it("双击文件名开始重命名而不进入单张视图；双击缩略图仍进入", () => {
+    const openSingle = vi.spyOn(useNav.getState(), "openSingle");
+    const { container } = render(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);
+    fireEvent.doubleClick(container.querySelector(".thumb-name")!);
+    expect(useRename.getState().id).toBe(1);
+    expect(openSingle).not.toHaveBeenCalled();
+    const input = container.querySelector(".thumb-name input") as HTMLInputElement;
+    expect(input.value).toBe("a.jpg");
+
+    act(() => stopRename());
+    expect(container.querySelector("input")).toBeNull();
+    fireEvent.doubleClick(container.querySelector(".thumb-box")!);
+    expect(openSingle).toHaveBeenCalledWith(1);
+    openSingle.mockRestore();
   });
 });

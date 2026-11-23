@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../i18n";
-import { fsTrash, fsUndo } from "../ipc/api";
+import { fsRename, fsTrash, fsUndo } from "../ipc/api";
 import type { OpReport } from "../ipc/types";
 import { selectOnly, toggle } from "../lib/selection";
 import { useCatalog } from "../stores/catalog";
@@ -8,9 +8,9 @@ import { useListView } from "../stores/listView";
 import { useNav } from "../stores/nav";
 import { useSelection } from "../stores/selection";
 import { useToast } from "../stores/toast";
-import { errorText, opTargets, reportOp, trashTargets, undoLast } from "./fileOps";
+import { errorText, opTargets, renameTo, reportOp, trashTargets, undoLast } from "./fileOps";
 
-vi.mock("../ipc/api", () => ({ fsTrash: vi.fn(), fsUndo: vi.fn() }));
+vi.mock("../ipc/api", () => ({ fsRename: vi.fn(), fsTrash: vi.fn(), fsUndo: vi.fn() }));
 
 // 两个分组：a/1、a/2，b/3、b/4
 const ENTRIES = [
@@ -161,7 +161,31 @@ describe("reportOp", () => {
   });
 
   it("reportOp：尚未单独写文字的操作用通用文字", () => {
-    reportOp(report({ kind: "rename", done: [1], token: 2 }));
+    reportOp(report({ kind: "move", done: [1], token: 2 }));
     expect(toast()?.text).toBe(t("fs.done", { n: 1 }));
+  });
+});
+
+describe("renameTo", () => {
+  it("renameTo：exists 时返回错误码且不弹提示条；成功时提示条带撤销", async () => {
+    vi.mocked(fsRename).mockResolvedValueOnce(report({ kind: "rename", failed: [{ id: 1, code: "exists" }] }));
+    expect(await renameTo(1, "two.png")).toBe("exists");
+    expect(toast()).toBeNull();
+
+    vi.mocked(fsRename).mockResolvedValueOnce(report({ kind: "rename", done: [1], token: 5 }));
+    expect(await renameTo(1, "uno.png")).toBeNull();
+    expect(fsRename).toHaveBeenLastCalledWith(1, "uno.png");
+    // 条目可能还没更新：文字里是新名字
+    expect(toast()?.text).toBe(t("fs.rename.done", { name: "uno.png" }));
+    expect(action(t("fs.undo"))).toBeDefined();
+  });
+
+  it("renameTo：名字没变或为空时不调用后端；调用抛错时返回 other", async () => {
+    expect(await renameTo(1, "one.png")).toBeNull();
+    expect(await renameTo(1, "")).toBeNull();
+    expect(fsRename).not.toHaveBeenCalled();
+    vi.mocked(fsRename).mockRejectedValueOnce(new Error("ipc"));
+    expect(await renameTo(1, "x.png")).toBe("other");
+    expect(toast()).toBeNull();
   });
 });

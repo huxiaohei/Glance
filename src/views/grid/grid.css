@@ -151,6 +151,12 @@
   text-overflow: ellipsis;
   text-align: center;
 }
+/* 重命名时：输入框占满格宽，下方的原因浮出格子 */
+.thumb-name-editing {
+  display: flex;
+  align-items: center;
+  overflow: visible;
+}
 
 .grid-empty {
   flex: 1;

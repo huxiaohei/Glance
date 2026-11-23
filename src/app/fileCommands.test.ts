@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { allCommands, findCommand } from "./commands";
 import { fileCommands, registerFileCommands } from "./fileCommands";
+import { startRename } from "../stores/rename";
 import { trashTargets, undoLast } from "./fileOps";
 
 vi.mock("./fileOps", () => ({ trashTargets: vi.fn(), undoLast: vi.fn() }));
+vi.mock("../stores/rename", () => ({ startRename: vi.fn() }));
 
 const key = (k: string, mods: Partial<KeyboardEvent> = {}) =>
   ({ key: k, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods }) as KeyboardEvent;
@@ -49,5 +51,15 @@ describe("file commands", () => {
     off = registerFileCommands(true);
     expect(findCommand(key("z", { metaKey: true }), "grid", true, true)).toBeNull();
     expect(findCommand(key("z", { metaKey: true }), "grid", false, true)?.id).toBe("file.undo");
+  });
+
+  it("file.rename 用 F2，用于网格与单张视图，调用 startRename，输入框聚焦时不触发", () => {
+    off = registerFileCommands(true);
+    expect(findCommand(key("F2"), "single", false, true)?.id).toBe("file.rename");
+    expect(findCommand(key("F2"), "grid", true, true)).toBeNull();
+    const cmd = findCommand(key("F2"), "grid", false, true)!;
+    expect(cmd.views).toEqual(["grid", "single"]);
+    cmd.run({ shift: false, repeat: false });
+    expect(startRename).toHaveBeenCalledWith();
   });
 });

@@ -7,6 +7,7 @@ import { cancelSwitch } from "../../lib/perfMarks";
 import { preloadPlan } from "../../lib/preloadPlan";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
+import { useRename } from "../../stores/rename";
 import { useSingleUi } from "../../stores/singleUi";
 import DetailsPanel from "./DetailsPanel";
 import Filmstrip from "./Filmstrip";
@@ -81,7 +82,9 @@ export default function SingleView() {
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const [overBars, setOverBars] = useState(false);
   const [focusInTop, setFocusInTop] = useState(false);
-  const idle = useIdle(root, IDLE_MS, overBars || focusInTop || infoOpen);
+  // 重命名期间也不淡出
+  const renaming = useRename((s) => s.id !== null);
+  const idle = useIdle(root, IDLE_MS, overBars || focusInTop || infoOpen || renaming);
 
   useEffect(
     () => () => {

@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { fsTrash, fsUndo } from "../ipc/api";
+import { fsRename, fsTrash, fsUndo } from "../ipc/api";
 import type { FileId, FsErrorCode, OpKind, OpReport } from "../ipc/types";
 import { useCatalog } from "../stores/catalog";
 import { topView } from "../stores/nav";
@@ -58,6 +58,11 @@ const TEXTS: Partial<Record<OpKind, KindTexts>> = {
       r.done.length === 1 ? t("fs.trash.one", { name: nameOf(r.done[0]) }) : t("fs.trash.many", { n: r.done.length }),
     allFailed: (r, nameOf) =>
       r.failed.length === 1 ? t("fs.trash.failOne", { name: nameOf(r.failed[0].id) }) : t("fs.trash.failMany", { m: r.failed.length }),
+  },
+  // 名字取新名字：调用方通过 names 传入
+  rename: {
+    done: (r, nameOf) => t("fs.rename.done", { name: nameOf(r.done[0]) }),
+    allFailed: GENERIC.allFailed,
   },
 };
 
@@ -120,4 +125,19 @@ export async function undoLast(): Promise<void> {
   if (r.kind === null) showToast({ text: t("fs.undo.nothing") });
   else if (r.failed.length === 0) showToast({ text: t("fs.undo.done") });
   else showToast({ text: t("fs.undo.partial", { m: r.failed.length }), details: r.failed.map(errorText) });
+}
+
+/** 成功或名字没变返回 null；否则返回错误码，供输入框就地显示。成功时走 reportOp（带撤销）。空名字等同没变。 */
+export async function renameTo(id: FileId, name: string): Promise<FsErrorCode | null> {
+  if (name === "" || name === useCatalog.getState().entries.get(id)?.name) return null;
+  let r: OpReport;
+  try {
+    r = await fsRename(id, name);
+  } catch {
+    return "other";
+  }
+  if (r.done.length === 0) return r.failed[0]?.code ?? "other";
+  // 条目可能还没更新：提示里用新名字
+  reportOp(r, { names: new Map([[id, name]]) });
+  return null;
 }

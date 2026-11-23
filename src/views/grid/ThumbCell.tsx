@@ -7,8 +7,10 @@ import { middleEllipsis } from "../../lib/middleEllipsis";
 import { selectOnly, selectRange, toggle } from "../../lib/selection";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useNav } from "../../stores/nav";
+import { startRename, useRename } from "../../stores/rename";
 import { useSelection } from "../../stores/selection";
 import { useThumbs } from "../../stores/thumbs";
+import RenameInput from "../common/RenameInput";
 
 interface Props { entry: ImageEntry; cell: number; selected: boolean; focused: boolean }
 
@@ -32,12 +34,22 @@ function onCellDoubleClick(e: MouseEvent<HTMLDivElement>): void {
   useNav.getState().openSingle(Number(e.currentTarget.dataset.id));
 }
 
+/** 主键双击文件名开始重命名，不进入单张视图；按着修饰键时不处理（交给格子，只是选择操作）。 */
+function onNameDoubleClick(e: MouseEvent<HTMLDivElement>): void {
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  e.stopPropagation();
+  const cell = e.currentTarget.closest<HTMLElement>("[data-id]");
+  if (cell) startRename(Number(cell.dataset.id));
+}
+
 /** 12px 字体下窄字符约 6.5px、全角约 13px：按窄字符单位估算每格预算。 */
 const nameBudget = (cell: number) => Math.max(8, Math.floor(cell / 6.5));
 
 function ThumbCell({ entry, cell, selected, focused }: Props) {
   const ready = useThumbs((s) => s.ready.get(entry.id));
   const broken = useThumbs((s) => s.broken.has(entry.id));
+  // 只让正在重命名的那一格重新渲染
+  const renaming = useRename((s) => s.id === entry.id);
   const { width, height } = entry;
   // 版本号来自后端生成这张缩略图时读到的文件状态
   const src = ready ? glanceUrl(`thumb/${entry.id}/${ready.tier}?v=${ready.v}`) : null;
@@ -73,9 +85,15 @@ function ThumbCell({ entry, cell, selected, focused }: Props) {
           <div className="thumb-placeholder" style={placeholder ?? { width: "100%", height: "100%" }} />
         )}
       </div>
-      <div className="thumb-name" title={entry.name}>
-        {middleEllipsis(entry.name, nameBudget(cell))}
-      </div>
+      {renaming ? (
+        <div className="thumb-name thumb-name-editing">
+          <RenameInput id={entry.id} name={entry.name} />
+        </div>
+      ) : (
+        <div className="thumb-name" title={entry.name} onDoubleClick={onNameDoubleClick}>
+          {middleEllipsis(entry.name, nameBudget(cell))}
+        </div>
+      )}
     </div>
   );
 }
