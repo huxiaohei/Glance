@@ -89,11 +89,25 @@ pub async fn open_path(
     // 记入最近目录：写配置文件，不占核心线程；失败（含任务异常）只忽略。
     let (key, display) = (info.path.clone(), info.name.clone());
     let _ = tauri::async_runtime::spawn_blocking(move || {
-        app.state::<RecentsState>()
-            .update(|l| l.touch(&key, &display));
+        let (sessions, recents) = (app.state::<Sessions>(), app.state::<RecentsState>());
+        touch_if_current(&sessions, &recents, generation, &key, &display);
     })
     .await;
     Ok(info)
+}
+
+/// 把这次打开的根目录记入最近目录；期间已有更新的打开（`generation` 不再是当前会话）时丢弃，
+/// 免得较早的打开排到较晚的前面。
+pub(crate) fn touch_if_current(
+    sessions: &Sessions,
+    recents: &RecentsState,
+    generation: u32,
+    key: &str,
+    name: &str,
+) {
+    if sessions.current().is_some_and(|(g, _)| g == generation) {
+        recents.update(|l| l.touch(key, name));
+    }
 }
 
 /// 打开前在阻塞线程里做的事：解析目标与显示名，并定出要聚焦的文件。
@@ -108,15 +122,19 @@ pub(crate) fn prepare_open(
     let name = root_display_name(path, &target);
     let focus = match &target.focus_file {
         Some(file) => Some(file.clone()),
-        None if restore => restored_focus(&target.root, recents),
+        None if restore => restored_focus(&target.root, target.recursive, recents),
         None => None,
     };
     Ok((target, name, focus))
 }
 
 /// 最近目录里记下的上次看到的图片；相对路径不合法、文件不在或不是图片时为 None。
-fn restored_focus(root: &Path, recents: &RecentsState) -> Option<PathBuf> {
+/// 非递归打开时只认根目录下的文件（单级名字），子目录里的图不在这次的列表里。
+fn restored_focus(root: &Path, recursive: bool, recents: &RecentsState) -> Option<PathBuf> {
     let last = recents.last_of(&root.to_string_lossy())?;
+    if !recursive && last.contains('/') {
+        return None;
+    }
     let mut file = root.to_path_buf();
     for seg in last.split('/') {
         // 只接受普通的单级名字，防止配置文件里的 ".." 等跳出根目录。
@@ -446,6 +464,65 @@ mod tests {
         std::fs::create_dir(&f).unwrap();
         let (_, _, focus) = prepare_open(&w.root, true, true, &w.recents).unwrap();
         assert_eq!(focus, None);
+    }
+
+    #[test]
+    fn touch_from_a_stale_open_is_dropped() {
+        let w = world();
+        let other = tempfile::tempdir().unwrap();
+        let b = root_of(&other).to_string_lossy().into_owned();
+        // 期间又有一次打开：本次（w.generation）的登记已过期
+        w.sessions.note(2);
+        let (g2, _) = w.sessions.begin(2).unwrap();
+        let (tx, _rx) = std::sync::mpsc::channel();
+        w.sessions.attach(g2, root_of(&other), tx);
+        touch_if_current(&w.sessions, &w.recents, g2, &b, "b");
+        touch_if_current(&w.sessions, &w.recents, w.generation, "/stale", "a");
+        let paths: Vec<String> = w.recents.entries().into_iter().map(|e| e.path).collect();
+        assert_eq!(paths, vec![b, w.key.clone()]);
+    }
+
+    #[test]
+    fn non_recursive_restore_accepts_only_a_root_level_image() {
+        let w = world();
+        let nested = w.root.join("a").join("b.png");
+        png(&nested);
+        w.note(w.generation, &[], Some(w.registry.register(&nested).0));
+        let (_, _, focus) = prepare_open(&w.root, false, true, &w.recents).unwrap();
+        assert_eq!(focus, None, "非递归打开时看不到子目录里的图");
+        let (_, _, focus) = prepare_open(&w.root, true, true, &w.recents).unwrap();
+        assert_eq!(focus, Some(nested));
+
+        let top = w.root.join("top.png");
+        png(&top);
+        w.note(w.generation, &[], Some(w.registry.register(&top).0));
+        let (_, _, focus) = prepare_open(&w.root, false, true, &w.recents).unwrap();
+        assert_eq!(focus, Some(top));
+    }
+
+    #[test]
+    fn restore_rejects_escaping_absolute_and_non_image_lasts() {
+        let w = world();
+        png(&w.root.join("b.png"));
+        png(&w.root.join("a").join("x.png"));
+        std::fs::write(w.root.join("notes.txt"), "hi").unwrap();
+        let abs = w.root.join("b.png").to_string_lossy().into_owned();
+        for bad in ["../x.png", "a/../b.png", abs.as_str(), "notes.txt"] {
+            w.recents.update(|l| {
+                l.note(
+                    &w.key,
+                    Note {
+                        count: 1,
+                        thumbs: vec![],
+                        last: Some(bad.to_string()),
+                        sort: SortKey::Name,
+                        include_subdirs: true,
+                    },
+                )
+            });
+            let (_, _, focus) = prepare_open(&w.root, true, true, &w.recents).unwrap();
+            assert_eq!(focus, None, "{bad}");
+        }
     }
 
     #[test]
