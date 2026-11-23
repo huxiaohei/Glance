@@ -4,6 +4,7 @@ pub mod fileops;
 #[cfg(debug_assertions)]
 mod lab;
 mod protocol;
+mod state;
 mod system;
 mod thumbs;
 
@@ -30,6 +31,10 @@ pub fn run() {
             let registry = app.state::<Arc<Registry>>().inner().clone();
             let cache = ThumbCache::new(app.path().app_cache_dir()?.join("thumbs"));
             app.manage(Thumbs::start(cache, registry));
+            let settings = state::settings::SettingsState::load(&app.path().app_config_dir()?);
+            let theme = settings.get().theme;
+            app.manage(settings);
+            state::settings::apply_window_theme(app.handle(), theme);
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("glance", |ctx, request, responder| {
@@ -62,6 +67,8 @@ pub fn run() {
         system::clipboard_copy_image,
         system::clipboard_copy_paths,
         system::reveal,
+        state::settings::settings_get,
+        state::settings::settings_set,
         lab::lab_register_dir,
         lab::lab_paths,
         lab::lab_protocol_hits,
@@ -83,7 +90,9 @@ pub fn run() {
         fileops::commands::fs_recent_targets,
         system::clipboard_copy_image,
         system::clipboard_copy_paths,
-        system::reveal
+        system::reveal,
+        state::settings::settings_get,
+        state::settings::settings_set
     ]);
 
     builder
