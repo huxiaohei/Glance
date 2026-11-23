@@ -1,3 +1,5 @@
+import type { SortKey } from "../lib/deriveList";
+
 export type FileId = number;
 export type Tier = 320 | 640;
 
@@ -45,3 +47,15 @@ export type Conflict = "skip" | "keepBoth";
 /** 撤销失败的一步：name 只是文件名（最后一级），不是路径 */
 export interface UndoFailure { name: string; code: FsErrorCode }
 export interface UndoReport { kind: OpKind | null; done: number; failed: UndoFailure[] }
+
+export type Theme = "dark" | "light" | "system";
+export type Language = "system" | "zh-CN" | "en";
+export type WheelAction = "zoom" | "switch";
+export interface Settings {
+  theme: Theme;
+  language: Language;
+  includeSubdirs: boolean;
+  defaultSort: SortKey;
+  loopAtEnd: boolean;
+  wheel: WheelAction;
+}

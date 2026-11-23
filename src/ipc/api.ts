@@ -7,6 +7,7 @@ import type {
   ImageDetails,
   OpReport,
   RootInfo,
+  Settings,
   ThumbEvent,
   Tier,
   UndoReport,
@@ -74,4 +75,12 @@ export function clipboardCopyPaths(ids: FileId[]): Promise<void> {
 
 export function reveal(id: FileId): Promise<void> {
   return invoke<void>("reveal", { id });
+}
+
+export function settingsGet(): Promise<Settings> {
+  return invoke<Settings>("settings_get");
+}
+
+export function settingsSet(settings: Settings): Promise<void> {
+  return invoke<void>("settings_set", { settings });
 }

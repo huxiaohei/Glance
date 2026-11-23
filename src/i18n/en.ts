@@ -152,4 +152,5 @@ export const en: Record<MessageKey, string> = {
   "menu.copyTo": "Copy to",
   "menu.newDir": "New Subfolder…",
   "menu.pickDir": "Choose Folder…",
+  "settings.saveFailed": "Couldn't save settings",
 };

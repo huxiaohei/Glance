@@ -150,4 +150,5 @@ export const zhCN = {
   "menu.copyTo": "复制到",
   "menu.newDir": "新建子目录…",
   "menu.pickDir": "选择目录…",
+  "settings.saveFailed": "设置保存失败",
 } as const;

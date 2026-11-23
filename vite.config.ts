@@ -7,8 +7,9 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react()],
 
-  // 默认 node 环境；组件与 hook 测试在文件首行用 `// @vitest-environment jsdom` 切换
-  test: { setupFiles: ["src/test/setup.ts"] },
+  // 默认 node 环境；组件与 hook 测试在文件首行用 `// @vitest-environment jsdom` 切换。
+  // Vitest 默认把 CSS 处理成空串；只对 `?raw` 导入放行，供 theme.test.ts 检查样式原文
+  test: { setupFiles: ["src/test/setup.ts"], css: { include: [/\.css\?raw$/] } },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

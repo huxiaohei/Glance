@@ -121,8 +121,8 @@
   bottom: 12px;
   padding: 2px 8px;
   border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--text-dim);
+  background: var(--overlay-bg);
+  color: var(--overlay-text-dim);
   font-size: 12px;
   pointer-events: none;
 }
@@ -165,13 +165,13 @@
 }
 .stage-arrow svg {
   fill: none;
-  stroke: var(--text);
+  stroke: var(--overlay-text);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
   padding: 8px 4px;
   border-radius: var(--radius);
-  background: var(--panel);
+  background: var(--overlay-bg);
 }
 .single-hint {
   position: absolute;
@@ -180,8 +180,8 @@
   transform: translateX(-50%);
   padding: 6px 14px;
   border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--text);
+  background: var(--overlay-bg);
+  color: var(--overlay-text);
   pointer-events: none;
   white-space: nowrap;
 }
