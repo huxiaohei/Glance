@@ -1,0 +1,38 @@
+.help-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+.help-panel {
+  min-width: 320px;
+  max-width: 480px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 16px 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.help-title { margin: 0 0 12px; font-size: 15px; }
+.help-group { margin-bottom: 12px; }
+.help-cat { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.help-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 4px 0;
+}
+.help-key {
+  font: inherit;
+  padding: 1px 8px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}

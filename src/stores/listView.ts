@@ -14,6 +14,7 @@ export interface ListViewState {
   setIncludeSubdirs(v: boolean): void;
   setDirFilter(dir: string | null): void;
   toggleCollapsed(dir: string): void;
+  toggleTree(): void;
   setCell(px: number): void;       // 取整并夹到 [CELL_MIN, CELL_MAX]
   resetForNewRoot(includeSubdirs: boolean): void;   // 清空筛选和折叠，保留排序与格子大小
 }
@@ -35,6 +36,7 @@ export const useListView = create<ListViewState>((set) => ({
       if (!collapsed.delete(dir)) collapsed.add(dir);
       return { collapsed };
     }),
+  toggleTree: () => set((s) => ({ treeVisible: !s.treeVisible })),
   setCell: (px) => set({ cell: Math.min(CELL_MAX, Math.max(CELL_MIN, Math.round(px))) }),
   resetForNewRoot: (includeSubdirs) => set({ includeSubdirs, dirFilter: null, collapsed: new Set() }),
 }));
