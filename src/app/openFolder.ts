@@ -15,8 +15,12 @@ const opener = createOpener<{ keepView?: boolean }>({
   openPath,
   begin: (info, tag) => {
     if (tag?.keepView) {
-      // 刷新：保留视图状态、条目和缩略图；版本变化会让缩略图自行更新
-      useCatalog.getState().begin(info, { keep: true });
+      // 刷新：保留视图状态、条目和缩略图；版本变化会让缩略图自行更新。
+      // 损坏标记全部清除，读不出的重试一次（扫描结束时被移除的也随之清掉）。
+      // 显示名沿用原来的：刷新按规范路径重新打开，经符号链接打开的目录名会变
+      useThumbs.getState().clearBroken();
+      const prev = useCatalog.getState().root;
+      useCatalog.getState().begin(prev ? { ...info, name: prev.name } : info, { keep: true });
       return;
     }
     useThumbs.getState().reset();

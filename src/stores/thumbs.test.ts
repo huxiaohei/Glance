@@ -43,6 +43,33 @@ describe("thumbs store", () => {
     useThumbs.getState().apply({ type: "broken", id: 5 });
     expect(useThumbs.getState().broken.has(5)).toBe(true);
   });
+  it("ready 清除损坏标记", () => {
+    const s = useThumbs.getState();
+    s.applyMany([{ type: "broken", id: 1 }, { type: "broken", id: 2 }, { type: "broken", id: 3 }]);
+    s.applyMany([{ type: "ready", id: 1, tier: 320, v: "5-10" }]);
+    s.markReady([{ id: 2, v: "5-10" }], 320);
+    const st = useThumbs.getState();
+    expect([st.broken.has(1), st.broken.has(2), st.broken.has(3)]).toEqual([false, false, true]);
+    expect(st.ready.get(1)).toEqual({ tier: 320, v: "5-10" });
+    expect(st.ready.get(2)).toEqual({ tier: 320, v: "5-10" });
+    // 同一批里先 ready 后 broken：以后到的为准
+    s.applyMany([{ type: "ready", id: 4, tier: 320, v: "1-1" }, { type: "broken", id: 4 }]);
+    expect(useThumbs.getState().broken.has(4)).toBe(true);
+  });
+  it("较旧版本的 ready 不覆盖较新的", () => {
+    const s = useThumbs.getState();
+    s.apply({ type: "ready", id: 1, tier: 320, v: "2000-12" });
+    s.apply({ type: "ready", id: 1, tier: 640, v: "1000-10" });
+    s.markReady([{ id: 1, v: "1500-10" }], 640);
+    expect(ready().get(1)).toEqual({ tier: 320, v: "2000-12" });
+    // 修改时间相同、大小不同：仍算较新（不早于），可以替换
+    s.apply({ type: "ready", id: 1, tier: 320, v: "2000-13" });
+    expect(ready().get(1)).toEqual({ tier: 320, v: "2000-13" });
+    // 修改时间为负（1970 年以前）也按数值比较
+    s.apply({ type: "ready", id: 2, tier: 320, v: "-5-1" });
+    s.apply({ type: "ready", id: 2, tier: 320, v: "-9-1" });
+    expect(ready().get(2)).toEqual({ tier: 320, v: "-5-1" });
+  });
   it("forget 只清除损坏标记，保留就绪状态", () => {
     const s = useThumbs.getState();
     s.apply({ type: "ready", id: 1, tier: 320, v: "1-10" });
