@@ -36,13 +36,56 @@ describe("catalog store", () => {
     expect(useCatalog.getState().entries.size).toBe(0);
   });
 
-  it("每次变化 version 递增，且 entries 换成新引用", () => {
+  it("非空批次让 version 与 listVersion 都加一，且 entries 换成新引用", () => {
     const s = useCatalog.getState();
     s.begin(root(1));
     const before = useCatalog.getState();
     s.apply({ type: "batch", generation: 1, entries: [{ id: 1, relPath: "a.png", size: 1, mtimeMs: 1 }] });
     const after = useCatalog.getState();
     expect(after.version).toBe(before.version + 1);
+    expect(after.listVersion).toBe(before.listVersion + 1);
     expect(after.entries).not.toBe(before.entries);
+  });
+
+  it("begin 与 reset 也让 listVersion 递增", () => {
+    const v0 = useCatalog.getState().listVersion;
+    useCatalog.getState().begin(root(1));
+    expect(useCatalog.getState().listVersion).toBe(v0 + 1);
+    useCatalog.getState().reset();
+    expect(useCatalog.getState().listVersion).toBe(v0 + 2);
+  });
+
+  it("dims 命中时 version 加一但 listVersion 不变", () => {
+    const s = useCatalog.getState();
+    s.begin(root(1));
+    s.apply({ type: "batch", generation: 1, entries: [{ id: 1, relPath: "a.png", size: 1, mtimeMs: 1 }] });
+    const before = useCatalog.getState();
+    s.apply({ type: "dims", generation: 1, items: [{ id: 1, w: 4, h: 2 }] });
+    const after = useCatalog.getState();
+    expect(after.version).toBe(before.version + 1);
+    expect(after.listVersion).toBe(before.listVersion);
+    expect(after.entries.get(1)).toMatchObject({ width: 4, height: 2 });
+  });
+
+  it("空批次、没有命中的 dims 不改任何东西", () => {
+    const s = useCatalog.getState();
+    s.begin(root(1));
+    s.apply({ type: "batch", generation: 1, entries: [{ id: 1, relPath: "a.png", size: 1, mtimeMs: 1 }] });
+    const before = useCatalog.getState();
+    s.apply({ type: "batch", generation: 1, entries: [] });
+    s.apply({ type: "dims", generation: 1, items: [{ id: 99, w: 1, h: 1 }] });
+    const after = useCatalog.getState();
+    expect(after.entries).toBe(before.entries);
+    expect(after.version).toBe(before.version);
+    expect(after.listVersion).toBe(before.listVersion);
+  });
+
+  it("丢弃过期代号的 dims", () => {
+    const s = useCatalog.getState();
+    s.begin(root(1));
+    s.apply({ type: "batch", generation: 1, entries: [{ id: 1, relPath: "a.png", size: 1, mtimeMs: 1 }] });
+    s.begin(root(2));
+    s.apply({ type: "dims", generation: 1, items: [{ id: 1, w: 4, h: 2 }] });
+    expect(useCatalog.getState().entries.size).toBe(0);
   });
 });

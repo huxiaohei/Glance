@@ -1,9 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { pickAndOpenFolder } from "../../app/openFolder";
 import { t } from "../../i18n";
 import { deriveList, dirTree } from "../../lib/deriveList";
 import { layoutGrid, type Row } from "../../lib/gridLayout";
+import { accumulateWheel } from "../../lib/wheelZoom";
 import { pickTier } from "../../lib/pickTier";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
@@ -16,7 +17,7 @@ import { useVisibleThumbs } from "./useVisibleThumbs";
 import "./grid.css";
 
 const PAD = 12; // 滚动区左右内边距
-const WHEEL_STEP = 16; // Cmd/Ctrl + 滚轮每格调整的格子大小
+const WHEEL_STEP = 16; // Cmd/Ctrl + 滚轮每累积一格调整的格子大小
 
 /** 最后一个 top <= y 的标题行下标（rows 按 top 升序）。 */
 function pinnedHeader(rows: Row[], y: number): number {
@@ -33,7 +34,7 @@ export default function GridView() {
   const root = useCatalog((s) => s.root);
   const entries = useCatalog((s) => s.entries);
   const scanning = useCatalog((s) => s.scanning);
-  const version = useCatalog((s) => s.version);
+  const listVersion = useCatalog((s) => s.listVersion);
   const sort = useListView((s) => s.sort);
   const includeSubdirs = useListView((s) => s.includeSubdirs);
   const dirFilter = useListView((s) => s.dirFilter);
@@ -42,12 +43,12 @@ export default function GridView() {
   const generation = root?.generation;
   const tier = pickTier(cell, window.devicePixelRatio);
 
-  // 派生列表与目录树按 catalog.version（及各选项）缓存，滚动和缩略图事件不会触发重算
+  // 派生列表与目录树按 catalog.listVersion（及各选项）缓存；滚动、缩略图事件和尺寸补全不会触发重算
   const list = useMemo(
     () => deriveList(entries.values(), { sort, includeSubdirs, dirFilter, collapsed }),
-    [version, sort, includeSubdirs, dirFilter, collapsed],
+    [listVersion, sort, includeSubdirs, dirFilter, collapsed],
   );
-  const tree = useMemo(() => dirTree(entries.values()), [version]);
+  const tree = useMemo(() => dirTree(entries.values()), [listVersion]);
 
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -82,14 +83,21 @@ export default function GridView() {
   useVisibleThumbs(layout, scrollTop, size.height, tier);
 
   // Cmd/Ctrl + 滚轮调格子大小。React 的 onWheel 是被动监听，preventDefault 拦不住页面缩放，须手动挂非被动监听。
+  const wheelAcc = useRef(0);
   useEffect(() => {
     if (!scroller) return;
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       if (e.deltaY === 0) return;
-      const { cell: cur, setCell } = useListView.getState();
-      setCell(cur + (e.deltaY < 0 ? WHEEL_STEP : -WHEEL_STEP));
+      // 触控板捏合会连发大量小增量事件：累积满一格（100）才走一步
+      const { acc, steps } = accumulateWheel(wheelAcc.current, e.deltaY, e.deltaMode);
+      wheelAcc.current = acc;
+      const dir = Math.sign(steps);
+      for (let i = 0; i < Math.abs(steps); i++) {
+        const { cell: cur, setCell } = useListView.getState();
+        setCell(cur + dir * WHEEL_STEP);
+      }
     };
     scroller.addEventListener("wheel", onWheel, { passive: false });
     return () => scroller.removeEventListener("wheel", onWheel);
