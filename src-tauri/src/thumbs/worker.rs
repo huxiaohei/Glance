@@ -101,6 +101,8 @@ fn worker_loop(shared: Arc<Shared>) {
         };
         // 队列锁已释放：生成缩略图期间不阻塞 want。
         let event = process(job, &shared.registry, &shared.cache);
+        // 先结束“进行中”再通知，任何结果（含 Broken）都走到这里。
+        shared.queue.lock().unwrap().finish(job);
         let sink = shared.sink.lock().unwrap().clone();
         if let Some(sink) = sink {
             sink(event);
