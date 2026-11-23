@@ -10,6 +10,9 @@ import {
   type Size,
   type Viewport,
 } from "../../lib/viewport";
+import { createWheelStepper } from "../../lib/wheelStep";
+import { useSettings } from "../../stores/settings";
+import { go } from "./go";
 
 export interface StageApi {
   zoomBy(factor: number): void;     // 以容器中心为准
@@ -189,11 +192,19 @@ export function useStageViewport(args: {
     const ro = new ResizeObserver(() => ctl.relayout());
     ro.observe(box);
 
-    // React 的 onWheel 是被动监听，拦不住页面滚动与缩放：手动挂非被动监听
+    // React 的 onWheel 是被动监听，拦不住页面滚动与缩放：手动挂非被动监听。
+    // 设置为“滚轮切图”时，不按 Ctrl / Cmd 的滚轮交给步进器切图；按住时（含触控板捏合）仍缩放。
+    // 设置在每次事件时读取，改完即生效
+    const stepWheel = createWheelStepper();
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const dy = e.deltaMode === 1 ? e.deltaY * LINE_PX : e.deltaMode === 2 ? e.deltaY * box.clientHeight : e.deltaY;
       if (dy === 0) return;
+      if (useSettings.getState().settings.wheel === "switch" && !e.ctrlKey && !e.metaKey) {
+        const dir = stepWheel(dy, performance.now());
+        if (dir !== 0) go(dir > 0 ? "next" : "prev");
+        return;
+      }
       const [px, py] = local(e);
       const f = wheelFactor(dy, e.ctrlKey);
       ctl.update((v, i, b) => zoomAt(v, f, px, py, i, b));

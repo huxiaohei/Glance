@@ -6,7 +6,8 @@ import { handleKeyDown } from "../../app/useKeyboard";
 import { markSwitchStart, switchStats } from "../../lib/perfMarks";
 import { wheelFactor } from "../../lib/viewport";
 import { useCatalog } from "../../stores/catalog";
-import { useNav } from "../../stores/nav";
+import { topView, useNav } from "../../stores/nav";
+import { DEFAULT_SETTINGS, useSettings } from "../../stores/settings";
 import { useThumbs } from "../../stores/thumbs";
 import { Preloader } from "./preloader";
 import Stage, { useStageApi } from "./Stage";
@@ -80,6 +81,7 @@ beforeEach(async () => {
   vi.stubGlobal("cancelAnimationFrame", () => {});
   useCatalog.getState().reset();
   useNav.getState().reset();
+  useSettings.setState({ settings: DEFAULT_SETTINGS });
   act(() => {
     useCatalog.getState().begin({ generation: 1, path: "/p", name: "p", recursive: true, focus: null });
     useCatalog.getState().apply({
@@ -156,6 +158,48 @@ describe("Stage", () => {
     const before = vp(container)!.scale;
     fireEvent.wheel(box(container), { deltaY: -10, ctrlKey: true, clientX: LEFT + px, clientY: TOP + py });
     expect(vp(container)!.scale).toBeCloseTo(before * wheelFactor(-10, true));
+  });
+
+  it("wheel 为 switch 时滚轮向下切到下一张，画面比例不变", () => {
+    act(() => useNav.getState().openSingle(1));
+    useSettings.setState({ settings: { ...DEFAULT_SETTINGS, wheel: "switch" } });
+    const { container } = render(<Stage id={1} preloader={preloader} />);
+    const before = vp(container)!;
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.wheel(box(container), { deltaY: 100, clientX: LEFT + 200, clientY: TOP + 300 });
+    });
+    expect(notPrevented).toBe(false);
+    const v = topView();
+    expect(v.kind === "single" ? v.id : null).toBe(2);
+    expect(vp(container)).toEqual(before);
+  });
+
+  it("wheel 为 switch 时按住 Ctrl 的滚轮仍然缩放", () => {
+    act(() => useNav.getState().openSingle(1));
+    useSettings.setState({ settings: { ...DEFAULT_SETTINGS, wheel: "switch" } });
+    const { container } = render(<Stage id={1} preloader={preloader} />);
+    act(() => {
+      fireEvent.wheel(box(container), { deltaY: -10, ctrlKey: true, clientX: LEFT + 200, clientY: TOP + 300 });
+    });
+    expect(vp(container)!.scale).toBeCloseTo(0.4 * wheelFactor(-10, true));
+    act(() => {
+      fireEvent.wheel(box(container), { deltaY: -10, metaKey: true, clientX: LEFT + 200, clientY: TOP + 300 });
+    });
+    expect(vp(container)!.scale).toBeGreaterThan(0.4 * wheelFactor(-10, true));
+    const v = topView();
+    expect(v.kind === "single" ? v.id : null).toBe(1);
+  });
+
+  it("wheel 为 zoom 时滚轮缩放（原行为），不切图", () => {
+    act(() => useNav.getState().openSingle(1));
+    const { container } = render(<Stage id={1} preloader={preloader} />);
+    act(() => {
+      fireEvent.wheel(box(container), { deltaY: 100, clientX: LEFT + 200, clientY: TOP + 300 });
+    });
+    expect(vp(container)!.scale).toBeCloseTo(0.4 * wheelFactor(100, false));
+    const v = topView();
+    expect(v.kind === "single" ? v.id : null).toBe(1);
   });
 
   it("拖拽平移；图片不大于容器时拖拽不改变位置", () => {

@@ -9,6 +9,7 @@ import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
 import { topView, useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
+import { DEFAULT_SETTINGS, useSettings } from "../../stores/settings";
 import { useThumbs } from "../../stores/thumbs";
 
 vi.mock("../../ipc/api");
@@ -48,6 +49,7 @@ beforeEach(() => {
   useNav.getState().reset();
   useThumbs.getState().reset();
   useSelection.getState().clear();
+  useSettings.setState({ settings: DEFAULT_SETTINGS });
   useListView.setState({ collapsed: new Set(), dirFilter: null, includeSubdirs: true, sort: "name", cell: 160 });
 });
 afterEach(() => {
@@ -367,5 +369,42 @@ describe("单张视图切图", () => {
     await decodeOk(1);
     await nextFrames(2);
     expect(switchStats().count).toBe(before);
+  });
+
+  it("loopAtEnd 开启时，最后一张按 → 到第一张，不显示“已是最后一张”", () => {
+    act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS, loopAtEnd: true } }));
+    const c = setup([1, 2, 3]);
+    openAt(3);
+    key("ArrowRight");
+    expect(current()).toBe(1);
+    expect(hint(c)).not.toBe(t("hint.last"));
+    // Home / End 不受影响：已在第一张时仍然提示
+    key("Home");
+    expect(current()).toBe(1);
+    expect(hint(c)).toBe(t("hint.first"));
+  });
+
+  it("loopAtEnd 开启时，第一张按 ← 到最后一张；跨分组照旧提示目录", () => {
+    act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS, loopAtEnd: true } }));
+    const c = setup([1, 2, 3], { 3: "a" });
+    openAt(1);
+    key("ArrowLeft");
+    expect(current()).toBe(3);
+    expect(hint(c)).toBe("a");
+    key("End");
+    expect(current()).toBe(3);
+    expect(hint(c)).toBe(t("hint.last"));
+  });
+
+  it("loopAtEnd 开启但只有一张图时，仍然提示到头", () => {
+    act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS, loopAtEnd: true } }));
+    const c = setup([1]);
+    openAt(1);
+    key("ArrowRight");
+    expect(current()).toBe(1);
+    expect(hint(c)).toBe(t("hint.last"));
+    key("ArrowLeft");
+    expect(current()).toBe(1);
+    expect(hint(c)).toBe(t("hint.first"));
   });
 });
