@@ -101,6 +101,20 @@ describe("recentsSync", () => {
     expect(recentsNote).toHaveBeenCalledTimes(1);
   });
 
+  it("flushRecents 在汇报落定后才完成", async () => {
+    let resolve!: () => void;
+    recentsNote.mockReturnValueOnce(new Promise<void>((r) => { resolve = r; }));
+    open(1, 5);
+    let done = false;
+    const p = flushRecents().then(() => { done = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(done).toBe(false);
+    resolve();
+    await p;
+    expect(done).toBe(true);
+  });
+
   it("flushRecents 立刻发出待发的汇报；没有待发的则什么也不做", () => {
     flushRecents();
     expect(recentsNote).not.toHaveBeenCalled();
@@ -112,6 +126,18 @@ describe("recentsSync", () => {
     expect(recentsNote).toHaveBeenCalledTimes(1);
     flushRecents();
     expect(recentsNote).toHaveBeenCalledTimes(1);
+  });
+
+  it("待发期间开始扫描（换目录）时取消定时器", () => {
+    open(1, 5);
+    vi.advanceTimersByTime(500);
+    useCatalog.getState().begin(root(2));
+    useCatalog.getState().apply({ type: "done", generation: 2, total: 0 });
+    vi.advanceTimersByTime(999);
+    expect(recentsNote).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(recentsNote).toHaveBeenCalledTimes(1);
+    expect(lastNote().generation).toBe(2);
   });
 
   it("没有根目录时不汇报", () => {
@@ -128,8 +154,7 @@ describe("recentsSync", () => {
     expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
     expect(recentsNote).toHaveBeenCalledTimes(1);
     useListView.getState().setSort("size");
-    expect(() => flushRecents()).not.toThrow();
-    await Promise.resolve();
+    await expect(flushRecents()).resolves.toBeUndefined();
     expect(recentsNote).toHaveBeenCalledTimes(2);
   });
 });

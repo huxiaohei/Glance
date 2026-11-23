@@ -48,6 +48,15 @@ function resolveScanned(generation: number, path = "/real/dir", recursive = true
   });
 }
 
+/** 让排队、flush 等微任务与零延时任务走完。 */
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
 const recent = (over: Partial<RecentEntry> = {}): RecentEntry => ({
   path: "/photos", name: "photos", count: 3, thumbs: [], pinned: false, exists: true, sort: null, includeSubdirs: null, ...over,
 });
@@ -59,6 +68,33 @@ describe("openRecent", () => {
     const [path, recursive, , restore] = openPath.mock.calls[0];
     expect([path, recursive, restore]).toEqual(["/photos", false, true]);
     expect(useListView.getState().sort).toBe("size");
+  });
+
+  it("openRecent 的排序在目录开始（事件回放）之前就已生效", async () => {
+    const sortAtBegin: string[] = [];
+    const off = useCatalog.subscribe((s, prev) => {
+      if (s.root !== prev.root && s.root) sortAtBegin.push(useListView.getState().sort);
+    });
+    try {
+      resolveScanned(1, "/photos");
+      await openRecent(recent({ sort: "mtime" }));
+      expect(sortAtBegin).toEqual(["mtime"]);
+    } finally {
+      off();
+    }
+  });
+
+  it("被取代的 openRecent 不改排序", async () => {
+    let resolveFirst!: (i: RootInfo) => void;
+    openPath.mockImplementationOnce(() => new Promise<RootInfo>((res) => { resolveFirst = res; }));
+    const first = openRecent(recent({ sort: "size" }));
+    openPath.mockResolvedValueOnce(info(2, "dir"));
+    const second = openFolder("/real/dir");
+    await tick();
+    resolveFirst(info(1, "photos"));
+    await Promise.all([first, second]);
+    expect(useCatalog.getState().root?.generation).toBe(2);
+    expect(useListView.getState().sort).toBe("name");
   });
 
   it("openRecent 的项没有记录 includeSubdirs 时按设置打开", async () => {
@@ -83,7 +119,7 @@ describe("最近目录的汇报与读取", () => {
     try {
       resolveScanned(1);
       await openFolder("/real/dir");
-      useListView.getState().setSort("size");   // 去抖中，尚未发出
+      useListView.getState().setSort("size");   // 扫描结束与改排序引起的汇报都还在去抖中，尚未发出
       expect(recentsNote).not.toHaveBeenCalled();
       openPath.mockResolvedValueOnce(info(2, "other"));
       log.length = 0;
@@ -91,6 +127,65 @@ describe("最近目录的汇报与读取", () => {
       expect(log.indexOf("recentsNote")).toBeGreaterThanOrEqual(0);
       expect(log.indexOf("recentsNote")).toBeLessThan(log.indexOf("openPath:/other"));
       expect(openPath.mock.calls[1][3]).toBe(false);
+    } finally {
+      stop();
+    }
+  });
+
+  it("待发的汇报送达之前不调用 openPath", async () => {
+    const stop = startRecentsSync();
+    try {
+      resolveScanned(1);
+      await openFolder("/real/dir");
+      const note = deferred();
+      recentsNote.mockReturnValueOnce(note.promise);
+      openPath.mockResolvedValueOnce(info(2, "other"));
+      const p = openFolder("/other");
+      await tick();
+      expect(recentsNote).toHaveBeenCalledTimes(1);
+      expect(openPath).toHaveBeenCalledTimes(1);
+      note.resolve();
+      await p;
+      expect(openPath).toHaveBeenCalledTimes(2);
+      expect(openPath.mock.calls[1][0]).toBe("/other");
+    } finally {
+      stop();
+    }
+  });
+
+  it("先等汇报的打开 A 不会被随后没有汇报可发的打开 B 抢先", async () => {
+    const stop = startRecentsSync();
+    try {
+      resolveScanned(1);
+      await openFolder("/real/dir");
+      const note = deferred();
+      recentsNote.mockReturnValueOnce(note.promise);
+      openPath.mockResolvedValueOnce({ ...info(2, "a"), path: "/a" });
+      openPath.mockResolvedValueOnce({ ...info(3, "b"), path: "/b" });
+      const a = openFolder("/a");
+      const b = openFolder("/b");
+      await tick();
+      expect(openPath).toHaveBeenCalledTimes(1);
+      note.resolve();
+      await Promise.all([a, b]);
+      expect(openPath.mock.calls.slice(1).map((c) => c[0])).toEqual(["/a", "/b"]);
+      expect(openPath.mock.calls[1][2]).toBeLessThan(openPath.mock.calls[2][2]);
+      expect(useCatalog.getState().root?.path).toBe("/b");
+    } finally {
+      stop();
+    }
+  });
+
+  it("汇报失败不妨碍打开", async () => {
+    const stop = startRecentsSync();
+    try {
+      resolveScanned(1);
+      await openFolder("/real/dir");
+      recentsNote.mockRejectedValueOnce(new Error("boom"));
+      openPath.mockResolvedValueOnce(info(2, "other"));
+      expect(await openFolder("/other")).toBeNull();
+      expect(recentsNote).toHaveBeenCalledTimes(1);
+      expect(openPath.mock.calls[1][0]).toBe("/other");
     } finally {
       stop();
     }
@@ -186,6 +281,7 @@ describe("打开失败的提示", () => {
     const first = openFolder("/gone");
     openPath.mockResolvedValueOnce(info(2, "dir"));
     const second = openFolder("/real/dir");
+    await tick();   // 打开先排队，openPath 稍后才发起
     rejectFirst({ code: "notFound" });
     await Promise.all([first, second]);
     expect(useToast.getState().current).toBeNull();

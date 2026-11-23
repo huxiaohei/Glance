@@ -28,13 +28,13 @@ export default function App() {
   const [lab, setLab] = useState(false);
   useKeyboard();
 
-  // 最近目录：启动时读取一次，并开始汇报浏览状态。
   // 应用级、文件操作与单张视图的命令启动时注册一次（单张视图的命令按视图生效），快捷键一览从哪个视图打开都列得全
   useEffect(() => {
     subscribeThumbs();
     const offApp = registerAppCommands();
     const offFile = registerFileCommands();
     const offSingle = registerSingleCommands();
+    // 最近目录：启动时读取一次，并开始汇报浏览状态
     const stopRecents = startRecentsSync();
     void loadRecents();
     return () => {

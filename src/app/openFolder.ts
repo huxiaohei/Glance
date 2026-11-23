@@ -1,6 +1,7 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, thumbsSubscribe } from "../ipc/api";
 import type { OpenErrorCode, RecentEntry } from "../ipc/types";
+import type { SortKey } from "../lib/deriveList";
 import { changedIds, useCatalog } from "../stores/catalog";
 import { createThumbBatcher } from "../stores/thumbBatcher";
 import { useListView } from "../stores/listView";
@@ -12,7 +13,8 @@ import { t } from "../i18n";
 import { createOpener, type OpenResult } from "./openSession";
 import { flushRecents } from "./recentsSync";
 
-const opener = createOpener<{ keepView?: boolean }>({
+/** keepView：刷新同一目录；sort：新目录开始时就采用的排序（打开最近目录时恢复）。 */
+const opener = createOpener<{ keepView?: boolean; sort?: SortKey }>({
   openPath,
   begin: (info, tag) => {
     if (tag?.keepView) {
@@ -26,6 +28,8 @@ const opener = createOpener<{ keepView?: boolean }>({
     }
     useThumbs.getState().reset();
     useListView.getState().resetForNewRoot(info.recursive);
+    // 在条目到达之前定下排序，网格不会先按旧排序显示、定位后再重排
+    if (tag?.sort) useListView.getState().setSort(tag.sort);
     useCatalog.getState().begin(info);
   },
   apply: (e) => {
@@ -38,13 +42,23 @@ const opener = createOpener<{ keepView?: boolean }>({
 
 interface OpenOpts { keepView?: boolean; restore?: boolean }
 
-async function openWith(path: string, recursive: boolean | undefined, opts?: OpenOpts): Promise<OpenResult> {
+// 打开按调用顺序排队，直到各自真正调用 opener（opener 在调用时同步取序号）：
+// 等待汇报送达的打开不会被随后无需等待的打开（包括刷新）抢先。队列从不拒绝。
+let queue: Promise<void> = Promise.resolve();
+
+async function openWith(
+  path: string,
+  recursive: boolean | undefined,
+  opts?: OpenOpts & { sort?: SortKey },
+): Promise<OpenResult> {
   const rec = recursive ?? useSettings.getState().settings.includeSubdirs;
   const keepView = opts?.keepView === true;
-  // 换目录之前先把当前目录待发的浏览状态发出去；刷新同一目录不用
-  if (!keepView) flushRecents();
+  // 换目录之前先把当前目录待发的浏览状态送达后端（新会话开始后，带旧代号的汇报会被丢弃）；刷新同一目录不用
+  const turn = (queue = queue.then(() => (keepView ? undefined : flushRecents())));
   try {
-    const result = await opener(path, rec, keepView ? { keepView } : undefined, !keepView && opts?.restore === true);
+    await turn;
+    const tag = keepView ? { keepView } : opts?.sort ? { sort: opts.sort } : undefined;
+    const result = await opener(path, rec, tag, !keepView && opts?.restore === true);
     // 打开失败统一在这里用提示条告知；被取代的打开不提示
     if (!result.superseded && result.error) showToast({ text: t(`error.${result.error}`) });
     return result;
@@ -64,8 +78,8 @@ export async function openFolder(path: string, recursive?: boolean, opts?: OpenO
 
 /** 打开一项最近目录：恢复上次看到的图片，并按该项记下的“包含子目录”与排序打开（没记的按设置）。 */
 export async function openRecent(entry: RecentEntry): Promise<void> {
-  const { superseded, error } = await openWith(entry.path, entry.includeSubdirs ?? undefined, { restore: true });
-  if (!superseded && error === null && entry.sort) useListView.getState().setSort(entry.sort);
+  // 排序在 begin 里设置：失败或被取代的打开不会 begin，也就不改排序
+  await openWith(entry.path, entry.includeSubdirs ?? undefined, { restore: true, sort: entry.sort ?? undefined });
 }
 
 /** 刷新当前目录：视图状态与已有条目保留，扫描结束后移除已不存在的文件；没有打开目录时什么也不做。 */

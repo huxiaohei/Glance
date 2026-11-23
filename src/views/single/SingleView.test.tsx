@@ -240,15 +240,15 @@ describe("单张视图的命令", () => {
       notPrevented = fireEvent.keyDown(document.body, { key: "F5" });
     });
     expect(notPrevented).toBe(false);
+    await act(async () => {});   // 打开先排队，openPath 在下一个微任务才发起
     expect(openPath).toHaveBeenCalledWith("/p", true, expect.any(Number), false, expect.any(Function));
-    await act(async () => {});
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
     act(() => {
       notPrevented = fireEvent.keyDown(document.body, { key: "r", metaKey: true });
     });
     expect(notPrevented).toBe(false);
-    expect(openPath).toHaveBeenCalledTimes(2);
     await act(async () => {});
+    expect(openPath).toHaveBeenCalledTimes(2);
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
   });
 

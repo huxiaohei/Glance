@@ -32,23 +32,25 @@ function currentNote(): Note | null {
   };
 }
 
-/** 发出当前状态；与上一次发出的完全相同就不发。失败静默忽略。 */
-function send(): void {
+/** 发出当前状态；与上一次发出的完全相同就不发。返回的 Promise 在汇报落定后完成，失败静默忽略、从不拒绝。 */
+function send(): Promise<void> {
   const note = currentNote();
-  if (!note) return;
+  if (!note) return Promise.resolve();
   const key = JSON.stringify(note);
-  if (key === lastSent) return;
+  if (key === lastSent) return Promise.resolve();
   lastSent = key;
-  recentsNote(note).catch(() => {});
+  return recentsNote(note).catch(() => {});
 }
 
 function schedule(): void {
   const { root, scanning } = useCatalog.getState();
-  if (!root || scanning) return;
   if (timer !== null) clearTimeout(timer);
+  timer = null;
+  // 没有根目录或正在扫描（换了目录）：已排定的汇报也一并作废
+  if (!root || scanning) return;
   timer = setTimeout(() => {
     timer = null;
-    send();
+    void send();
   }, DEBOUNCE_MS);
 }
 
@@ -72,9 +74,12 @@ export function startRecentsSync(): () => void {
   };
 }
 
-/** 有待发的汇报就立刻发出并取消定时器（换目录之前调用，免得丢掉最后的状态）。 */
-export function flushRecents(): void {
-  if (timer === null) return;
+/**
+ * 有待发的汇报就立刻发出并取消定时器（换目录之前调用，免得丢掉最后的状态）。
+ * 在汇报落定后完成，从不拒绝：调用方等它完成再打开新目录，后端才不会因代号已变而丢弃这次汇报。
+ */
+export function flushRecents(): Promise<void> {
+  if (timer === null) return Promise.resolve();
   cancel();
-  send();
+  return send();
 }
