@@ -1,10 +1,12 @@
 mod catalog;
+mod commands;
 pub mod fileops;
 #[cfg(debug_assertions)]
 mod lab;
 mod protocol;
 
 use catalog::registry::Registry;
+use catalog::session::Sessions;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -13,6 +15,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_drag::init())
         .manage(Registry::default())
+        .manage(Sessions::default())
         .register_asynchronous_uri_scheme_protocol("glance", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let path = request.uri().path().to_owned();
@@ -25,12 +28,16 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        commands::open_path,
         lab::lab_register_dir,
         lab::lab_paths,
         lab::lab_protocol_hits,
         lab::lab_trash,
         lab::lab_restore
     ]);
+
+    #[cfg(not(debug_assertions))]
+    let builder = builder.invoke_handler(tauri::generate_handler![commands::open_path]);
 
     builder
         .run(tauri::generate_context!())
