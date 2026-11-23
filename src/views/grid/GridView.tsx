@@ -1,11 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import { IS_MAC } from "../../app/keys";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { pickAndOpenFolder } from "../../app/openFolder";
 import { useImageList } from "../../app/useImageList";
 import { t } from "../../i18n";
 import { dirTree } from "../../lib/deriveList";
-import { HEADER_HEIGHT, layoutGrid, rowIndexOf, type Row } from "../../lib/gridLayout";
+import { GRID_PAD, HEADER_HEIGHT, layoutGrid, rowIndexOf, type Row } from "../../lib/gridLayout";
 import { selectOnly } from "../../lib/selection";
 import { accumulateWheel } from "../../lib/wheelZoom";
 import { pickTier } from "../../lib/pickTier";
@@ -19,10 +18,10 @@ import GroupHeader from "./GroupHeader";
 import { registerGridCommands } from "./gridCommands";
 import StatusBar from "./StatusBar";
 import ThumbCell from "./ThumbCell";
+import { useMarquee } from "./useMarquee";
 import { useVisibleThumbs } from "./useVisibleThumbs";
 import "./grid.css";
 
-const PAD = 12; // 滚动区左右内边距
 const WHEEL_STEP = 16; // Cmd/Ctrl + 滚轮每累积一格调整的格子大小
 
 /** 最后一个 top <= y 的标题行下标（rows 按 top 升序）。 */
@@ -34,19 +33,6 @@ function pinnedHeader(rows: Row[], y: number): number {
   }
   while (found >= 0 && rows[found].kind !== "header") found--;
   return found;
-}
-
-/**
- * 网格空白处按下主键：清空选中。按在格子、分组标题（含吸顶浮层）或滚动条上时不处理。
- * 任务 10 的框选会接管空白处的指针处理，届时替换这里。
- */
-function onBlankPointerDown(e: PointerEvent<HTMLDivElement>): void {
-  if (e.button !== 0 || (IS_MAC && e.ctrlKey)) return; // macOS 上 Ctrl + 单击等同右键
-  if ((e.target as Element).closest(".thumb-cell, .group-header")) return;
-  const el = e.currentTarget;
-  // 竖向滚动条在内容区右侧，按下点落在 clientWidth 之外
-  if (e.clientX - el.getBoundingClientRect().left >= el.clientLeft + el.clientWidth) return;
-  useSelection.getState().clear();
 }
 
 export default function GridView() {
@@ -77,7 +63,7 @@ export default function GridView() {
     return () => ro.disconnect();
   }, [scroller]);
 
-  const layout = useMemo(() => layoutGrid(list, Math.max(0, size.width - PAD * 2), cell), [list, size.width, cell]);
+  const layout = useMemo(() => layoutGrid(list, Math.max(0, size.width - GRID_PAD * 2), cell), [list, size.width, cell]);
 
   const virtualizer = useVirtualizer({
     count: layout.rows.length,
@@ -146,6 +132,8 @@ export default function GridView() {
   }, [scroller, rootPath]);
   const scrollTop = virtualizer.scrollOffset ?? 0;
   useVisibleThumbs(layout, scrollTop, size.height, tier);
+  // 空白处的指针处理（单击清空、框选）都在这里
+  const marquee = useMarquee(scroller, layout, cell);
 
   // Cmd/Ctrl + 滚轮调格子大小。React 的 onWheel 是被动监听，preventDefault 拦不住页面缩放，须手动挂非被动监听。
   const wheelAcc = useRef(0);
@@ -202,7 +190,7 @@ export default function GridView() {
               <button type="button" onClick={openOther}>{t("grid.openOther")}</button>
             </div>
           ) : (
-            <div className="grid-scroll" ref={setScroller} onPointerDown={onBlankPointerDown}>
+            <div className="grid-scroll" ref={setScroller}>
               <div className="grid-pin">
                 {pinnedRow?.kind === "header" && (
                   <div className="grid-pin-inner" style={{ transform: `translateY(${push}px)` }}>
@@ -239,6 +227,17 @@ export default function GridView() {
                     </div>
                   );
                 })}
+                {marquee && (
+                  <div
+                    className="grid-marquee"
+                    style={{
+                      left: GRID_PAD + Math.min(marquee.x0, marquee.x1),
+                      top: Math.min(marquee.y0, marquee.y1),
+                      width: Math.abs(marquee.x1 - marquee.x0),
+                      height: Math.abs(marquee.y1 - marquee.y0),
+                    }}
+                  />
+                )}
               </div>
             </div>
           )}

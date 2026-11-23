@@ -2,6 +2,8 @@ import type { FileId } from "../ipc/types";
 import type { ImageList } from "./deriveList";
 
 export const GAP = 8, HEADER_HEIGHT = 32, LABEL_HEIGHT = 24;
+/** 滚动区左右内边距：内容区从滚动区左边缘向右 GRID_PAD 处开始。 */
+export const GRID_PAD = 12;
 
 export type Row =
   | { kind: "header"; dir: string; count: number; total: number; top: number; height: number }
@@ -64,6 +66,32 @@ export function wantedIds(layout: GridLayout, scrollTop: number, viewHeight: num
     else inView.push(...r.ids);
   }
   return [...inView, ...below, ...above.reverse().flat()];
+}
+
+// 坐标系是内容区（与 Row.top 相同，x 从内容区左边缘算起）
+export interface Rect { x0: number; y0: number; x1: number; y1: number } // 不要求 x0 <= x1
+
+/** 与矩形相交的格子（含文件名标签区域），按列表顺序。对布局做几何计算，不依赖 DOM。 */
+export function idsInRect(layout: GridLayout, cell: number, rect: Rect): FileId[] {
+  const xMin = Math.min(rect.x0, rect.x1), xMax = Math.max(rect.x0, rect.x1);
+  const yMin = Math.min(rect.y0, rect.y1), yMax = Math.max(rect.y0, rect.y1);
+  const rows = layout.rows;
+  // rows 按 top 升序且互不重叠：二分找第一行底边 >= yMin 的行
+  let lo = 0, hi = rows.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].top + rows[mid].height < yMin) lo = mid + 1; else hi = mid;
+  }
+  const out: FileId[] = [];
+  for (let r = lo; r < rows.length && rows[r].top <= yMax; r++) {
+    const row = rows[r];
+    if (row.kind !== "images") continue;
+    row.ids.forEach((id, i) => {
+      const x = i * (cell + GAP);
+      if (x <= xMax && x + cell >= xMin) out.push(id);
+    });
+  }
+  return out;
 }
 
 export type Move = "left" | "right" | "up" | "down" | "home" | "end";

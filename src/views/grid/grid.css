@@ -48,6 +48,22 @@
 }
 .grid-pin-inner { position: absolute; top: 0; left: 0; right: 0; }
 .grid-canvas { position: relative; width: 100%; }
+/* 框选矩形：画在画布的内容区坐标里，随内容滚动；不拦指针事件 */
+.grid-marquee {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  border: 1px solid var(--accent);
+  pointer-events: none;
+}
+/* 半透明填充：用伪元素的不透明度（color-mix 要 Safari 16.2，macOS 12 的 WebView 可能没有） */
+.grid-marquee::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  opacity: 0.2;
+}
 
 .grid-row {
   position: absolute;

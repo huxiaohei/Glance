@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n";
 import type { ImageEntry, ImageList } from "../../lib/deriveList";
+import { handleKeyDown } from "../../app/useKeyboard";
 import { layoutGrid, rowIndexOf } from "../../lib/gridLayout";
 import { selectOnly } from "../../lib/selection";
 import { useCatalog } from "../../stores/catalog";
@@ -278,5 +279,155 @@ describe("GridView", () => {
 
     fireEvent.pointerDown(scroller, { button: 0, clientX: 10 });
     expect(ids()).toEqual([]);
+  });
+
+  describe("框选", () => {
+    // 滚动区在视口 (0,0)–(600,400)，内容区左边距 12；cell 160 → 内容区宽 576、3 列。
+    // 根组 2 张：标题 y∈[0,32)，格子 1 在内容区 x∈[0,160]、格子 2 在 x∈[168,328]，y∈[32,216]。
+    let frames: FrameRequestCallback[] = [];
+    const flush = () => act(() => {
+      const run = frames;
+      frames = [];
+      for (const f of run) f(0);
+    });
+
+    beforeEach(() => {
+      frames = [];
+      vi.stubGlobal("requestAnimationFrame", (f: FrameRequestCallback) => frames.push(f));
+      vi.stubGlobal("cancelAnimationFrame", () => {});
+      const rect = { left: 0, top: 0, right: 600, bottom: 400, width: 600, height: 400, x: 0, y: 0 };
+      const gbcr = Element.prototype.getBoundingClientRect;
+      Element.prototype.getBoundingClientRect = () => ({ ...rect, toJSON: () => rect }) as DOMRect;
+      restore.push(() => { Element.prototype.getBoundingClientRect = gbcr; });
+      const proto = Element.prototype as unknown as Record<string, unknown>;
+      const had = { set: proto.setPointerCapture, rel: proto.releasePointerCapture };
+      proto.setPointerCapture = vi.fn();
+      proto.releasePointerCapture = vi.fn();
+      restore.push(() => { proto.setPointerCapture = had.set; proto.releasePointerCapture = had.rel; });
+      useListView.setState({ cell: 160 });
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const setup = () => {
+      open(null);
+      const { container } = render(<GridView />);
+      add(1, 1, 2);
+      const scroller = container.querySelector(".grid-scroll") as HTMLElement;
+      return { container, scroller };
+    };
+    const marquee = (container: HTMLElement) => container.querySelector(".grid-marquee");
+
+    it("按下后不移动就松开：清空选中，不画框", () => {
+      const { container, scroller } = setup();
+      act(() => useSelection.getState().set(selectOnly(1)));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { clientX: 502, clientY: 102 }); // 不超过 4 px
+      flush();
+      fireEvent.pointerUp(scroller, { clientX: 502, clientY: 102 });
+      flush();
+      expect(ids()).toEqual([]);
+      expect(marquee(container)).toBeNull();
+    });
+
+    it("拖动超过 4 px 后选中矩形碰到的格子，松开后框消失、选中保留", () => {
+      const { container, scroller } = setup();
+      act(() => useSelection.getState().set(selectOnly(1)));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 }); // 内容区 x 188..488 → 只碰到格子 2
+      flush();
+      expect(ids()).toEqual([2]);
+      expect(useSelection.getState().focus).toBe(2);
+      const box = marquee(container) as HTMLElement;
+      expect(box).not.toBeNull();
+      // 内容区坐标画在画布里：left = 12 + 188
+      expect(box.style.left).toBe("200px");
+      expect(box.style.top).toBe("60px");
+      expect(box.style.width).toBe("300px");
+      expect(box.style.height).toBe("40px");
+
+      fireEvent.pointerMove(scroller, { clientX: 100, clientY: 60 }); // 扩大到格子 1，还没到下一帧就松开
+      fireEvent.pointerUp(scroller, { clientX: 100, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([1, 2]);
+      expect(marquee(container)).toBeNull();
+    });
+
+    it("同一帧内多次移动只更新一次选中", () => {
+      const { scroller } = setup();
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      const set = vi.spyOn(useSelection.getState(), "set");
+      fireEvent.pointerMove(scroller, { clientX: 300, clientY: 60 });
+      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 });
+      expect(set).not.toHaveBeenCalled();
+      flush();
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(ids()).toEqual([2]);
+    });
+
+    it("按着 Mod 或 Shift 框选时加到原选中上；不移动则不清空", () => {
+      const { scroller } = setup();
+      act(() => useSelection.getState().set(selectOnly(1)));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100, metaKey: true });
+      fireEvent.pointerUp(scroller, { clientX: 500, clientY: 100 });
+      flush();
+      expect(ids()).toEqual([1]);
+
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100, metaKey: true });
+      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([1, 2]);
+      fireEvent.pointerUp(scroller, { clientX: 200, clientY: 60 });
+
+      act(() => useSelection.getState().set(selectOnly(1)));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100, shiftKey: true });
+      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([1, 2]);
+      fireEvent.pointerUp(scroller, { clientX: 200, clientY: 60 });
+    });
+
+    it("拖动中按 Esc：恢复按下时的选中，框消失，不再触发清空选中命令", () => {
+      const { container, scroller } = setup();
+      window.addEventListener("keydown", handleKeyDown);
+      restore.push(() => window.removeEventListener("keydown", handleKeyDown));
+      act(() => useSelection.getState().set(selectOnly(1)));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { clientX: 200, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([2]);
+
+      fireEvent.keyDown(scroller, { key: "Escape" });
+      flush();
+      expect(ids()).toEqual([1]);
+      expect(useSelection.getState().focus).toBe(1);
+      expect(marquee(container)).toBeNull();
+      // 拖动已结束：之后的移动与松开不再改变选中，下一次 Esc 照常清空
+      fireEvent.pointerMove(scroller, { clientX: 100, clientY: 60 });
+      fireEvent.pointerUp(scroller, { clientX: 100, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([1]);
+      fireEvent.keyDown(scroller, { key: "Escape" });
+      expect(ids()).toEqual([]);
+    });
+
+    it("在格子、标题、滚动条上按下或用右键都不开始框选", () => {
+      const { container, scroller } = setup();
+      const starts: [Element, number, number][] = [
+        [container.querySelector('[data-id="2"]')!, 0, 250],
+        [container.querySelector(".group-header")!, 0, 300],
+        [scroller, 0, 650],
+        [scroller, 2, 500],
+      ];
+      for (const [el, button, clientX] of starts) {
+        act(() => useSelection.getState().set(selectOnly(1)));
+        fireEvent.pointerDown(el, { button, clientX, clientY: 100 });
+        fireEvent.pointerMove(scroller, { clientX: 20, clientY: 60 });
+        flush();
+        expect(marquee(container)).toBeNull();
+        fireEvent.pointerUp(scroller, { clientX: 20, clientY: 60 });
+      }
+    });
   });
 });

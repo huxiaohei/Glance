@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImageList } from "./deriveList";
-import { GAP, layoutGrid, moveInLayout, rowIndexOf, visibleIds, wantedIds } from "./gridLayout";
+import { GAP, idsInRect, layoutGrid, moveInLayout, rowIndexOf, visibleIds, wantedIds } from "./gridLayout";
 
 const list: ImageList = {
   ids: [1, 2, 3, 4, 5, 6, 7],
@@ -119,5 +119,62 @@ describe("moveInLayout / rowIndexOf", () => {
     expect(moveInLayout(lay, nav, 99, "right")).toBeNull();
     expect(rowIndexOf(lay, 99)).toBe(-1);
     expect(rowIndexOf(lay, 4)).toBe(2);
+  });
+});
+
+describe("idsInRect", () => {
+  // 内容区宽 496、cell 160 → 3 列；格子 x：[0,160] [168,328] [336,496]
+  // 分组 A 5 张：标题 [0,32)，行 [1,2,3] y∈[32,216]，行 [4,5] y∈[224,408]；
+  // 分组 B 2 张：标题 [416,448)，行 [6,7] y∈[448,632]
+  const two: ImageList = {
+    ids: [1, 2, 3, 4, 5, 6, 7],
+    groups: [
+      { dir: "A", start: 0, count: 5, total: 5 },
+      { dir: "B", start: 5, count: 2, total: 2 },
+    ],
+  };
+  const lay = layoutGrid(two, 496, 160);
+
+  it("矩形只碰到第一个格子时只选它", () => {
+    expect(idsInRect(lay, 160, { x0: 10, y0: 40, x1: 20, y1: 50 })).toEqual([1]);
+    // 文件名标签区域也算格子
+    expect(idsInRect(lay, 160, { x0: 10, y0: 200, x1: 20, y1: 210 })).toEqual([1]);
+  });
+
+  it("矩形落在两个格子之间的间隙里时为空", () => {
+    expect(idsInRect(lay, 160, { x0: 162, y0: 40, x1: 166, y1: 200 })).toEqual([]);
+    expect(idsInRect(lay, 160, { x0: 10, y0: 218, x1: 400, y1: 222 })).toEqual([]);
+  });
+
+  it("反向拖出的矩形（x1 < x0）结果相同", () => {
+    const fwd = idsInRect(lay, 160, { x0: 10, y0: 40, x1: 200, y1: 300 });
+    expect(fwd).toEqual([1, 2, 4, 5]);
+    expect(idsInRect(lay, 160, { x0: 200, y0: 300, x1: 10, y1: 40 })).toEqual(fwd);
+    expect(idsInRect(lay, 160, { x0: 200, y0: 40, x1: 10, y1: 300 })).toEqual(fwd);
+  });
+
+  it("跨分组的矩形选中两组里相交的格子，不含标题", () => {
+    expect(idsInRect(lay, 160, { x0: 10, y0: 300, x1: 200, y1: 460 })).toEqual([4, 5, 6, 7]);
+    expect(idsInRect(lay, 160, { x0: 0, y0: 420, x1: 496, y1: 440 })).toEqual([]);
+    expect(idsInRect(lay, 160, { x0: 0, y0: 2, x1: 496, y1: 20 })).toEqual([]);
+  });
+
+  it("矩形覆盖到屏幕外的行也算在内（1 万张布局里从顶拖到底 → 全部）", () => {
+    const n = 10_000;
+    const big: ImageList = {
+      ids: Array.from({ length: n }, (_, i) => i),
+      groups: [
+        { dir: "a", start: 0, count: n / 2, total: n / 2 },
+        { dir: "b", start: n / 2, count: n / 2, total: n / 2 },
+      ],
+    };
+    const l = layoutGrid(big, 900, 160);
+    expect(idsInRect(l, 160, { x0: 0, y0: 0, x1: 900, y1: l.totalHeight })).toEqual(big.ids);
+    // 中段的小矩形只取那一行的前两格
+    const row = l.rows.find((r) => r.kind === "images" && r.top > l.totalHeight / 2)!;
+    expect(row.kind).toBe("images");
+    if (row.kind === "images") {
+      expect(idsInRect(l, 160, { x0: 100, y0: row.top + 10, x1: 200, y1: row.top + 20 })).toEqual(row.ids.slice(0, 2));
+    }
   });
 });
