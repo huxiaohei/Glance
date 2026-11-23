@@ -17,8 +17,8 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 16px;
+  gap: calc(2 * var(--gap));
+  padding: 0 calc(2 * var(--gap));
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
@@ -77,7 +77,7 @@
   left: 0;
   right: 0;
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: 0 calc(2 * var(--gap)); /* 与 lib/gridLayout.ts 的 GRID_PAD 保持一致 */
   display: flex;
   gap: var(--gap);
 }
@@ -91,19 +91,19 @@
   height: 32px;
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 calc(2 * var(--gap));
   background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
 .group-arrow { flex: none; width: 16px; color: var(--text-dim); transition: transform 120ms; }
 .group-header-collapsed .group-arrow { transform: rotate(-90deg); }
 .group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.group-count { color: var(--text-dim); margin-left: 16px; flex: none; }
+.group-count { color: var(--text-dim); margin-left: calc(2 * var(--gap)); flex: none; }
 .group-select {
   flex: none;
   opacity: 0; /* 不用 visibility：隐藏时仍可被辅助技术读到、聚焦（Tab 键已用于切换侧栏，键盘用户靠辅助技术或指针） */
-  margin-left: 16px;
-  padding: 0 8px;
+  margin-left: calc(2 * var(--gap));
+  padding: 0 var(--gap);
   height: 22px;
   font-size: 12px;
   color: var(--text-dim);
@@ -164,7 +164,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: calc(2 * var(--gap));
   color: var(--text-dim);
 }
 
@@ -174,17 +174,17 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 calc(2 * var(--gap));
   background: var(--panel);
   border-top: 1px solid var(--line);
   color: var(--text-dim);
-  gap: 16px;
+  gap: calc(2 * var(--gap));
 }
 .status-warn { color: var(--text); }
 .status-action {
   margin-left: auto;
   height: 22px;
-  padding: 0 8px;
+  padding: 0 var(--gap);
   font: inherit;
   color: var(--text);
   background: transparent;
@@ -194,7 +194,7 @@
 .status-action:hover { border-color: var(--accent); }
 .status-action + .status-action { margin-left: 0; }
 
-.toolbar-field { display: flex; align-items: center; gap: 8px; color: var(--text-dim); }
+.toolbar-field { display: flex; align-items: center; gap: var(--gap); color: var(--text-dim); }
 .grid-toolbar select,
 .grid-toolbar button {
   height: 28px;
@@ -220,7 +220,7 @@
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
-.dir-tree-title { flex: none; padding: 8px 12px; color: var(--text-dim); font-size: 12px; }
+.dir-tree-title { flex: none; padding: var(--gap) calc(2 * var(--gap)); color: var(--text-dim); font-size: 12px; }
 .dir-tree-list { flex: 1; min-height: 0; overflow-y: auto; }
 .dir-item {
   width: 100%;
@@ -228,8 +228,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 5px 12px;
+  gap: var(--gap);
+  padding: 5px calc(2 * var(--gap));
   text-align: left;
   background: transparent;
   border: 0;

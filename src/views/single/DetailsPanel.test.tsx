@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { imageDetails, thumbsSubscribe, thumbsWant } from "../../ipc/api";
 import type { ImageDetails } from "../../ipc/types";
-import { t } from "../../i18n";
+import { setLanguage, t } from "../../i18n";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
 import { useNav } from "../../stores/nav";
@@ -211,17 +211,18 @@ describe("详细信息面板", () => {
   });
 
   it("连续渲染两次只创建一个日期格式化对象", async () => {
+    // 换到本文件没用过的语言，保证缓存里一定没有它，与用例顺序无关
+    setLanguage("zh-CN");
     vi.mocked(imageDetails).mockImplementation(async (id) => details({ path: `/p/${id}.png`, mtimeMs: 1000 + id }));
     const spy = vi.spyOn(Intl, "DateTimeFormat");
     const c = setup();
     press("i");
     await flush();
-    const n = spy.mock.calls.length;
     act(() => useNav.getState().setCurrent(2));
     await flush();
     expect(panel(c)!.textContent).toContain("/p/2.png");
-    expect(spy.mock.calls.length).toBe(n);
-    expect(n).toBeLessThanOrEqual(1);
+    expect(spy.mock.calls.length).toBe(1);
     spy.mockRestore();
+    setLanguage("system");
   });
 });

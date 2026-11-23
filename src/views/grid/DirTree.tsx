@@ -28,7 +28,7 @@ function DirTree({ nodes, total }: Props) {
             key={n.dir}
             type="button"
             className={filter === n.dir ? "dir-item dir-item-active" : "dir-item"}
-            style={{ paddingLeft: 12 + n.depth * 16 }}
+            style={{ paddingLeft: 16 + n.depth * 16 }}
             title={n.dir}
             onClick={() => select(n.dir)}
           >

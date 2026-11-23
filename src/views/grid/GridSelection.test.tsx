@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n";
 import type { ImageEntry, ImageList } from "../../lib/deriveList";
 import { handleKeyDown } from "../../app/useKeyboard";
-import { layoutGrid, rowIndexOf } from "../../lib/gridLayout";
+import { GRID_PAD, layoutGrid, rowIndexOf } from "../../lib/gridLayout";
 import { selectOnly } from "../../lib/selection";
 import { useCatalog } from "../../stores/catalog";
 import { useGridCtx } from "../../stores/gridCtx";
@@ -282,7 +282,7 @@ describe("GridView", () => {
   });
 
   describe("框选", () => {
-    // 滚动区在视口 (0,0)–(600,400)，内容区左边距 12；cell 160 → 内容区宽 576、3 列。
+    // 滚动区在视口 (0,0)–(600,400)，内容区左边距 GRID_PAD（16）；cell 160 → 内容区宽 568、3 列。
     // 根组 2 张：标题 y∈[0,32)，格子 1 在内容区 x∈[0,160]、格子 2 在 x∈[168,328]，y∈[32,216]。
     let frames: FrameRequestCallback[] = [];
     const flush = () => act(() => {
@@ -335,14 +335,14 @@ describe("GridView", () => {
       const { container, scroller } = setup();
       act(() => useSelection.getState().set(selectOnly(1)));
       fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
-      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 }); // 内容区 x 188..488 → 只碰到格子 2
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 }); // 内容区 x 184..484 → 只碰到格子 2
       flush();
       expect(ids()).toEqual([2]);
       expect(useSelection.getState().focus).toBe(2);
       const box = marquee(container) as HTMLElement;
       expect(box).not.toBeNull();
-      // 内容区坐标画在画布里：left = 12 + 188
-      expect(box.style.left).toBe("200px");
+      // 内容区坐标画在画布里：left = GRID_PAD + 184
+      expect(box.style.left).toBe(`${GRID_PAD + 184}px`);
       expect(box.style.top).toBe("60px");
       expect(box.style.width).toBe("300px");
       expect(box.style.height).toBe("40px");

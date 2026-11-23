@@ -3,7 +3,8 @@ import type { ImageList } from "./deriveList";
 
 export const GAP = 8, HEADER_HEIGHT = 32, LABEL_HEIGHT = 24;
 /** 滚动区左右内边距：内容区从滚动区左边缘向右 GRID_PAD 处开始。 */
-export const GRID_PAD = 12;
+/** 与 grid.css 里 .grid-row / .group-header 的左右 padding（calc(2 * var(--gap))）保持一致。 */
+export const GRID_PAD = 16;
 
 export type Row =
   | { kind: "header"; dir: string; count: number; total: number; top: number; height: number }
