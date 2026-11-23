@@ -4,6 +4,7 @@ import { Preloader } from "./preloader";
 /** 假图片：decode() 返回可手动 resolve / reject 的 Promise；可模拟 load / error 事件。 */
 class FakeImage {
   src = "";
+  isConnected = false;
   complete = false;
   naturalWidth = 0;
   decodeCalls = 0;
@@ -152,6 +153,15 @@ describe("Preloader", () => {
     p.want([{ id: 1, url: "u1" }]);
     expect(created.length).toBe(4);
     expect(p.get(1, "u1")).toEqual({ state: "loading" });
+  });
+
+  it("丢弃正在画面上的条目时不清空其 src", () => {
+    const { p, created } = setup();
+    p.want([{ id: 1, url: "u1-a" }]);
+    created[0].isConnected = true;
+    p.want([{ id: 1, url: "u1-b" }]);
+    expect(created[0].src).toBe("u1-a");
+    expect(p.get(1, "u1-a")).toBeNull();
   });
 
   it("取消订阅后不再通知", async () => {

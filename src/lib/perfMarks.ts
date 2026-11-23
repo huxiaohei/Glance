@@ -6,6 +6,7 @@ export interface SwitchStats { count: number; p50: number; p95: number; max: num
 export interface SwitchTimer {
   markSwitchStart(): void;
   markSwitchPainted(): void;
+  cancelSwitch(): void;
   switchStats(): SwitchStats;
 }
 
@@ -32,6 +33,9 @@ export function createSwitchTimer(now: () => number): SwitchTimer {
       else samples[next] = d;
       next = (next + 1) % CAPACITY;
     },
+    cancelSwitch() {
+      pending = null;
+    },
     switchStats() {
       if (samples.length === 0) return { count: 0, p50: 0, p95: 0, max: 0 };
       const sorted = [...samples].sort((a, b) => a - b);
@@ -54,6 +58,10 @@ export function markSwitchStart(): void {
 /** 新图换上后的下一帧。 */
 export function markSwitchPainted(): void {
   timer.markSwitchPainted();
+}
+/** 丢弃尚未画出的切图（离开单张视图时），免得与之后无关的绘制配对。 */
+export function cancelSwitch(): void {
+  timer.cancelSwitch();
 }
 /** 最近 200 次切图耗时（毫秒）。 */
 export function switchStats(): SwitchStats {

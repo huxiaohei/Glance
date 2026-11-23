@@ -24,7 +24,7 @@ export class Preloader {
     this.deps = deps;
   }
 
-  /** 整体替换想要的集合：不在其中的丢弃（清空其 src 以中止下载）；新出现的创建 Image、赋 src、调用 decode()。
+  /** 整体替换想要的集合：不在其中的丢弃（不在文档里的清空其 src 以中止下载）；新出现的创建 Image、赋 src、调用 decode()。
    *  同一 id 的 url 变了（内容变化）视为新条目。 */
   want(items: { id: FileId; url: string }[]): void {
     const wanted = new Map(items.map((it) => [it.id, it.url] as const));
@@ -99,6 +99,7 @@ export class Preloader {
     this.entries.delete(id);
     e.cleanup?.();
     e.cleanup = null;
-    e.img.src = "";
+    // 还在画面上的（被改写的当前图在新版本解码前继续显示）不清空，由画面移除后回收
+    if (!e.img.isConnected) e.img.src = "";
   }
 }

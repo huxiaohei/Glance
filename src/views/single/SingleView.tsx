@@ -3,6 +3,7 @@ import { useImageList } from "../../app/useImageList";
 import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
 import { resolveCurrent } from "../../lib/currentImage";
+import { cancelSwitch } from "../../lib/perfMarks";
 import { preloadPlan } from "../../lib/preloadPlan";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
@@ -52,7 +53,13 @@ export default function SingleView() {
   const [preloader] = useState(() => new Preloader());
 
   useEffect(() => registerSingleCommands(), []);
-  useEffect(() => () => preloader.clear(), [preloader]);
+  useEffect(
+    () => () => {
+      preloader.clear();
+      cancelSwitch();
+    },
+    [preloader],
+  );
 
   // 上一次见到的列表：当前图被移除时按它在旧列表里的位置落到新列表的同一位置
   const prevIds = useRef<readonly FileId[]>(list.ids);
@@ -67,13 +74,15 @@ export default function SingleView() {
 
   // 每次换图（或条目的尺寸、版本变化）整体替换想要预解码的集合：滚过去的立即丢弃，不堆积
   const index = id === null ? -1 : list.ids.indexOf(id);
+  // 当前图不在列表里（刚被删除，上面的效果已改了当前图，紧接着会以新的当前图重跑）时不动集合，
+  // 免得把即将显示的邻居丢掉
   useLayoutEffect(() => {
-    if (id === null) return;
+    if (id === null || index < 0) return;
     const pixelsOf = (x: FileId) => {
       const e = entries.get(x);
       return e?.width && e.height ? e.width * e.height : null;
     };
-    const plan = index < 0 ? [id] : preloadPlan(list.ids, index, pixelsOf);
+    const plan = preloadPlan(list.ids, index, pixelsOf);
     preloader.want(
       plan.flatMap((x) => {
         const e = entries.get(x);

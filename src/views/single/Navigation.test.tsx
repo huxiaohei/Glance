@@ -83,13 +83,14 @@ const key = (k: string, o: Partial<KeyboardEventInit> = {}) => {
     fireEvent.keyDown(document.body, { key: k, ...o });
   });
 };
-const live = (id: number) => decodes.filter((d) => d.url === url(id));
-async function decodeOk(...ids: number[]) {
+// 按 id（原始版本 1-1）或完整地址找解码记录
+const live = (k: number | string) => decodes.filter((d) => d.url === (typeof k === "number" ? url(k) : k));
+async function decodeOk(...ids: (number | string)[]) {
   await act(async () => {
     for (const id of ids) for (const d of live(id)) d.resolve();
   });
 }
-async function decodeFail(id: number) {
+async function decodeFail(id: number | string) {
   await act(async () => {
     for (const d of live(id)) d.reject();
   });
@@ -98,6 +99,14 @@ async function decodeFail(id: number) {
     for (const d of live(id)) fireEvent.error(d.img);
   });
 }
+/** 文件被改写：size 5、mtime 9（新地址 ?v=9-5），可选随后送达新尺寸。 */
+function rewrite(id: number, dims?: { w: number; h: number }) {
+  act(() => {
+    useCatalog.getState().apply({ type: "batch", generation: 1, entries: [{ id, relPath: `${String(id).padStart(2, "0")}.jpg`, size: 5, mtimeMs: 9 }] });
+    if (dims) useCatalog.getState().apply({ type: "dims", generation: 1, items: [{ id, ...dims }] });
+  });
+}
+const url2 = (id: number) => `glance://localhost/image/${id}?v=9-5`;
 const shown = (c: HTMLElement) => [...c.querySelectorAll(".stage img")].map((i) => i.getAttribute("src"));
 const hint = (c: HTMLElement) => c.querySelector(".single-hint")?.textContent ?? null;
 const current = () => {
@@ -258,5 +267,101 @@ describe("单张视图切图", () => {
     expect(c.querySelector(".stage-arrow-right")).toBeNull();
     fireEvent.click(c.querySelector(".stage-arrow-left")!);
     expect(current()).toBe(2);
+  });
+  it("缩略图版本与条目当前版本不符时不垫底", async () => {
+    const c = setup([1, 2, 3]);
+    act(() => useThumbs.getState().markReady([{ id: 3, v: "1-1" }], 320));
+    openAt(2);
+    await decodeOk(2);
+    // 3 被改写，新尺寸先到，新缩略图还没好
+    rewrite(3, { w: 1000, h: 3000 });
+    key("ArrowRight");
+    expect(current()).toBe(3);
+    expect(c.querySelector(".stage-underlay")).toBeNull();
+    expect(shown(c)).toEqual([]);
+    // 新版本的缩略图就绪后才垫
+    act(() => useThumbs.getState().markReady([{ id: 3, v: "9-5" }], 320));
+    expect(shown(c)).toEqual(["glance://localhost/thumb/3/320?v=9-5"]);
+    await decodeOk(url2(3));
+    expect(shown(c)).toEqual([url2(3)]);
+  });
+
+  it("删除当前图后，已预解码的下一张立即显示且不重新解码", async () => {
+    const c = setup([1, 2, 3, 4]);
+    openAt(2);
+    await decodeOk(2, 3);
+    expect(live(3).length).toBe(1);
+    act(() => useCatalog.getState().apply({ type: "removed", generation: 1, ids: [2] }));
+    expect(current()).toBe(3);
+    expect(shown(c)).toEqual([url(3)]);
+    expect(live(3).length).toBe(1);
+    expect(live(3)[0].img.getAttribute("src")).toBe(url(3));
+  });
+
+  it("正在看的图被改写：新版本解码完成前保留旧图（旧尺寸、旧位置），之后换上并重新适应", async () => {
+    const c = setup([1, 2, 3]);
+    act(() => useThumbs.getState().markReady([{ id: 2, v: "1-1" }], 320));
+    openAt(2);
+    await decodeOk(2);
+    const old = c.querySelector(".stage img") as HTMLImageElement;
+    const before = { w: old.style.width, h: old.style.height, tf: old.style.transform };
+    expect(before.w).toBe("2000px");
+
+    rewrite(2, { w: 1000, h: 3000 });
+    expect(c.querySelector(".stage img")).toBe(old);
+    expect(shown(c)).toEqual([url(2)]);
+    expect(old.style.width).toBe(before.w);
+    expect(old.style.height).toBe(before.h);
+    expect(old.style.transform).toBe(before.tf);
+    expect(c.querySelector(".stage-underlay")).toBeNull();
+
+    await decodeOk(url2(2));
+    expect(shown(c)).toEqual([url2(2)]);
+    const next = c.querySelector(".stage img") as HTMLImageElement;
+    expect(next).not.toBe(old);
+    expect(next.style.width).toBe("1000px");
+    expect(next.style.height).toBe("3000px");
+    // 800×600 里适应 1000×3000：0.2
+    expect(next.style.transform).toMatch(/^translate\(300px(, 0px)?\) scale\(0\.2\)$/);
+  });
+
+  it("离开后再回到被改写的图：不保留旧图，按未命中处理", async () => {
+    const c = setup([1, 2, 3]);
+    openAt(2);
+    await decodeOk(2);
+    key("ArrowRight");
+    expect(shown(c)).toEqual([]);
+    rewrite(2);
+    key("ArrowLeft");
+    expect(current()).toBe(2);
+    expect(shown(c)).toEqual([]);
+    await decodeOk(url2(2));
+    expect(shown(c)).toEqual([url2(2)]);
+  });
+
+  it("正在看的图被改写且新版本读不出：显示占位", async () => {
+    const c = setup([1, 2, 3]);
+    openAt(2);
+    await decodeOk(2);
+    rewrite(2);
+    expect(shown(c)).toEqual([url(2)]);
+    await decodeFail(url2(2));
+    expect(shown(c)).toEqual([]);
+    expect(c.querySelector(".stage-unreadable")?.textContent).toBe(t("grid.unreadable"));
+  });
+
+  it("切图后还没画出就离开单张视图：这次切图不与之后的绘制配对", async () => {
+    setup([1, 2, 3]);
+    openAt(1);
+    await decodeOk(1);
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    const before = switchStats().count;
+    // 2 没有解码也没有缩略图：什么都没画出
+    key("ArrowRight");
+    key("Escape");
+    openAt(1);
+    await decodeOk(1);
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    expect(switchStats().count).toBe(before);
   });
 });

@@ -38,6 +38,21 @@ describe("切图耗时", () => {
     expect(s.p95).toBe(94);
   });
 
+  it("cancelSwitch 丢弃尚未配对的 start", () => {
+    let now = 0;
+    const tm = createSwitchTimer(() => now);
+    tm.markSwitchStart();
+    tm.cancelSwitch();
+    now = 5000;
+    tm.markSwitchPainted();
+    expect(tm.switchStats().count).toBe(0);
+    // 之后的切图照常记录
+    tm.markSwitchStart();
+    now = 5010;
+    tm.markSwitchPainted();
+    expect(tm.switchStats()).toEqual({ count: 1, p50: 10, p95: 10, max: 10 });
+  });
+
   it("只保留最近 200 次", () => {
     let now = 0;
     const tm = createSwitchTimer(() => now);
