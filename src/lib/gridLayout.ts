@@ -42,3 +42,26 @@ export function visibleIds(layout: GridLayout, scrollTop: number, viewHeight: nu
   }
   return out;
 }
+
+/**
+ * 缩略图请求顺序：先与视口相交的行（自上而下），再视口下方 overscan 内的行（自上而下），
+ * 最后视口上方 overscan 内的行（离视口近的在前）。
+ */
+export function wantedIds(layout: GridLayout, scrollTop: number, viewHeight: number, overscan: number): FileId[] {
+  const viewEnd = scrollTop + viewHeight;
+  const start = scrollTop - overscan;
+  const end = viewEnd + overscan;
+  const inView: FileId[] = [];
+  const below: FileId[] = [];
+  const above: FileId[][] = [];
+  for (const r of layout.rows) {
+    if (r.top >= end) break;
+    if (r.kind !== "images") continue;
+    const bottom = r.top + r.height;
+    if (bottom <= start) continue;
+    if (r.top >= viewEnd) below.push(...r.ids);
+    else if (bottom <= scrollTop) above.push(r.ids);
+    else inView.push(...r.ids);
+  }
+  return [...inView, ...below, ...above.reverse().flat()];
+}

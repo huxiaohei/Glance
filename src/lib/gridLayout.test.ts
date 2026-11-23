@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImageList } from "./deriveList";
-import { layoutGrid, visibleIds } from "./gridLayout";
+import { layoutGrid, visibleIds, wantedIds } from "./gridLayout";
 
 const list: ImageList = {
   ids: [1, 2, 3, 4, 5, 6, 7],
@@ -57,5 +57,25 @@ describe("visibleIds", () => {
     expect(visibleIds(layout, 0, 200, 100)).toEqual([1, 2, 3, 4, 5]);
     expect(visibleIds(layout, 470, 100, 0)).toEqual([6, 7]);
     expect(visibleIds(layout, 5000, 100, 0)).toEqual([]);
+  });
+});
+
+describe("wantedIds", () => {
+  it("先视口内，再下方 overscan（自上而下），最后上方 overscan（由近及远）", () => {
+    const big: ImageList = {
+      ids: Array.from({ length: 10 }, (_, i) => i + 1),
+      groups: [{ dir: "", start: 0, count: 10, total: 10 }],
+    };
+    // 1 列、格子 160：图片行 top = 32 + 192k，高 184（行 k 含 ids[k]）
+    const layout = layoutGrid(big, 160, 160);
+    expect(layout.columns).toBe(1);
+    // 视口 [420, 620) 与第 2、3、4 行（id 3、4）相交：行 top 416、608；overscan 各 400
+    expect(wantedIds(layout, 420, 200, 400)).toEqual([3, 4, 5, 6, 2, 1]);
+  });
+
+  it("没有视口外的行时与 visibleIds 一致", () => {
+    const layout = layoutGrid(list, 496, 160);
+    expect(wantedIds(layout, 0, 200, 0)).toEqual([1, 2, 3]);
+    expect(wantedIds(layout, 5000, 100, 0)).toEqual([]);
   });
 });

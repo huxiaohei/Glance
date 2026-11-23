@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { t } from "../../i18n";
 import type { ImageEntry } from "../../lib/deriveList";
 import { glanceUrl } from "../../lib/glanceUrl";
@@ -14,6 +14,9 @@ function ThumbCell({ entry, cell }: Props) {
   const tier = useThumbs((s) => s.ready.get(entry.id));
   const broken = useThumbs((s) => s.broken.has(entry.id));
   const { width, height } = entry;
+  const src = tier ? glanceUrl(`thumb/${entry.id}/${tier}?v=${entry.mtimeMs}-${entry.size}`) : null;
+  // 扫描后文件被改动或删除时协议返回 404：这张缩略图加载失败，改显占位
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
 
   let placeholder: { width: number; height: number } | null = null;
   if (width && height) {
@@ -26,11 +29,12 @@ function ThumbCell({ entry, cell }: Props) {
       <div className="thumb-box" style={{ width: cell, height: cell }}>
         {broken ? (
           <div className="thumb-broken">{t("grid.unreadable")}</div>
-        ) : tier ? (
+        ) : src && failedSrc !== src ? (
           <img
             className="thumb-img"
-            src={glanceUrl(`thumb/${entry.id}/${tier}?v=${entry.mtimeMs}-${entry.size}`)}
+            src={src}
             alt=""
+            onError={() => setFailedSrc(src)}
             draggable={false}
           />
         ) : (
