@@ -1,5 +1,5 @@
 import { registerCommands, type Command } from "./commands";
-import { trashTargets, undoLast } from "./fileOps";
+import { pickAndTransfer, transferToNewChild, trashTargets, undoLast } from "./fileOps";
 import { startRename } from "../stores/rename";
 import { IS_MAC } from "./keys";
 
@@ -23,6 +23,36 @@ export function fileCommands(isMac: boolean): Command[] {
       keys: ["F2"],
       views: ["grid", "single"],
       run: () => startRename(),
+    },
+    {
+      id: "file.moveTo",
+      title: "cmd.file.moveTo",
+      category: "cmd.cat.file",
+      keys: [],
+      views: ["grid", "single"],
+      run: (ctx) => {
+        if (!ctx.repeat) void pickAndTransfer("move");
+      },
+    },
+    {
+      id: "file.copyTo",
+      title: "cmd.file.copyTo",
+      category: "cmd.cat.file",
+      keys: [],
+      views: ["grid", "single"],
+      run: (ctx) => {
+        if (!ctx.repeat) void pickAndTransfer("copy");
+      },
+    },
+    {
+      id: "file.moveToNew",
+      title: "cmd.file.moveToNew",
+      category: "cmd.cat.file",
+      keys: [],
+      views: ["grid", "single"],
+      run: (ctx) => {
+        if (!ctx.repeat) void transferToNewChild("move");
+      },
     },
     {
       id: "file.undo",

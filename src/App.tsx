@@ -7,6 +7,7 @@ import { useKeyboard } from "./app/useKeyboard";
 import Lab from "./lab/Lab";
 import { useCatalog } from "./stores/catalog";
 import { useNav } from "./stores/nav";
+import NamePrompt from "./views/common/NamePrompt";
 import GridView from "./views/grid/GridView";
 import ShortcutsOverlay from "./views/help/ShortcutsOverlay";
 import SingleView from "./views/single/SingleView";
@@ -42,6 +43,7 @@ export default function App() {
       {hasRoot ? <GridView hidden={single} /> : <StartView />}
       {hasRoot && single && <SingleView />}
       <ShortcutsOverlay />
+      <NamePrompt />
       <Toast />
       {dragging && <div className="drop-outline" />}
       {import.meta.env.DEV && (

@@ -1,5 +1,5 @@
 import { allCommands } from "../../app/commands";
-import { trashTargets } from "../../app/fileOps";
+import { pickAndTransfer, trashTargets } from "../../app/fileOps";
 import { IS_MAC, formatKey } from "../../app/keys";
 import { t } from "../../i18n";
 import { useCatalog } from "../../stores/catalog";
@@ -12,6 +12,12 @@ function deleteTitle(): string {
   return `${t(cmd.title)} (${formatKey(cmd.keys[0], IS_MAC)})`;
 }
 
+/** 移动按钮的悬停提示：取自命令表里 file.moveTo 的标题（没有快捷键）。 */
+function moveTitle(): string {
+  const cmd = allCommands().find((c) => c.id === "file.moveTo");
+  return cmd ? t(cmd.title) : t("status.move");
+}
+
 export default function StatusBar({ total }: { total: number }) {
   const watchFailed = useCatalog((s) => s.watchFailed);
   const selected = useSelection((s) => s.ids.size);
@@ -22,6 +28,11 @@ export default function StatusBar({ total }: { total: number }) {
         {selected > 0 && <span>{t("status.selected", { n: selected })}</span>}
       </span>
       {watchFailed && <span className="status-warn">{t("status.watchFailed")}</span>}
+      {selected > 0 && (
+        <button type="button" className="status-action" title={moveTitle()} onClick={() => void pickAndTransfer("move")}>
+          {t("status.move")}
+        </button>
+      )}
       {selected > 0 && (
         <button type="button" className="status-action" title={deleteTitle()} onClick={() => void trashTargets()}>
           {t("status.delete")}

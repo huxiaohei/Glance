@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../i18n";
-import { fsRename, fsTrash, fsUndo } from "../ipc/api";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { fsCopy, fsMove, fsRename, fsTrash, fsUndo } from "../ipc/api";
+import { askName } from "../views/common/NamePrompt";
 import type { OpReport } from "../ipc/types";
 import { selectOnly, toggle } from "../lib/selection";
 import { useCatalog } from "../stores/catalog";
@@ -8,9 +10,11 @@ import { useListView } from "../stores/listView";
 import { useNav } from "../stores/nav";
 import { useSelection } from "../stores/selection";
 import { useToast } from "../stores/toast";
-import { errorText, isBusy, opTargets, renameTo, reportOp, trashTargets, undoLast } from "./fileOps";
+import { errorText, isBusy, opTargets, pickAndTransfer, renameTo, reportOp, transferTo, transferToNewChild, trashTargets, undoLast } from "./fileOps";
 
-vi.mock("../ipc/api", () => ({ fsRename: vi.fn(), fsTrash: vi.fn(), fsUndo: vi.fn() }));
+vi.mock("../ipc/api", () => ({ fsRename: vi.fn(), fsTrash: vi.fn(), fsUndo: vi.fn(), fsMove: vi.fn(), fsCopy: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("../views/common/NamePrompt", () => ({ askName: vi.fn() }));
 
 // 两个分组：a/1、a/2，b/3、b/4
 const ENTRIES = [
@@ -159,11 +163,6 @@ describe("reportOp", () => {
     reportOp(report({ kind: "copy", failed: [{ id: 2, code: "denied" }] }), { retry: vi.fn() });
     expect(action(t("fs.keepBoth"))).toBeUndefined();
   });
-
-  it("reportOp：尚未单独写文字的操作用通用文字", () => {
-    reportOp(report({ kind: "move", done: [1], token: 2 }));
-    expect(toast()?.text).toBe(t("fs.done", { n: 1 }));
-  });
 });
 
 describe("renameTo", () => {
@@ -256,5 +255,103 @@ describe("进行中的操作", () => {
     d.resolve(report({ kind: "rename", done: [1], token: 5 }));
     await expect(r).resolves.toBeNull();
     expect(isBusy()).toBe(false);
+  });
+});
+
+describe("移动与复制", () => {
+  const dest = { kind: "path", path: "/x/Out" } as const;
+
+  it("pickAndTransfer：对话框取消时不调用后端", async () => {
+    useSelection.getState().set(selectOnly(1));
+    vi.mocked(openDialog).mockResolvedValue(null);
+    await pickAndTransfer("move");
+    expect(fsMove).not.toHaveBeenCalled();
+  });
+
+  it("pickAndTransfer：默认位置是当前根目录；选定后以 { kind: 'path' } 和 skip 调用 fsMove", async () => {
+    useSelection.getState().set(selectOnly(1));
+    vi.mocked(openDialog).mockResolvedValue("/x/Out");
+    vi.mocked(fsMove).mockResolvedValue(report({ kind: "move", done: [1], token: 1, dest: "/x/Out" }));
+    await pickAndTransfer("move");
+    expect(vi.mocked(openDialog).mock.calls[0][0]).toMatchObject({ directory: true, multiple: false, defaultPath: "/r", title: t("fs.pick.move") });
+    expect(fsMove).toHaveBeenCalledWith([1], dest, "skip");
+  });
+
+  it("pickAndTransfer：没有对象时不弹对话框", async () => {
+    await pickAndTransfer("copy");
+    expect(openDialog).not.toHaveBeenCalled();
+  });
+
+  it("transferTo：没有对象时不调用后端", async () => {
+    await transferTo("move", dest);
+    expect(fsMove).not.toHaveBeenCalled();
+    expect(toast()).toBeNull();
+  });
+
+  it("transferTo：提示条里的目录名取 dest 的最后一级，Windows 路径（反斜杠）同样处理", async () => {
+    useSelection.getState().set(toggle(selectOnly(1), 2));
+    vi.mocked(fsMove).mockResolvedValue(report({ kind: "move", done: [1, 2], token: 1, dest: "C:\\pics\\Out\\" }));
+    await transferTo("move", dest);
+    expect(toast()?.text).toBe(t("fs.moved", { n: 2, dir: "Out" }));
+    vi.mocked(fsMove).mockResolvedValue(report({ kind: "move", done: [1], token: 2, dest: "/x/Out/" }));
+    await transferTo("move", dest);
+    expect(toast()?.text).toBe(t("fs.movedOne", { name: "one.png", dir: "Out" }));
+  });
+
+  it("transferTo：重名跳过时出现“保留两者”，点击后只带冲突项的 id、keepBoth 和原 token 再调一次", async () => {
+    useSelection.getState().set(toggle(toggle(selectOnly(1), 2), 3));
+    vi.mocked(fsMove).mockResolvedValueOnce(
+      report({ kind: "move", done: [1], failed: [{ id: 2, code: "exists" }, { id: 3, code: "denied" }], token: 9, dest: "/x/Out" }),
+    );
+    await transferTo("move", dest);
+    expect(toast()?.text).toBe(t("fs.movedOne", { name: "one.png", dir: "Out" }) + t("fs.skippedExists", { m: 1 }) + t("fs.failedSuffix", { m: 1 }));
+    vi.mocked(fsMove).mockResolvedValueOnce(report({ kind: "move", done: [2], token: 9, dest: "/x/Out" }));
+    action(t("fs.keepBoth"))!.run();
+    await vi.waitFor(() => expect(fsMove).toHaveBeenCalledTimes(2));
+    expect(fsMove).toHaveBeenLastCalledWith([2], { kind: "path", path: "/x/Out" }, "keepBoth", 9);
+    await vi.waitFor(() => expect(toast()?.text).toBe(t("fs.movedOne", { name: "two.png", dir: "Out" })));
+    expect(action(t("fs.keepBoth"))).toBeUndefined();
+  });
+
+  it("transferTo：全部因重名跳过时用专门文字，仍可保留两者", async () => {
+    useSelection.getState().set(toggle(selectOnly(1), 2));
+    vi.mocked(fsCopy).mockResolvedValue(
+      report({ kind: "copy", failed: [{ id: 1, code: "exists" }, { id: 2, code: "exists" }], token: null, dest: "/x/Out" }),
+    );
+    await transferTo("copy", dest);
+    expect(toast()?.text).toBe(t("fs.allExistsCopy"));
+    expect(action(t("fs.keepBoth"))).toBeDefined();
+  });
+
+  it("transferTo：copy 走 fsCopy", async () => {
+    useSelection.getState().set(selectOnly(1));
+    vi.mocked(fsCopy).mockResolvedValue(report({ kind: "copy", done: [1], token: 1, dest: "/x/Out" }));
+    await transferTo("copy", dest);
+    expect(fsCopy).toHaveBeenCalledWith([1], dest, "skip");
+    expect(fsMove).not.toHaveBeenCalled();
+    expect(toast()?.text).toBe(t("fs.copiedOne", { name: "one.png", dir: "Out" }));
+  });
+
+  it("transferTo：进行中再次触发被忽略", async () => {
+    useSelection.getState().set(selectOnly(1));
+    let resolve!: (r: OpReport) => void;
+    vi.mocked(fsMove).mockReturnValue(new Promise((res) => (resolve = res)));
+    const first = transferTo("move", dest);
+    await transferTo("move", dest);
+    expect(fsMove).toHaveBeenCalledTimes(1);
+    resolve(report({ kind: "move", done: [1], token: 1, dest: "/x/Out" }));
+    await first;
+  });
+
+  it("transferToNewChild：askName 返回 null 时不调用后端；返回名字时以 newChild 调用", async () => {
+    useSelection.getState().set(selectOnly(1));
+    vi.mocked(askName).mockResolvedValueOnce(null);
+    await transferToNewChild("move");
+    expect(fsMove).not.toHaveBeenCalled();
+    expect(askName).toHaveBeenCalledWith({ title: t("fs.newDir.title"), confirm: t("fs.newDir.confirm") });
+    vi.mocked(askName).mockResolvedValueOnce("新目录");
+    vi.mocked(fsMove).mockResolvedValue(report({ kind: "move", done: [1], token: 1, dest: "/r/新目录" }));
+    await transferToNewChild("move");
+    expect(fsMove).toHaveBeenCalledWith([1], { kind: "newChild", name: "新目录" }, "skip");
   });
 });

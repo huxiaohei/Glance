@@ -1,11 +1,13 @@
 import { t } from "../i18n";
-import { fsRename, fsTrash, fsUndo } from "../ipc/api";
-import type { FileId, FsErrorCode, OpKind, OpReport } from "../ipc/types";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { fsCopy, fsMove, fsRename, fsTrash, fsUndo } from "../ipc/api";
+import type { Dest, FileId, FsErrorCode, OpKind, OpReport } from "../ipc/types";
 import { useCatalog } from "../stores/catalog";
 import { topView } from "../stores/nav";
 import { useSelection } from "../stores/selection";
 import { showToast, withBusy, type ToastAction } from "../stores/toast";
 import { activeView } from "./commands";
+import { askName } from "../views/common/NamePrompt";
 import { getImageList } from "./useImageList";
 
 /** 操作对象：单张视图 → 正在显示的那张；网格 → 选中集合里当前列表可见的那些，按列表顺序。其余视图 → []。 */
@@ -44,12 +46,39 @@ type NameOf = (id: FileId) => string;
 interface KindTexts {
   done(r: OpReport, nameOf: NameOf): string;
   allFailed(r: OpReport, nameOf: NameOf): string;
+  /** 有成功项又有失败项时接在主文字后面；不给则用通用的“，{m} 张失败” */
+  suffix?(r: OpReport): string;
 }
 
 const GENERIC: KindTexts = {
   done: (r) => t("fs.done", { n: r.done.length }),
   allFailed: (r) => t("fs.failMany", { m: r.failed.length }),
 };
+
+/** 目录的最后一级名字，两种分隔符都认，忽略结尾的分隔符；没有目录时为空 */
+function dirName(dest: string | null): string {
+  if (!dest) return "";
+  const parts = dest.split(/[/\\]/).filter((s) => s !== "");
+  return parts.length > 0 ? parts[parts.length - 1] : dest;
+}
+
+const isExists = (f: { code: FsErrorCode }) => f.code === "exists";
+
+/** 移动与复制共用一套文字，只差动词 */
+function transferTexts(one: "fs.movedOne" | "fs.copiedOne", many: "fs.moved" | "fs.copied", all: "fs.allExists" | "fs.allExistsCopy"): KindTexts {
+  return {
+    done: (r, nameOf) =>
+      r.done.length === 1
+        ? t(one, { name: nameOf(r.done[0]), dir: dirName(r.dest) })
+        : t(many, { n: r.done.length, dir: dirName(r.dest) }),
+    allFailed: (r) => (r.failed.every(isExists) ? t(all) : t("fs.failMany", { m: r.failed.length })),
+    suffix: (r) => {
+      const skipped = r.failed.filter(isExists).length;
+      const other = r.failed.length - skipped;
+      return (skipped > 0 ? t("fs.skippedExists", { m: skipped }) : "") + (other > 0 ? t("fs.failedSuffix", { m: other }) : "");
+    },
+  };
+}
 
 /** 各操作的文字；没有单独写的用通用文字。 */
 const TEXTS: Partial<Record<OpKind, KindTexts>> = {
@@ -59,6 +88,8 @@ const TEXTS: Partial<Record<OpKind, KindTexts>> = {
     allFailed: (r, nameOf) =>
       r.failed.length === 1 ? t("fs.trash.failOne", { name: nameOf(r.failed[0].id) }) : t("fs.trash.failMany", { m: r.failed.length }),
   },
+  move: transferTexts("fs.movedOne", "fs.moved", "fs.allExists"),
+  copy: transferTexts("fs.copiedOne", "fs.copied", "fs.allExistsCopy"),
   // 名字取新名字：调用方通过 names 传入
   rename: {
     done: (r, nameOf) => t("fs.rename.done", { name: nameOf(r.done[0]) }),
@@ -81,7 +112,7 @@ export function reportOp(r: OpReport, opts: ReportOpts = {}): void {
   const m = r.failed.length;
 
   let text: string;
-  if (r.done.length > 0) text = texts.done(r, nameOf) + (m > 0 ? t("fs.failedSuffix", { m }) : "");
+  if (r.done.length > 0) text = texts.done(r, nameOf) + (m > 0 ? (texts.suffix?.(r) ?? t("fs.failedSuffix", { m })) : "");
   else if (m > 0) text = texts.allFailed(r, nameOf);
   else text = texts.done(r, nameOf);
 
@@ -157,4 +188,50 @@ export async function renameTo(id: FileId, name: string): Promise<FsErrorCode | 
   // 条目可能还没更新：提示里用新名字
   reportOp(r, { names: new Map([[id, name]]) });
   return null;
+}
+
+export type TransferKind = "move" | "copy";
+
+const TRANSFER = {
+  move: { run: fsMove, busy: "fs.busy.move", pick: "fs.pick.move" },
+  copy: { run: fsCopy, busy: "fs.busy.copy", pick: "fs.pick.copy" },
+} as const;
+
+/** 把操作对象移动或复制到 dest，结果汇总成提示条。没有对象时什么都不做。重名的先跳过，提示条上可“保留两者”。 */
+export async function transferTo(kind: TransferKind, dest: Dest): Promise<void> {
+  const ids = opTargets();
+  if (ids.length === 0) return;
+  const names = captureNames(ids);
+  const { run, busy } = TRANSFER[kind];
+  const r = await call(t(busy), () => run(ids, dest, "skip"));
+  if (!r) return;
+  // 保留两者：同一个目标（新建的子目录此时已存在，改用它的实际路径）、同一个 token，只带冲突项；同样不与其他操作重叠
+  const retry = (conflictIds: FileId[], token: number | null) => {
+    const to: Dest = r.dest !== null ? { kind: "path", path: r.dest } : dest;
+    void call(t(busy), () => run(conflictIds, to, "keepBoth", token ?? undefined)).then((r2) => {
+      if (r2) reportOp(r2, { names });
+    });
+  };
+  reportOp(r, { names, retry });
+}
+
+/** 弹系统的选目录对话框（默认位置是当前根目录），取消则不做事。 */
+export async function pickAndTransfer(kind: TransferKind): Promise<void> {
+  if (isBusy() || opTargets().length === 0) return;
+  const picked = await openDialog({
+    directory: true,
+    multiple: false,
+    defaultPath: useCatalog.getState().root?.path,
+    title: t(TRANSFER[kind].pick),
+  });
+  if (typeof picked !== "string") return;
+  await transferTo(kind, { kind: "path", path: picked });
+}
+
+/** 弹出名称输入框，确定后移动或复制到当前根目录下以此命名的子目录（不存在则由后端新建）。 */
+export async function transferToNewChild(kind: TransferKind): Promise<void> {
+  if (isBusy() || opTargets().length === 0) return;
+  const name = await askName({ title: t("fs.newDir.title"), confirm: t("fs.newDir.confirm") });
+  if (name === null) return;
+  await transferTo(kind, { kind: "newChild", name });
 }

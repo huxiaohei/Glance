@@ -2,7 +2,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerFileCommands } from "../../app/fileCommands";
-import { trashTargets } from "../../app/fileOps";
+import { pickAndTransfer, trashTargets } from "../../app/fileOps";
 import { formatKey } from "../../app/keys";
 import { t } from "../../i18n";
 import { useCatalog } from "../../stores/catalog";
@@ -10,7 +10,7 @@ import { useSelection } from "../../stores/selection";
 import { selectOnly, toggle } from "../../lib/selection";
 import StatusBar from "./StatusBar";
 
-vi.mock("../../app/fileOps", () => ({ trashTargets: vi.fn(), undoLast: vi.fn() }));
+vi.mock("../../app/fileOps", () => ({ trashTargets: vi.fn(), undoLast: vi.fn(), pickAndTransfer: vi.fn(), transferToNewChild: vi.fn() }));
 vi.mock("../../app/keys", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../app/keys")>()),
   IS_MAC: true,
@@ -67,5 +67,18 @@ describe("StatusBar", () => {
   it("没有选中时没有删除按钮", () => {
     render(<StatusBar total={3} />);
     expect(screen.queryByRole("button", { name: t("status.delete") })).toBeNull();
+  });
+
+  it("有选中时出现移动按钮，点击调用 pickAndTransfer(\"move\")；没有选中时没有", () => {
+    off = registerFileCommands(true);
+    const { unmount } = render(<StatusBar total={3} />);
+    expect(screen.queryByRole("button", { name: t("status.move") })).toBeNull();
+    unmount();
+    useSelection.getState().set(selectOnly(1));
+    render(<StatusBar total={3} />);
+    const btn = screen.getByRole("button", { name: t("status.move") });
+    expect(btn.getAttribute("title")).toBe(t("cmd.file.moveTo"));
+    fireEvent.click(btn);
+    expect(pickAndTransfer).toHaveBeenCalledWith("move");
   });
 });

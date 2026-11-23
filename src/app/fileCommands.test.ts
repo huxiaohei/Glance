@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { allCommands, findCommand } from "./commands";
 import { fileCommands, registerFileCommands } from "./fileCommands";
 import { startRename } from "../stores/rename";
-import { trashTargets, undoLast } from "./fileOps";
+import { pickAndTransfer, transferToNewChild, trashTargets, undoLast } from "./fileOps";
 
-vi.mock("./fileOps", () => ({ trashTargets: vi.fn(), undoLast: vi.fn() }));
+vi.mock("./fileOps", () => ({ trashTargets: vi.fn(), undoLast: vi.fn(), pickAndTransfer: vi.fn(), transferToNewChild: vi.fn() }));
 vi.mock("../stores/rename", () => ({ startRename: vi.fn() }));
 
 const key = (k: string, mods: Partial<KeyboardEvent> = {}) =>
@@ -61,5 +61,17 @@ describe("file commands", () => {
     expect(cmd.views).toEqual(["grid", "single"]);
     cmd.run({ shift: false, repeat: false });
     expect(startRename).toHaveBeenCalledWith();
+  });
+
+  it("移动与复制命令没有快捷键，分别调用 pickAndTransfer 与 transferToNewChild", () => {
+    const cmds = fileCommands(true);
+    const ctx = { repeat: false } as never;
+    for (const id of ["file.moveTo", "file.copyTo", "file.moveToNew"]) expect(cmds.find((c) => c.id === id)!.keys).toEqual([]);
+    cmds.find((c) => c.id === "file.moveTo")!.run(ctx);
+    cmds.find((c) => c.id === "file.copyTo")!.run(ctx);
+    cmds.find((c) => c.id === "file.moveToNew")!.run(ctx);
+    expect(pickAndTransfer).toHaveBeenNthCalledWith(1, "move");
+    expect(pickAndTransfer).toHaveBeenNthCalledWith(2, "copy");
+    expect(transferToNewChild).toHaveBeenCalledWith("move");
   });
 });
