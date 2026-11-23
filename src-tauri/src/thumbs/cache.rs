@@ -5,6 +5,10 @@ use crate::catalog::scan::{Stamp, stamp_of};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime};
+
+/// 缓存文件超过这么久没被标记使用，下一次读到时才更新一次使用时间。
+pub const TOUCH_AFTER: Duration = Duration::from_secs(24 * 3600);
 
 /// 32 个十六进制字符。路径、大小、修改时间、档位任一不同，键就不同。
 pub fn cache_key(path: &Path, size: u64, mtime_ms: i64, tier: Tier) -> String {
@@ -39,8 +43,16 @@ impl ThumbCache {
         self.dir.join(prefix).join(format!("{key}.webp"))
     }
 
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// 读缓存；文件的修改时间即“最后使用时间”，超过 TOUCH_AFTER 没更新时顺手刷新。
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
-        std::fs::read(self.file_for(key)).ok()
+        let path = self.file_for(key);
+        let bytes = std::fs::read(&path).ok()?;
+        touch_if_stale(&path);
+        Some(bytes)
     }
 
     pub fn contains(&self, key: &str) -> bool {
@@ -77,6 +89,20 @@ impl ThumbCache {
     /// 用已读到的文件状态算键。
     pub fn key_for_stamp(path: &Path, stamp: Stamp, tier: Tier) -> String {
         cache_key(path, stamp.size, stamp.mtime_ms, tier)
+    }
+}
+
+fn touch_if_stale(path: &Path) {
+    let Ok(file) = std::fs::File::options().write(true).open(path) else {
+        return;
+    };
+    let now = SystemTime::now();
+    let stale = file
+        .metadata()
+        .and_then(|m| m.modified())
+        .is_ok_and(|m| now.duration_since(m).is_ok_and(|age| age > TOUCH_AFTER));
+    if stale {
+        let _ = file.set_modified(now);
     }
 }
 
@@ -132,5 +158,42 @@ mod tests {
         assert_ne!(k1, k2);
         std::fs::remove_file(&f).unwrap();
         assert_eq!(ThumbCache::key_for_file(&f, Tier::S), None);
+    }
+
+    fn age_of(path: &Path) -> Duration {
+        SystemTime::now()
+            .duration_since(std::fs::metadata(path).unwrap().modified().unwrap())
+            .unwrap()
+    }
+
+    fn backdate(path: &Path, by: Duration) {
+        let f = std::fs::File::options().write(true).open(path).unwrap();
+        f.set_modified(SystemTime::now() - by).unwrap();
+    }
+
+    #[test]
+    fn get_refreshes_an_old_use_time() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = ThumbCache::new(root.path().to_path_buf());
+        let key = format!("ab{}", "0".repeat(30));
+        cache.put(&key, b"x").unwrap();
+        let file = cache.file_for(&key);
+        backdate(&file, Duration::from_secs(2 * 24 * 3600));
+        assert!(age_of(&file) > TOUCH_AFTER);
+        assert_eq!(cache.get(&key), Some(b"x".to_vec()));
+        assert!(age_of(&file) < Duration::from_secs(60));
+    }
+
+    #[test]
+    fn get_leaves_a_recent_use_time_alone() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = ThumbCache::new(root.path().to_path_buf());
+        let key = format!("ab{}", "0".repeat(30));
+        cache.put(&key, b"x").unwrap();
+        let file = cache.file_for(&key);
+        backdate(&file, Duration::from_secs(3600));
+        cache.get(&key).unwrap();
+        let age = age_of(&file);
+        assert!(age >= Duration::from_secs(3600) && age < Duration::from_secs(3700));
     }
 }

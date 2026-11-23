@@ -30,6 +30,18 @@ pub fn run() {
         .setup(|app| {
             let registry = app.state::<Arc<Registry>>().inner().clone();
             let cache = ThumbCache::new(app.path().app_cache_dir()?.join("thumbs"));
+            let cache_dir = cache.dir().to_path_buf();
+            // 起不来就跳过，不影响启动。
+            let _ = std::thread::Builder::new()
+                .name("glance-cache-sweep".into())
+                .spawn(move || {
+                    thumbs::sweep::sweep(
+                        &cache_dir,
+                        thumbs::sweep::CACHE_LIMIT,
+                        thumbs::sweep::CACHE_TARGET,
+                        std::time::SystemTime::now(),
+                    );
+                });
             app.manage(Thumbs::start(cache, registry));
             let settings = state::settings::SettingsState::load(&app.path().app_config_dir()?);
             let theme = settings.get().theme;

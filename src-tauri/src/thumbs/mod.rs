@@ -2,6 +2,7 @@
 
 pub mod cache;
 pub mod queue;
+pub mod sweep;
 pub mod worker;
 
 pub use cache::ThumbCache;
