@@ -1,13 +1,149 @@
 .start {
   position: fixed;
   inset: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
 }
-.start-error {
+/* 上下 auto 外边距：内容少时垂直居中，多时从顶部开始并可滚动 */
+.start-column {
+  width: 100%;
+  max-width: 720px;
+  box-sizing: border-box;
+  margin: auto 0;
+  padding: calc(4 * var(--gap)) calc(2 * var(--gap));
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--gap));
+}
+.start-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(1.5 * var(--gap));
+}
+.start-hint { color: var(--text-dim); }
+.start-open {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap);
+}
+.start-open kbd {
+  font: inherit;
+  font-size: 11px;
+  padding: 0 6px;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.recent-title {
+  margin: 0 0 var(--gap);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.5 * var(--gap));
+}
+.recent-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.recent-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(1.5 * var(--gap));
+  padding: var(--gap);
+  /* 右侧留出固定 / 移除按钮的位置 */
+  padding-right: calc(9 * var(--gap));
+  text-align: left;
+  border-color: transparent;
+  background: transparent;
+}
+.recent-main:hover:not(:disabled),
+.recent-main:focus-visible {
+  background: var(--panel);
+  border-color: var(--line);
+}
+.recent-main:disabled { cursor: default; }
+.recent-thumbs {
+  flex: none;
+  display: flex;
+  gap: calc(0.5 * var(--gap));
+}
+.recent-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--line);
+}
+.recent-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.recent-thumb img[hidden] { display: none; }
+.recent-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.recent-name,
+.recent-path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.recent-path {
   font-size: 12px;
   color: var(--text-dim);
 }
+.recent-count {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.recent-actions {
+  position: absolute;
+  right: var(--gap);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: calc(0.5 * var(--gap));
+}
+.recent-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--text-dim);
+  opacity: 0;
+}
+.recent-action:hover { color: var(--text); }
+.recent-action.is-pinned { color: var(--accent); }
+/* 固定的项常显固定标记；不存在的项常显移除；其余悬停或键盘聚焦时显示 */
+.recent-item:hover .recent-action,
+.recent-item:focus-within .recent-action,
+.recent-action.is-pinned,
+.recent-item.is-missing .recent-action { opacity: 1; }
+.recent-remove:hover { color: var(--danger); }
+
+.recent-item.is-missing .recent-main { opacity: 0.45; }

@@ -34,6 +34,14 @@ describe("recents store", () => {
     expect(useRecents.getState().list).toEqual(list);
   });
 
+  it("后端给的不是列表时保留原列表", async () => {
+    const list = [entry("/a")];
+    useRecents.setState({ list });
+    recentsList.mockResolvedValueOnce(undefined as unknown as RecentEntry[]);
+    await loadRecents();
+    expect(useRecents.getState().list).toEqual(list);
+  });
+
   it("pinRecent 与 removeRecent 用后端返回的列表替换 store", async () => {
     useRecents.setState({ list: [entry("/a"), entry("/b")] });
     recentsPin.mockResolvedValueOnce([entry("/b", true), entry("/a")]);

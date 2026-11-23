@@ -21,6 +21,8 @@ const { useListView } = await import("../stores/listView");
 const { useCatalog } = await import("../stores/catalog");
 const { useThumbs } = await import("../stores/thumbs");
 const { DEFAULT_SETTINGS, useSettings } = await import("../stores/settings");
+const { useToast } = await import("../stores/toast");
+const { t } = await import("../i18n");
 
 const info = (generation: number, name: string): RootInfo => ({ generation, path: "/real/dir", name, recursive: true, focus: null });
 
@@ -35,6 +37,7 @@ beforeEach(() => {
   log.length = 0;
   useListView.setState({ sort: "name" });
   useSettings.setState({ settings: DEFAULT_SETTINGS });
+  useToast.setState({ current: null });
 });
 
 /** openPath 成功并立刻送来“扫描结束”（事件在 begin 之后回放）。 */
@@ -161,5 +164,30 @@ describe("openFolder", () => {
     openPath.mockResolvedValueOnce(info(2, "dir"));
     await openFolder("/real/dir");
     expect(openPath.mock.calls[1][1]).toBe(true);
+  });
+});
+
+describe("打开失败的提示", () => {
+  it("打开失败时显示对应错误的提示条", async () => {
+    openPath.mockRejectedValueOnce({ code: "notFound" });
+    expect(await openFolder("/gone")).toBe("notFound");
+    expect(useToast.getState().current?.text).toBe(t("error.notFound"));
+  });
+
+  it("打开成功不显示提示", async () => {
+    openPath.mockResolvedValueOnce(info(1, "dir"));
+    await openFolder("/real/dir");
+    expect(useToast.getState().current).toBeNull();
+  });
+
+  it("被取代的打开不显示提示", async () => {
+    let rejectFirst!: (e: unknown) => void;
+    openPath.mockImplementationOnce(() => new Promise<RootInfo>((_res, rej) => { rejectFirst = rej; }));
+    const first = openFolder("/gone");
+    openPath.mockResolvedValueOnce(info(2, "dir"));
+    const second = openFolder("/real/dir");
+    rejectFirst({ code: "notFound" });
+    await Promise.all([first, second]);
+    expect(useToast.getState().current).toBeNull();
   });
 });

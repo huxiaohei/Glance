@@ -3,6 +3,11 @@ import type { MessageKey } from "./index";
 export const en: Record<MessageKey, string> = {
   "start.dropHint": "Drop a folder here, or click to choose",
   "start.open": "Open Folder",
+  "start.recent": "Recent",
+  "start.count": "{n} images",
+  "start.pin": "Pin",
+  "start.unpin": "Unpin",
+  "start.remove": "Remove from List",
   "grid.scanning": "{n} found",
   "grid.count": "{n}",
   "grid.total": "{n} images",

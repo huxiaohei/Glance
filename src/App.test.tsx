@@ -34,9 +34,9 @@ describe("App", () => {
     useSettings.setState({ settings: { ...DEFAULT_SETTINGS, language: "zh-CN" } });
     stop = startApplyingSettings();
     render(<App />);
-    expect(screen.getByRole("button", { name: "打开目录" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^打开目录/ })).toBeTruthy();
     act(() => updateSettings({ language: "en" }));
-    expect(screen.getByRole("button", { name: "Open Folder" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Open Folder/ })).toBeTruthy();
   });
 
   it("在设置对话框里切换语言后，对话框仍然打开，焦点在对话框内", () => {

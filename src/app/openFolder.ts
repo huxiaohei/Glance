@@ -7,12 +7,10 @@ import { useListView } from "../stores/listView";
 import { loadRecents } from "../stores/recents";
 import { useSettings } from "../stores/settings";
 import { useThumbs } from "../stores/thumbs";
-import { create } from "zustand";
+import { showToast } from "../stores/toast";
+import { t } from "../i18n";
 import { createOpener, type OpenResult } from "./openSession";
 import { flushRecents } from "./recentsSync";
-
-/** 最近一次打开失败的错误码（成功或重新打开时清除），供启动页显示。 */
-export const useOpenError = create<{ error: OpenErrorCode | null }>(() => ({ error: null }));
 
 const opener = createOpener<{ keepView?: boolean }>({
   openPath,
@@ -47,7 +45,8 @@ async function openWith(path: string, recursive: boolean | undefined, opts?: Ope
   if (!keepView) flushRecents();
   try {
     const result = await opener(path, rec, keepView ? { keepView } : undefined, !keepView && opts?.restore === true);
-    if (!result.superseded) useOpenError.setState({ error: result.error });
+    // 打开失败统一在这里用提示条告知；被取代的打开不提示
+    if (!result.superseded && result.error) showToast({ text: t(`error.${result.error}`) });
     return result;
   } finally {
     // 打开成功后后端把根目录记入最近目录；成败都重新读取一次

@@ -1,6 +1,11 @@
 export const zhCN = {
   "start.dropHint": "拖入文件夹，或点击选择",
   "start.open": "打开目录",
+  "start.recent": "最近打开",
+  "start.count": "{n} 张",
+  "start.pin": "固定",
+  "start.unpin": "取消固定",
+  "start.remove": "从列表中移除",
   "grid.scanning": "已找到 {n} 张",
   "grid.count": "{n} 张",
   "grid.total": "共 {n} 张",

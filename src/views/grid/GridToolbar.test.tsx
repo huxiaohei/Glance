@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { openFolder } from "../../app/openFolder";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
+import { t } from "../../i18n";
 import GridToolbar from "./GridToolbar";
 
 vi.mock("../../app/openFolder", () => ({
   openFolder: vi.fn(),
   pickAndOpenFolder: vi.fn(),
-  useOpenError: (sel: (s: { error: null }) => unknown) => sel({ error: null }),
 }));
 
 describe("GridToolbar", () => {
@@ -26,5 +26,13 @@ describe("GridToolbar", () => {
     fireEvent.click(screen.getByRole("checkbox"));
     expect(openFolder).toHaveBeenCalledWith("/p", true);
     await waitFor(() => expect(useListView.getState().includeSubdirs).toBe(false));
+  });
+
+  it("不再渲染打开失败的文字（改由提示条显示）", async () => {
+    const { container } = render(<GridToolbar />);
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() => expect(useListView.getState().includeSubdirs).toBe(false));
+    expect(container.textContent).not.toContain(t("error.unreadable"));
+    expect(container.querySelector(".grid-error")).toBeNull();
   });
 });

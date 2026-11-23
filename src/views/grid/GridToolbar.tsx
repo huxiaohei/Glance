@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { openFolder, pickAndOpenFolder, useOpenError } from "../../app/openFolder";
+import { openFolder, pickAndOpenFolder } from "../../app/openFolder";
 import { t } from "../../i18n";
 import type { SortKey } from "../../lib/deriveList";
 import { useCatalog } from "../../stores/catalog";
@@ -11,7 +11,6 @@ function GridToolbar() {
   const root = useCatalog((s) => s.root);
   const scanning = useCatalog((s) => s.scanning);
   const found = useCatalog((s) => s.entries.size);
-  const openError = useOpenError((s) => s.error);
   const sort = useListView((s) => s.sort);
   const includeSubdirs = useListView((s) => s.includeSubdirs);
   const cell = useListView((s) => s.cell);
@@ -32,7 +31,6 @@ function GridToolbar() {
     <div className="grid-toolbar">
       <span className="grid-root" title={root?.path}>{root?.name}</span>
       {scanning && <span className="grid-scanning">{t("grid.scanning", { n: found })}</span>}
-      {openError && <span className="grid-error">{t(`error.${openError}`)}</span>}
       <span className="grid-spacer" />
       <label className="toolbar-field">
         <span>{t("toolbar.sort")}</span>
