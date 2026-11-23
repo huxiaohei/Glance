@@ -9,8 +9,10 @@ use crate::catalog::events::{CatalogEvent, OpenError, RootInfo};
 use crate::catalog::registry::Registry;
 use crate::catalog::session::{Sessions, resolve_open_target, run};
 
-/// 打开目录或图片文件。先返回 RootInfo，之后才在后台线程里扫描并经 on_event 推送事件，
-/// 因此前端先拿到代号，再收到带该代号的事件。
+/// 打开目录或图片文件。扫描在后台线程里进行，事件经 on_event 推送。
+/// 命令的返回值与 Channel 消息是相互独立的 IPC 消息，后端不保证先后：事件可能先于
+/// 本命令的响应到达。约定由前端保证：拿到 RootInfo 之前先缓存收到的事件，
+/// 并丢弃 generation 与当前代号不一致的事件。
 #[tauri::command]
 pub async fn open_path(
     app: AppHandle,

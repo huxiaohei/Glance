@@ -54,7 +54,8 @@ fn rel_path(root: &Path, path: &Path) -> String {
 
 /// 一次完整的打开：扫描并登记，逐批发 Batch，结束发 Done，随后只读文件头
 /// 并行补齐尺寸，分批发 Dims（读不出尺寸的文件不出现在 Dims 里）。
-/// cancel 置位后不再发出任何事件。
+/// 取消是尽力而为：cancel 置位后会尽快停止，但已在途的少量事件仍可能发出；
+/// 它们带着旧的 generation，消费方据此丢弃。
 pub fn run(
     generation: u32,
     target: &OpenTarget,
