@@ -6,7 +6,10 @@ export interface WireEntry { id: FileId; relPath: string; size: number; mtimeMs:
 export type CatalogEvent =
   | { type: "batch"; generation: number; entries: WireEntry[] }
   | { type: "done"; generation: number; total: number }
-  | { type: "dims"; generation: number; items: { id: FileId; w: number; h: number }[] };
+  | { type: "dims"; generation: number; items: { id: FileId; w: number; h: number }[] }
+  | { type: "removed"; generation: number; ids: FileId[] }
+  | { type: "renamed"; generation: number; items: { id: FileId; relPath: string }[] }
+  | { type: "watchFailed"; generation: number };
 
 export interface RootInfo { generation: number; path: string; name: string; recursive: boolean; focus: FileId | null }
 

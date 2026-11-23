@@ -6,6 +6,7 @@ export const en: Record<MessageKey, string> = {
   "grid.scanning": "{n} found",
   "grid.count": "{n}",
   "grid.total": "{n} images",
+  "status.watchFailed": "Can't watch this folder for changes. Press F5 to refresh.",
   "grid.empty": "No images in this folder",
   "grid.emptyHintSubdirs": "Try turning on “Include subfolders”",
   "grid.openOther": "Open Another Folder",

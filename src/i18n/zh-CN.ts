@@ -4,6 +4,7 @@ export const zhCN = {
   "grid.scanning": "已找到 {n} 张",
   "grid.count": "{n} 张",
   "grid.total": "共 {n} 张",
+  "status.watchFailed": "无法监听这个目录的变化，按 F5 刷新",
   "grid.empty": "这个目录里没有图片",
   "grid.emptyHintSubdirs": "可以打开“包含子目录”",
   "grid.openOther": "打开其他目录",

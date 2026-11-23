@@ -1,7 +1,7 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, thumbsSubscribe } from "../ipc/api";
 import type { OpenErrorCode } from "../ipc/types";
-import { useCatalog } from "../stores/catalog";
+import { changedIds, useCatalog } from "../stores/catalog";
 import { createThumbBatcher } from "../stores/thumbBatcher";
 import { useListView } from "../stores/listView";
 import { useThumbs } from "../stores/thumbs";
@@ -11,21 +11,42 @@ import { createOpener } from "./openSession";
 /** 最近一次打开失败的错误码（成功或重新打开时清除），供启动页显示。 */
 export const useOpenError = create<{ error: OpenErrorCode | null }>(() => ({ error: null }));
 
-const opener = createOpener({
+const opener = createOpener<{ keepView?: boolean }>({
   openPath,
-  begin: (info) => {
+  begin: (info, tag) => {
+    if (tag?.keepView) {
+      // 刷新：保留视图状态、条目和缩略图；版本变化会让缩略图自行更新
+      useCatalog.getState().begin(info, { keep: true });
+      return;
+    }
     useThumbs.getState().reset();
     useListView.getState().resetForNewRoot(info.recursive);
     useCatalog.getState().begin(info);
   },
-  apply: (e) => useCatalog.getState().apply(e),
+  apply: (e) => {
+    // 内容变了的文件、被删除的文件：先清掉损坏标记，缩略图才会重新请求
+    if (e.type === "batch") useThumbs.getState().forget(changedIds(useCatalog.getState().entries, e.entries));
+    else if (e.type === "removed") useThumbs.getState().forget(e.ids);
+    useCatalog.getState().apply(e);
+  },
 });
 
 /** 打开目录或图片：begin → 事件流写入 catalog；失败时返回错误码。 */
-export async function openFolder(path: string, recursive: boolean = true): Promise<OpenErrorCode | null> {
-  const { superseded, error } = await opener(path, recursive);
+export async function openFolder(
+  path: string,
+  recursive: boolean = true,
+  opts?: { keepView?: boolean },
+): Promise<OpenErrorCode | null> {
+  const { superseded, error } = await opener(path, recursive, opts);
   if (!superseded) useOpenError.setState({ error });
   return error;
+}
+
+/** 刷新当前目录：视图状态与已有条目保留，扫描结束后移除已不存在的文件；没有打开目录时什么也不做。 */
+export async function refreshFolder(): Promise<void> {
+  const root = useCatalog.getState().root;
+  if (!root) return;
+  await openFolder(root.path, root.recursive, { keepView: true });
 }
 
 /** 弹出系统目录选择框；取消返回 false。 */

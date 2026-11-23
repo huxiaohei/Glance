@@ -116,4 +116,17 @@ describe("createOpener", () => {
     expect(await p).toEqual({ superseded: true, error: null });
     expect(log).toEqual([]);
   });
+
+  it("tag 原样传到 begin", async () => {
+    const tags: unknown[] = [];
+    const open = createOpener<{ keep: boolean }>({
+      seed: 100,
+      openPath: async () => info(1),
+      begin: (_i, tag) => void tags.push(tag),
+      apply: () => {},
+    });
+    await open("/a", true, { keep: true });
+    await open("/a", true);
+    expect(tags).toEqual([{ keep: true }, undefined]);
+  });
 });

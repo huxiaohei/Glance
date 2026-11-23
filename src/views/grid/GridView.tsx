@@ -40,7 +40,7 @@ export default function GridView() {
   const dirFilter = useListView((s) => s.dirFilter);
   const collapsed = useListView((s) => s.collapsed);
   const cell = useListView((s) => s.cell);
-  const generation = root?.generation;
+  const rootPath = root?.path;
   const tier = pickTier(cell, window.devicePixelRatio);
 
   // 派生列表与目录树按 catalog.listVersion（及各选项）缓存；滚动、缩略图事件和尺寸补全不会触发重算
@@ -75,10 +75,10 @@ export default function GridView() {
   });
   // estimateSize 不在虚拟器的缓存依赖里：布局变化（换目录、列数变化）后须手动让它重算
   useLayoutEffect(() => virtualizer.measure(), [virtualizer, layout]);
-  // 排序、筛选、折叠、格子大小变化不回到顶部，只有换根目录才回到顶部
+  // 排序、筛选、折叠、格子大小变化与刷新（同一路径重新打开）都不回到顶部，只有换根目录才回到顶部
   useLayoutEffect(() => {
     if (scroller) scroller.scrollTop = 0;
-  }, [scroller, generation]);
+  }, [scroller, rootPath]);
   const scrollTop = virtualizer.scrollOffset ?? 0;
   useVisibleThumbs(layout, scrollTop, size.height, tier);
 
