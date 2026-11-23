@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n";
-import NamePrompt, { askName } from "./NamePrompt";
+import { registerCommands } from "../../app/commands";
+import { handleKeyDown } from "../../app/useKeyboard";
+import NamePrompt, { askName, isPromptOpen } from "./NamePrompt";
 
 const OPTS = { title: "新建子目录", confirm: "移动到这里" };
 const input = () => screen.getByRole("textbox", { name: OPTS.title }) as HTMLInputElement;
@@ -86,5 +88,44 @@ describe("NamePrompt", () => {
     fireEvent.change(input(), { target: { value: "new" } });
     fireEvent.keyDown(input(), { key: "Enter" });
     expect(await second).toBe("new");
+  });
+
+  it("Tab 在弹层内循环：最后一个按钮 Tab 回到输入框，输入框 Shift+Tab 到最后一个按钮", async () => {
+    render(<NamePrompt />);
+    const p = open();
+    fireEvent.change(input(), { target: { value: "a" } });
+    const confirm = screen.getByRole("button", { name: OPTS.confirm });
+    confirm.focus();
+    fireEvent.keyDown(confirm, { key: "Tab" });
+    expect(document.activeElement).toBe(input());
+    fireEvent.keyDown(input(), { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(confirm);
+    fireEvent.keyDown(input(), { key: "Escape" });
+    await p;
+  });
+
+  it("焦点在弹层内非输入处（面板本身）时 Esc 仍取消", async () => {
+    render(<NamePrompt />);
+    const p = open();
+    const panel = screen.getByRole("dialog");
+    panel.focus();
+    fireEvent.keyDown(panel, { key: "Escape" });
+    expect(await p).toBeNull();
+  });
+
+  it("弹层打开时全局快捷键不执行（即使事件落在 body 上），关闭后恢复", async () => {
+    const run = vi.fn();
+    const off = registerCommands([{ id: "t.del", title: "cmd.file.trash", category: "cmd.cat.file", keys: ["Delete"], views: "all", run }]);
+    render(<NamePrompt />);
+    const p = open();
+    expect(isPromptOpen()).toBe(true);
+    handleKeyDown(new KeyboardEvent("keydown", { key: "Delete" }));
+    expect(run).not.toHaveBeenCalled();
+    fireEvent.keyDown(input(), { key: "Escape" });
+    await p;
+    expect(isPromptOpen()).toBe(false);
+    handleKeyDown(new KeyboardEvent("keydown", { key: "Delete" }));
+    expect(run).toHaveBeenCalledTimes(1);
+    off();
   });
 });

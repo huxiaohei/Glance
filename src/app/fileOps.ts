@@ -197,11 +197,24 @@ const TRANSFER = {
   copy: { run: fsCopy, busy: "fs.busy.copy", pick: "fs.pick.copy" },
 } as const;
 
-/** 把操作对象移动或复制到 dest，结果汇总成提示条。没有对象时什么都不做。重名的先跳过，提示条上可“保留两者”。 */
-export async function transferTo(kind: TransferKind, dest: Dest): Promise<void> {
+interface Captured {
+  ids: FileId[];
+  names: Map<FileId, string>;
+}
+
+/** 对话框、输入框打开之前取好对象与文件名：它们打开期间选中、当前图、视图都可能变，移动的必须是用户发起时看到的那批 */
+function captureTargets(): Captured {
   const ids = opTargets();
+  return { ids, names: captureNames(ids) };
+}
+
+/** 选目录对话框或名称输入框正在等用户（同一时间只允许一个） */
+let prompting = false;
+
+/** 把操作对象移动或复制到 dest，结果汇总成提示条。没有对象时什么都不做。重名的先跳过，提示条上可“保留两者”。 */
+export async function transferTo(kind: TransferKind, dest: Dest, captured?: Captured): Promise<void> {
+  const { ids, names } = captured ?? captureTargets();
   if (ids.length === 0) return;
-  const names = captureNames(ids);
   const { run, busy } = TRANSFER[kind];
   const r = await call(t(busy), () => run(ids, dest, "skip"));
   if (!r) return;
@@ -215,25 +228,44 @@ export async function transferTo(kind: TransferKind, dest: Dest): Promise<void> 
   reportOp(r, { names, retry });
 }
 
-/** 弹系统的选目录对话框（默认位置是当前根目录），取消则不做事。 */
+/** 弹系统的选目录对话框（默认位置是当前根目录），取消则不做事。对象在弹出之前取定。 */
 export async function pickAndTransfer(kind: TransferKind): Promise<void> {
-  if (isBusy() || opTargets().length === 0) return;
-  const picked = await openDialog({
-    directory: true,
-    multiple: false,
-    defaultPath: useCatalog.getState().root?.path,
-    title: t(TRANSFER[kind].pick),
-  });
+  if (prompting || isBusy()) return;
+  const captured = captureTargets();
+  if (captured.ids.length === 0) return;
+  prompting = true;
+  let picked: Awaited<ReturnType<typeof openDialog>>;
+  try {
+    picked = await openDialog({
+      directory: true,
+      multiple: false,
+      defaultPath: useCatalog.getState().root?.path,
+      title: t(TRANSFER[kind].pick),
+    });
+  } catch {
+    showToast({ text: errorText("other") });
+    return;
+  } finally {
+    prompting = false;
+  }
   if (typeof picked !== "string") return;
-  await transferTo(kind, { kind: "path", path: picked });
+  await transferTo(kind, { kind: "path", path: picked }, captured);
 }
 
-/** 弹出名称输入框，确定后移动或复制到当前根目录下以此命名的子目录（不存在则由后端新建）。 */
+/** 弹出名称输入框，确定后移动或复制到当前根目录下以此命名的子目录（不存在则由后端新建）。对象在弹出之前取定。 */
 export async function transferToNewChild(kind: TransferKind): Promise<void> {
-  if (isBusy() || opTargets().length === 0) return;
-  const name = await askName({ title: t("fs.newDir.title"), confirm: t("fs.newDir.confirm") });
+  if (prompting || isBusy()) return;
+  const captured = captureTargets();
+  if (captured.ids.length === 0) return;
+  prompting = true;
+  let name: string | null;
+  try {
+    name = await askName({ title: t("fs.newDir.title"), confirm: t("fs.newDir.confirm") });
+  } finally {
+    prompting = false;
+  }
   if (name === null) return;
-  await transferTo(kind, { kind: "newChild", name });
+  await transferTo(kind, { kind: "newChild", name }, captured);
 }
 
 const ERROR_CODES: readonly FsErrorCode[] = [

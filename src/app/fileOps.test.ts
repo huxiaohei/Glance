@@ -421,4 +421,56 @@ describe("剪贴板与在文件管理器中显示", () => {
     await revealFirst();
     expect(toast()?.text).toBe(t("fs.err.notFound"));
   });
+
+  it("pickAndTransfer：对话框打开期间选中变了，移动的仍是发起时的那批", async () => {
+    useSelection.getState().set(selectOnly(1));
+    let pick!: (v: string) => void;
+    vi.mocked(openDialog).mockReturnValue(new Promise((res) => (pick = res)));
+    vi.mocked(fsMove).mockResolvedValue(report({ kind: "move", done: [1], token: 1, dest: "/x/Out" }));
+    const p = pickAndTransfer("move");
+    useSelection.getState().set(selectOnly(3));
+    pick("/x/Out");
+    await p;
+    expect(fsMove).toHaveBeenCalledWith([1], { kind: "path", path: "/x/Out" }, "skip");
+    expect(toast()?.text).toBe(t("fs.movedOne", { name: "one.png", dir: "Out" }));
+  });
+
+  it("transferToNewChild：名称输入框打开期间选中变了，移动的仍是发起时的那批", async () => {
+    useSelection.getState().set(selectOnly(1));
+    let answer!: (v: string) => void;
+    vi.mocked(askName).mockReturnValue(new Promise((res) => (answer = res)));
+    vi.mocked(fsMove).mockResolvedValue(report({ kind: "move", done: [1], token: 1, dest: "/r/n" }));
+    const p = transferToNewChild("move");
+    useSelection.getState().set(selectOnly(3));
+    answer("n");
+    await p;
+    expect(fsMove).toHaveBeenCalledWith([1], { kind: "newChild", name: "n" }, "skip");
+  });
+
+  it("对话框或输入框等待期间，再次 pickAndTransfer / transferToNewChild 被忽略；结束后可再用", async () => {
+    useSelection.getState().set(selectOnly(1));
+    let pick!: (v: null) => void;
+    vi.mocked(openDialog).mockReturnValue(new Promise((res) => (pick = res)));
+    const p = pickAndTransfer("move");
+    await pickAndTransfer("copy");
+    await transferToNewChild("move");
+    expect(openDialog).toHaveBeenCalledTimes(1);
+    expect(askName).not.toHaveBeenCalled();
+    pick(null);
+    await p;
+    vi.mocked(askName).mockResolvedValue(null);
+    await transferToNewChild("move");
+    expect(askName).toHaveBeenCalledTimes(1);
+  });
+
+  it("openDialog 出错时提示操作失败，不产生未处理的拒绝，之后仍可再用", async () => {
+    useSelection.getState().set(selectOnly(1));
+    vi.mocked(openDialog).mockRejectedValueOnce(new Error("boom"));
+    await pickAndTransfer("move");
+    expect(toast()?.text).toBe(errorText("other"));
+    expect(fsMove).not.toHaveBeenCalled();
+    vi.mocked(openDialog).mockResolvedValueOnce(null);
+    await pickAndTransfer("move");
+    expect(openDialog).toHaveBeenCalledTimes(2);
+  });
 });

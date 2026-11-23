@@ -25,6 +25,11 @@ function close(name: string | null): void {
   if (cur.restore instanceof HTMLElement) cur.restore.focus();
 }
 
+/** 名称输入框是否正在显示（全局快捷键据此让路） */
+export function isPromptOpen(): boolean {
+  return usePrompt.getState().current !== null;
+}
+
 /** 弹出名称输入框；确定返回输入的名字，取消返回 null。同一时间只有一个：再次调用会以 null 结束上一个并取而代之。 */
 export function askName(opts: { title: string; confirm: string }): Promise<string | null> {
   const prev = usePrompt.getState().current;
@@ -42,7 +47,28 @@ function PromptBody({ title, confirm }: { title: string; confirm: string }) {
   useEffect(() => ref.current?.focus(), []);
   const ok = value.trim() !== "";
 
+  const panel = useRef<HTMLDivElement>(null);
+
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Tab") {
+      // 焦点留在弹层里：首尾循环
+      const items = [...panel.current!.querySelectorAll<HTMLElement>("input, button:not(:disabled)")];
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const at = document.activeElement;
+      if (!panel.current!.contains(at)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && at === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && at === last) {
+        e.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     if (e.key !== "Enter" && e.key !== "Escape") return;
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     e.stopPropagation();
@@ -57,7 +83,7 @@ function PromptBody({ title, confirm }: { title: string; confirm: string }) {
 
   return (
     <div className="prompt-backdrop" onClick={() => close(null)}>
-      <div className="prompt-panel" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
+      <div ref={panel} className="prompt-panel" tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
         <h2 className="prompt-title">{title}</h2>
         <input
           ref={ref}

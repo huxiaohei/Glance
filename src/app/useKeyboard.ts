@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import { activeView, findCommand } from "./commands";
+import { isPromptOpen } from "../views/common/NamePrompt";
 import { IS_MAC } from "./keys";
 
 export const useHelp = create<{ open: boolean }>(() => ({ open: false }));
@@ -18,6 +19,8 @@ function isInInput(target: EventTarget | null): boolean {
  */
 export function handleKeyDown(e: KeyboardEvent): void {
   if (e.isComposing || e.key === "Process") return;
+  // 名称输入框打开时不执行任何命令，也不拦默认行为（输入框里照常打字、复制粘贴）
+  if (isPromptOpen()) return;
   const inInput = isInInput(e.target);
   const view = activeView();
   if (useHelp.getState().open) {
