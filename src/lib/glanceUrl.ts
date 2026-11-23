@@ -6,3 +6,8 @@ export function glanceUrl(route: string, userAgent: string = navigator.userAgent
     ? `http://glance.localhost/${path}`
     : `glance://localhost/${path}`;
 }
+
+/** 最近目录的缩略图：按缓存键（32 位小写十六进制）读取，不涉及路径。 */
+export function thumbKeyUrl(key: string): string {
+  return glanceUrl("thumb-key/" + key);
+}

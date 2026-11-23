@@ -1,13 +1,15 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, thumbsSubscribe } from "../ipc/api";
-import type { OpenErrorCode } from "../ipc/types";
+import type { OpenErrorCode, RecentEntry } from "../ipc/types";
 import { changedIds, useCatalog } from "../stores/catalog";
 import { createThumbBatcher } from "../stores/thumbBatcher";
 import { useListView } from "../stores/listView";
+import { loadRecents } from "../stores/recents";
 import { useSettings } from "../stores/settings";
 import { useThumbs } from "../stores/thumbs";
 import { create } from "zustand";
-import { createOpener } from "./openSession";
+import { createOpener, type OpenResult } from "./openSession";
+import { flushRecents } from "./recentsSync";
 
 /** 最近一次打开失败的错误码（成功或重新打开时清除），供启动页显示。 */
 export const useOpenError = create<{ error: OpenErrorCode | null }>(() => ({ error: null }));
@@ -36,16 +38,35 @@ const opener = createOpener<{ keepView?: boolean }>({
   },
 });
 
-/** 打开目录或图片：begin → 事件流写入 catalog；失败时返回错误码。recursive 省略时按设置里的“包含子目录”。 */
-export async function openFolder(
-  path: string,
-  recursive?: boolean,
-  opts?: { keepView?: boolean },
-): Promise<OpenErrorCode | null> {
+interface OpenOpts { keepView?: boolean; restore?: boolean }
+
+async function openWith(path: string, recursive: boolean | undefined, opts?: OpenOpts): Promise<OpenResult> {
   const rec = recursive ?? useSettings.getState().settings.includeSubdirs;
-  const { superseded, error } = await opener(path, rec, opts);
-  if (!superseded) useOpenError.setState({ error });
-  return error;
+  const keepView = opts?.keepView === true;
+  // 换目录之前先把当前目录待发的浏览状态发出去；刷新同一目录不用
+  if (!keepView) flushRecents();
+  try {
+    const result = await opener(path, rec, keepView ? { keepView } : undefined, !keepView && opts?.restore === true);
+    if (!result.superseded) useOpenError.setState({ error: result.error });
+    return result;
+  } finally {
+    // 打开成功后后端把根目录记入最近目录；成败都重新读取一次
+    void loadRecents();
+  }
+}
+
+/**
+ * 打开目录或图片：begin → 事件流写入 catalog；失败时返回错误码。recursive 省略时按设置里的“包含子目录”。
+ * restore：恢复最近目录里记下的上次看到的图片（刷新 keepView 时不带）。
+ */
+export async function openFolder(path: string, recursive?: boolean, opts?: OpenOpts): Promise<OpenErrorCode | null> {
+  return (await openWith(path, recursive, opts)).error;
+}
+
+/** 打开一项最近目录：恢复上次看到的图片，并按该项记下的“包含子目录”与排序打开（没记的按设置）。 */
+export async function openRecent(entry: RecentEntry): Promise<void> {
+  const { superseded, error } = await openWith(entry.path, entry.includeSubdirs ?? undefined, { restore: true });
+  if (!superseded && error === null && entry.sort) useListView.getState().setSort(entry.sort);
 }
 
 /** 刷新当前目录：视图状态与已有条目保留，扫描结束后移除已不存在的文件；没有打开目录时什么也不做。 */

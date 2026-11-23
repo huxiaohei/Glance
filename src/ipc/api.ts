@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { SortKey } from "../lib/deriveList";
 import type {
   CatalogEvent,
   Conflict,
@@ -6,6 +7,7 @@ import type {
   FileId,
   ImageDetails,
   OpReport,
+  RecentEntry,
   RootInfo,
   Settings,
   ThumbEvent,
@@ -23,9 +25,10 @@ export function openPath(
   path: string,
   recursive: boolean,
   seq: number,
+  restore: boolean,
   onEvent: (e: CatalogEvent) => void,
 ): Promise<RootInfo> {
-  return invoke<RootInfo>("open_path", { path, recursive, seq, onEvent: channel(onEvent) });
+  return invoke<RootInfo>("open_path", { path, recursive, seq, restore, onEvent: channel(onEvent) });
 }
 
 export function thumbsSubscribe(onEvent: (e: ThumbEvent) => void): Promise<void> {
@@ -83,4 +86,28 @@ export function settingsGet(): Promise<Settings> {
 
 export function settingsSet(settings: Settings): Promise<void> {
   return invoke<void>("settings_set", { settings });
+}
+
+export function recentsList(): Promise<RecentEntry[]> {
+  return invoke<RecentEntry[]>("recents_list");
+}
+
+export function recentsPin(path: string, pinned: boolean): Promise<RecentEntry[]> {
+  return invoke<RecentEntry[]>("recents_pin", { path, pinned });
+}
+
+export function recentsRemove(path: string): Promise<RecentEntry[]> {
+  return invoke<RecentEntry[]>("recents_remove", { path });
+}
+
+/** 汇报当前根目录的浏览状态；generation 与后端当前会话不符时后端忽略。 */
+export function recentsNote(note: {
+  generation: number;
+  count: number;
+  first: FileId[];
+  last: FileId | null;
+  sort: SortKey;
+  includeSubdirs: boolean;
+}): Promise<void> {
+  return invoke<void>("recents_note", note);
 }

@@ -240,7 +240,7 @@ describe("单张视图的命令", () => {
       notPrevented = fireEvent.keyDown(document.body, { key: "F5" });
     });
     expect(notPrevented).toBe(false);
-    expect(openPath).toHaveBeenCalledWith("/p", true, expect.any(Number), expect.any(Function));
+    expect(openPath).toHaveBeenCalledWith("/p", true, expect.any(Number), false, expect.any(Function));
     await act(async () => {});
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
     act(() => {

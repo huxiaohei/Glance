@@ -12,7 +12,7 @@ function setup() {
   const pending: { resolve(i: RootInfo): void; reject(e: unknown): void; emit(e: CatalogEvent): void }[] = [];
   const open = createOpener({
     seed: 100,
-    openPath: (_p, _r, seq, onEvent) =>
+    openPath: (_p, _r, seq, _restore, onEvent) =>
       new Promise<RootInfo>((resolve, reject) => (seqs.push(seq), pending.push({ resolve, reject, emit: onEvent }))),
     begin: (i) => log.push(`begin:${i.generation}`),
     apply: (e) => log.push(`apply:${e.type}:${e.generation}`),
@@ -128,5 +128,18 @@ describe("createOpener", () => {
     await open("/a", true, { keep: true });
     await open("/a", true);
     expect(tags).toEqual([{ keep: true }, undefined]);
+  });
+
+  it("把 restore 传给 openPath", async () => {
+    const restores: boolean[] = [];
+    const open = createOpener({
+      seed: 100,
+      openPath: async (_p, _r, _s, restore) => (restores.push(restore), info(1)),
+      begin: () => {},
+      apply: () => {},
+    });
+    await open("/a", true, undefined, true);
+    await open("/a", true);
+    expect(restores).toEqual([true, false]);
   });
 });

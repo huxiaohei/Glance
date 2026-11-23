@@ -1,7 +1,13 @@
 import type { CatalogEvent, OpenErrorCode, RootInfo } from "../ipc/types";
 
 export interface OpenerDeps<T = undefined> {
-  openPath(path: string, recursive: boolean, seq: number, onEvent: (e: CatalogEvent) => void): Promise<RootInfo>;
+  openPath(
+    path: string,
+    recursive: boolean,
+    seq: number,
+    restore: boolean,
+    onEvent: (e: CatalogEvent) => void,
+  ): Promise<RootInfo>;
   begin(info: RootInfo, tag?: T): void;
   apply(e: CatalogEvent): void;
   /** 序号起点，测试用；默认 Date.now()，使热重载后的序号仍大于后端见过的值。 */
@@ -33,7 +39,8 @@ export function createOpener<T = undefined>(deps: OpenerDeps<T>) {
   // 最近一次发起的调用；序号即调用顺序，同时发给后端
   let latest = deps.seed ?? Date.now();
   let current = 0;  // 最近一次真正 begin 的调用
-  return async function open(path: string, recursive: boolean, tag?: T): Promise<OpenResult> {
+  // restore：打开目录时恢复最近目录里记下的上次看到的图片（后端把它作为 focus）
+  return async function open(path: string, recursive: boolean, tag?: T, restore = false): Promise<OpenResult> {
     const mine = ++latest;
     let buffer: CatalogEvent[] | null = [];
     const onEvent = (e: CatalogEvent) => {
@@ -45,7 +52,7 @@ export function createOpener<T = undefined>(deps: OpenerDeps<T>) {
     };
     let info: RootInfo;
     try {
-      info = await deps.openPath(path, recursive, mine, onEvent);
+      info = await deps.openPath(path, recursive, mine, restore, onEvent);
     } catch (err) {
       if (isSuperseded(err)) return { superseded: true, error: null };
       return mine === latest ? { superseded: false, error: errorCode(err) } : { superseded: true, error: null };

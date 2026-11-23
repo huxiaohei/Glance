@@ -8,7 +8,11 @@ vi.mock("@tauri-apps/api/webview", () => ({
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./ipc/api", async (importOriginal) => {
   const real = await importOriginal<Record<string, unknown>>();
-  return Object.fromEntries(Object.keys(real).map((k) => [k, vi.fn(() => Promise.resolve())]));
+  // 最近目录的几个命令返回列表，给空列表
+  const lists = new Set(["recentsList", "recentsPin", "recentsRemove"]);
+  return Object.fromEntries(
+    Object.keys(real).map((k) => [k, vi.fn(() => Promise.resolve(lists.has(k) ? [] : undefined))]),
+  );
 });
 
 const { default: App } = await import("./App");

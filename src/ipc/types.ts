@@ -59,3 +59,16 @@ export interface Settings {
   loopAtEnd: boolean;
   wheel: WheelAction;
 }
+
+/** 最近目录的一项。path 只用于显示和原样传回 open_path / recents_pin / recents_remove（“前端只见 FileId”的明确例外）。
+ *  thumbs 是缩略图缓存键，用 thumbKeyUrl 拼地址；count、sort、includeSubdirs 在从未汇报过时为 null。 */
+export interface RecentEntry {
+  path: string;
+  name: string;
+  count: number | null;
+  thumbs: string[];
+  pinned: boolean;
+  exists: boolean;
+  sort: SortKey | null;
+  includeSubdirs: boolean | null;
+}
