@@ -5,6 +5,7 @@ pub mod fileops;
 #[cfg(debug_assertions)]
 mod lab;
 mod protocol;
+mod shell;
 mod state;
 mod system;
 mod thumbs;
@@ -13,6 +14,7 @@ use catalog::registry::Registry;
 use catalog::session::Sessions;
 use fileops::commands::RecentTargets;
 use fileops::undo::UndoLog;
+use std::path::Path;
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
@@ -21,6 +23,12 @@ use thumbs::{ThumbCache, Thumbs};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            match shell::pick_target(&argv, Path::new(&cwd)) {
+                Some(path) => shell::submit(app, path),
+                None => shell::bring_to_front(app),
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
@@ -34,7 +42,14 @@ pub fn run() {
         .manage(Arc::new(Registry::default()))
         .manage(Sessions::default())
         .manage(UndoLog::default())
+        .manage(shell::OpenRequests::default())
         .setup(|app| {
+            // 启动参数只记下，不发事件：前端挂载后主动取。
+            let argv: Vec<String> = std::env::args().collect();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            if let Some(path) = shell::pick_target(&argv, &cwd) {
+                app.state::<shell::OpenRequests>().put(&path);
+            }
             let registry = app.state::<Arc<Registry>>().inner().clone();
             let cache = ThumbCache::new(app.path().app_cache_dir()?.join("thumbs"));
             let cache_dir = cache.dir().to_path_buf();
@@ -85,6 +100,7 @@ pub fn run() {
         commands::recents_pin,
         commands::recents_remove,
         commands::recents_note,
+        shell::take_open_request,
         fileops::commands::fs_trash,
         fileops::commands::fs_rename,
         fileops::commands::fs_move,
@@ -113,6 +129,7 @@ pub fn run() {
         commands::recents_pin,
         commands::recents_remove,
         commands::recents_note,
+        shell::take_open_request,
         fileops::commands::fs_trash,
         fileops::commands::fs_rename,
         fileops::commands::fs_move,
@@ -128,6 +145,18 @@ pub fn run() {
     ]);
 
     builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            {
+                let target = match _event {
+                    tauri::RunEvent::Opened { urls } => shell::url_target(&urls),
+                    _ => None,
+                };
+                if let Some(path) = target {
+                    shell::submit(_app, path);
+                }
+            }
+        });
 }
