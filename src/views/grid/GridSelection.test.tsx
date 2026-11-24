@@ -342,6 +342,11 @@ describe("GridView", () => {
       proto.setPointerCapture = vi.fn();
       proto.releasePointerCapture = vi.fn();
       restore.push(() => { proto.setPointerCapture = had.set; proto.releasePointerCapture = had.rel; });
+      // jsdom 没有 elementFromPoint；在格子上按下拖动会开始缩略图拖拽，它每帧要找落点
+      const doc = document as unknown as Record<string, unknown>;
+      const hadEfp = doc.elementFromPoint;
+      doc.elementFromPoint = () => null;
+      restore.push(() => { doc.elementFromPoint = hadEfp; });
       useListView.setState({ cell: 160 });
     });
     afterEach(() => {

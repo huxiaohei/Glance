@@ -199,7 +199,7 @@ const TRANSFER = {
   copy: { run: fsCopy, busy: "fs.busy.copy", pick: "fs.pick.copy" },
 } as const;
 
-interface Captured {
+export interface Captured {
   ids: FileId[];
   names: Map<FileId, string>;
 }

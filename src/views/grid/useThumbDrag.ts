@@ -1,9 +1,11 @@
 import { useEffect } from "react";
-import { captureNames } from "../../app/fileOps";
+import { captureNames, isBusy, transferTo } from "../../app/fileOps";
 import { IS_MAC } from "../../app/keys";
 import type { FileId } from "../../ipc/types";
+import { edgeScroll } from "../../lib/marquee";
 import { selectOnly } from "../../lib/selection";
-import { dragIds } from "../../lib/thumbDrag";
+import { copyModifier, dragIds, selectModifier, transferPlan } from "../../lib/thumbDrag";
+import { useCatalog } from "../../stores/catalog";
 import { DRAG_IDLE, useDrag } from "../../stores/drag";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useSelection } from "../../stores/selection";
@@ -20,10 +22,24 @@ interface Press {
   active: boolean; // 已超过阈值、正在拖拽
   ids: FileId[]; // 激活时算出的这次拖起来的图（按列表顺序）
   names: Map<FileId, string>; // 激活时取好的文件名，供后续操作的提示条用
+  lastX: number; // 最后的指针位置（视口坐标）
+  lastY: number;
+  copy: boolean; // 复制修饰键的实时状态
+  target: string | null; // 目录树上的有效落点（相对目录，"" 为根目录）
+  plan: FileId[]; // 落在 target 上时实际要处理的图
+  carry: number; // 目录树自动滚动累积的不足 1 px 的部分
+}
+
+/** 指针下目录树的行所代表的相对目录（"" 为根目录）；不在任何行上为 null。 */
+function dropDirAt(x: number, y: number): string | null {
+  const row = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-dir]");
+  return row?.dataset.dropDir ?? null;
 }
 
 /**
  * 在缩略图上按下主键并拖动超过 4 px 开始拖拽：徽标跟着指针，松手或取消即结束。
+ * 拖到目录树的某一行上松手即移动到该目录（按着 Option / Ctrl 为复制）。落点与目录树的边缘自动滚动每帧至多算一次；
+ * 修饰键不动鼠标也生效（激活期间在 window 上听 keydown / keyup）。
  * 监听挂在 scroller 上（原生监听，先于格子的 React 处理函数执行，所以按下时只读选中、不写）。
  * 激活前不捕获指针（否则双击会落到滚动区上）。enabled 为假（网格被单张视图盖住）时不挂监听，进行中的拖拽就此结束。
  */
@@ -32,16 +48,65 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
     if (!scroller || !enabled) return;
     const el = scroller;
     let press: Press | null = null;
+    let frame: number | null = null;
+
+    /** 把 press 里的复制与否、落点写进 store（值没变不写）。 */
+    const sync = (p: Press) => {
+      const cur = useDrag.getState();
+      if (cur.copy !== p.copy || cur.target !== p.target) useDrag.setState({ copy: p.copy, target: p.target });
+    };
+
+    /** 按最后的指针位置与复制状态重算落点：transferPlan 非空才算有效目标。 */
+    const retarget = (p: Press) => {
+      const dir = dropDirAt(p.lastX, p.lastY);
+      p.plan = dir === null ? [] : transferPlan(p.ids, useCatalog.getState().entries, dir, p.copy);
+      p.target = p.plan.length > 0 ? dir : null;
+      sync(p);
+    };
+
+    /** 指针在目录树列表的上下边缘带内时滚动它（只滚整像素，到头停）；返回是否还要继续滚。 */
+    const scrollTree = (p: Press): boolean => {
+      const list = el.closest(".grid-view")?.querySelector<HTMLElement>(".dir-tree-list");
+      if (!list) return false;
+      const r = list.getBoundingClientRect();
+      const inside = p.lastX >= r.left && p.lastX < r.right && p.lastY >= r.top && p.lastY < r.bottom;
+      const dy = inside ? edgeScroll(p.lastY, r.top, r.bottom) : 0;
+      p.carry = dy === 0 ? 0 : p.carry + dy;
+      const step = Math.trunc(p.carry);
+      if (step !== 0) {
+        list.scrollTop += step;
+        p.carry -= step;
+      }
+      const max = list.scrollHeight - list.clientHeight;
+      const atLimit = dy > 0 ? list.scrollTop >= max - 1 : list.scrollTop <= 0;
+      return dy !== 0 && !atLimit;
+    };
+
+    // 每帧至多一次：目录树边缘自动滚动，再重算落点
+    const tick = () => {
+      frame = null;
+      const p = press;
+      if (!p?.active) return;
+      const keepScrolling = scrollTree(p);
+      retarget(p);
+      if (keepScrolling) schedule();
+    };
+    const schedule = () => {
+      if (frame === null) frame = requestAnimationFrame(tick);
+    };
 
     /** 结束（可重入：释放捕获会再触发 lostpointercapture）。选中不动。 */
     const end = () => {
       const p = press;
       if (!p) return;
       press = null;
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onLost);
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKey, true);
       el.removeEventListener("lostpointercapture", onLost);
       if (p.active) {
         el.classList.remove("grid-dragging");
@@ -55,18 +120,22 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
       const sel = useSelection.getState();
       p.ids = dragIds(sel.ids, useGridCtx.getState().list.ids, p.id);
       p.names = captureNames(p.ids);
+      p.copy = copyModifier(e, IS_MAC);
       moveBadge(e.clientX, e.clientY);
-      useDrag.setState({ count: p.ids.length, copy: false, target: null });
+      useDrag.setState({ count: p.ids.length, copy: p.copy, target: null });
       // 捕获指针：拖出滚动区（含窗口外）时仍收得到移动与松开
       try { el.setPointerCapture(p.pointerId); } catch { /* 指针已不在 */ }
       el.addEventListener("lostpointercapture", onLost);
       el.classList.add("grid-dragging");
       window.addEventListener("keydown", onKey, true);
+      window.addEventListener("keyup", onKey, true);
+      schedule();
     };
 
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0 || (IS_MAC && e.ctrlKey)) return; // macOS 上 Ctrl + 单击等同右键
-      if (e.metaKey || e.ctrlKey || e.shiftKey) return; // 带修饰键只是选择操作
+      if (press?.active) return; // 拖拽中别的指针按下：不打断
+      if (selectModifier(e)) return; // 带修饰键只是选择操作（与格子的判断同一条）
       const target = e.target as Element;
       if (target.closest(".rename-input")) return;
       const cellEl = target.closest<HTMLElement>(".thumb-cell");
@@ -83,13 +152,19 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
         active: false,
         ids: [],
         names: new Map(),
+        lastX: e.clientX,
+        lastY: e.clientY,
+        copy: false,
+        target: null,
+        plan: [],
+        carry: 0,
       };
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onLost);
     };
 
-    // 每次指针移动都经过这里；激活后的落点判断（任务 4、5）接在激活分支里
+    // 每次指针移动都经过这里：只记位置、写徽标，落点留给下一帧
     const onMove = (e: PointerEvent) => {
       const p = press;
       if (!p || e.pointerId !== p.pointerId) return;
@@ -98,12 +173,20 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
         end();
         return;
       }
+      p.lastX = e.clientX;
+      p.lastY = e.clientY;
       if (!p.active) {
         if (Math.hypot(e.clientX - p.startX, e.clientY - p.startY) <= THRESHOLD) return;
         activate(p, e);
         return;
       }
       moveBadge(e.clientX, e.clientY);
+      const copy = copyModifier(e, IS_MAC);
+      if (copy !== p.copy) {
+        p.copy = copy;
+        sync(p);
+      }
+      schedule();
     };
 
     const onUp = (e: PointerEvent) => {
@@ -114,8 +197,14 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
         end();
         return;
       }
-      // 已激活：松手（任务 4 在这里接上落点）
+      // 已激活：按松手那一刻的位置与修饰键算落点（不等下一帧），有效且没有别的操作在进行就移动 / 复制
+      p.lastX = e.clientX;
+      p.lastY = e.clientY;
+      p.copy = copyModifier(e, IS_MAC);
+      retarget(p);
+      const { target, plan, copy, names } = p;
       end();
+      if (target !== null && !isBusy()) void transferTo(copy ? "copy" : "move", { kind: "dir", dir: target }, { ids: plan, names });
     };
 
     // pointercancel 与 lostpointercapture：取消，选中不动
@@ -123,12 +212,23 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
       if (press && e.pointerId === press.pointerId) end();
     };
 
-    // 捕获阶段拦下拖拽中的 Esc，免得同一次按键再触发网格的清空选中命令
+    // 只在拖拽激活期间挂着（keydown / keyup，捕获阶段）：
+    // Esc 取消，并拦下它，免得同一次按键再触发网格的清空选中命令；其余按键只跟踪复制修饰键，不拦
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || !press?.active) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      end();
+      const p = press;
+      if (!p?.active) return;
+      if (e.key === "Escape") {
+        if (e.type !== "keydown") return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        end();
+        return;
+      }
+      const copy = copyModifier(e, IS_MAC);
+      if (copy === p.copy) return;
+      p.copy = copy;
+      sync(p);
+      schedule();
     };
 
     el.addEventListener("pointerdown", onDown);
