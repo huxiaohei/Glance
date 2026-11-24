@@ -11,6 +11,7 @@ vi.mock("../../stores/settings", async (importOriginal) => {
 
 const { default: SettingsDialog } = await import("./SettingsDialog");
 const { DEFAULT_SETTINGS, useSettings } = await import("../../stores/settings");
+const { useTip } = await import("../../stores/tip");
 const { t } = await import("../../i18n");
 
 beforeEach(() => {
@@ -24,6 +25,14 @@ afterEach(() => {
 const control = (key: Parameters<typeof t>[0]) => screen.getByLabelText(t(key)) as HTMLSelectElement & HTMLInputElement;
 
 describe("SettingsDialog", () => {
+  it("点“打赏”按钮：设置关闭，打赏面板打开", () => {
+    render(<SettingsDialog />);
+    fireEvent.click(screen.getByRole("button", { name: t("tip.entry") }));
+    expect(useSettings.getState().open).toBe(false);
+    expect(useTip.getState().open).toBe(true);
+    useTip.setState({ open: false });
+  });
+
   it("open 为假时不渲染", () => {
     useSettings.setState({ open: false });
     const { container } = render(<SettingsDialog />);

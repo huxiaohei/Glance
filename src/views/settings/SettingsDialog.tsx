@@ -3,6 +3,7 @@ import { t, type MessageKey } from "../../i18n";
 import type { Language, Settings, Theme, WheelAction } from "../../ipc/types";
 import type { SortKey } from "../../lib/deriveList";
 import { updateSettings, useSettings } from "../../stores/settings";
+import { useTip } from "../../stores/tip";
 import { useModalFocus } from "../common/useModalFocus";
 import "./settings.css";
 
@@ -113,6 +114,16 @@ export default function SettingsDialog() {
           <Check id="settings-updates" label="settings.checkUpdates" field="checkUpdates" />
         </section>
         <div className="settings-actions">
+          <button
+            type="button"
+            className="settings-tip"
+            onClick={() => {
+              close();
+              useTip.setState({ open: true });
+            }}
+          >
+            {t("tip.entry")}
+          </button>
           <button type="button" onClick={close}>
             {t("settings.close")}
           </button>

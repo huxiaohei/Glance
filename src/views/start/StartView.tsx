@@ -4,6 +4,7 @@ import { formatKey, IS_MAC } from "../../app/keys";
 import { t } from "../../i18n";
 import { appVersion } from "../../ipc/api";
 import { loadRecents } from "../../stores/recents";
+import { useTip } from "../../stores/tip";
 import RecentList from "./RecentList";
 import "./start.css";
 
@@ -32,7 +33,12 @@ export default function StartView() {
         </div>
         <RecentList />
       </div>
-      {version !== null && <div className="start-version">v{version}</div>}
+      <div className="start-footer">
+        <button type="button" className="start-tip" onClick={() => useTip.setState({ open: true })}>
+          {t("tip.entry")}
+        </button>
+        {version !== null && <span className="start-version">v{version}</span>}
+      </div>
     </div>
   );
 }

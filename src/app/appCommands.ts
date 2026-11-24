@@ -1,5 +1,6 @@
 import { useListView } from "../stores/listView";
 import { useSettings } from "../stores/settings";
+import { useTip } from "../stores/tip";
 import { pickAndOpenFolder, refreshFolder } from "./openFolder";
 import { registerCommands, type Command } from "./commands";
 import { toggleFullscreen } from "./fullscreen";
@@ -51,6 +52,14 @@ const appCommands: Command[] = [
     views: "all",
     allowInInput: true,
     run: () => useSettings.setState((s) => ({ open: !s.open })),
+  },
+  {
+    id: "app.tip",
+    title: "cmd.app.tip",
+    category: "cmd.cat.general",
+    keys: [],
+    views: "all",
+    run: () => useTip.setState((s) => ({ open: !s.open })),
   },
   {
     id: "help.shortcuts",

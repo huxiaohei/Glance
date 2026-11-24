@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { activeView, findCommand } from "./commands";
 import { useSettings } from "../stores/settings";
+import { useTip } from "../stores/tip";
 import { isPromptOpen } from "../views/common/NamePrompt";
 import { IS_MAC } from "./keys";
 
@@ -14,7 +15,7 @@ function isInInput(target: EventTarget | null): boolean {
 }
 
 /**
- * window 上的 keydown 处理。优先级：名字对话框 > 设置对话框 > 快捷键一览。
+ * window 上的 keydown 处理。优先级：名字对话框 > 打赏面板 > 设置对话框 > 快捷键一览。
  * 设置对话框打开时只响应 Esc 与 app.settings（都是关闭它），其余按键不执行命令、原样放过
  * （下拉框里的方向键、空格、Tab 照常可用）。
  * 快捷键一览打开时只响应 help.shortcuts 与 Esc，其余全部拦下。
@@ -27,6 +28,12 @@ export function handleKeyDown(e: KeyboardEvent): void {
   if (isPromptOpen()) return;
   const inInput = isInInput(e.target);
   const view = activeView();
+  // 打赏面板打开时只响应 Esc，其余按键全部拦下（Tab 留给焦点陷阱）
+  if (useTip.getState().open) {
+    if (e.key === "Escape") useTip.setState({ open: false });
+    if (e.key !== "Tab" && e.key !== "Enter" && e.key !== " ") e.preventDefault();
+    return;
+  }
   if (useSettings.getState().open) {
     const cmd = findCommand(e, view, true, IS_MAC);
     if (e.key === "Escape" || cmd?.id === "app.settings") {

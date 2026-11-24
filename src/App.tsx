@@ -16,6 +16,7 @@ import NamePrompt from "./views/common/NamePrompt";
 import GridView from "./views/grid/GridView";
 import ShortcutsOverlay from "./views/help/ShortcutsOverlay";
 import SettingsDialog from "./views/settings/SettingsDialog";
+import TipDialog from "./views/tip/TipDialog";
 import SingleView from "./views/single/SingleView";
 import { registerSingleCommands } from "./views/single/singleCommands";
 import StartView from "./views/start/StartView";
@@ -62,6 +63,7 @@ export default function App() {
         {hasRoot && single && <SingleView />}
         <ShortcutsOverlay />
         <SettingsDialog />
+        <TipDialog />
         <NamePrompt />
         <Toast />
       </Fragment>

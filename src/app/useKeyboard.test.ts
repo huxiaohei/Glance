@@ -8,6 +8,7 @@ const { registerCommands } = await import("./commands");
 type Command = import("./commands").Command;
 const { handleKeyDown, useHelp } = await import("./useKeyboard");
 const { useSettings } = await import("../stores/settings");
+const { useTip } = await import("../stores/tip");
 const { IS_MAC } = await import("./keys");
 
 const run = vi.fn();
@@ -31,6 +32,7 @@ afterEach(() => {
   off();
   useHelp.setState({ open: false });
   useSettings.setState({ open: false });
+  useTip.setState({ open: false });
   prompt.open = false;
   for (const f of [run, runAll, runArrow, runSpace]) f.mockClear();
 });
@@ -110,6 +112,19 @@ describe("handleKeyDown", () => {
     handleKeyDown(key("Escape"));
     expect(useSettings.getState().open).toBe(false);
     expect(useHelp.getState().open).toBe(true);
+  });
+  it("打赏面板打开时 Esc 只关闭它，其余命令被拦下", () => {
+    off = registerCommands(cmds);
+    useTip.setState({ open: true });
+    const down = key("ArrowDown");
+    handleKeyDown(down);
+    expect(down.preventDefault).toHaveBeenCalled();
+    expect(runArrow).not.toHaveBeenCalled();
+    const e = key("Escape");
+    handleKeyDown(e);
+    expect(useTip.getState().open).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    expect(e.preventDefault).toHaveBeenCalled();
   });
   it("名字对话框打开时 Mod+, 不起作用", () => {
     off = registerCommands(cmds);

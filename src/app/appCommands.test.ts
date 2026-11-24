@@ -7,6 +7,7 @@ vi.mock("./openFolder", () => ({ pickAndOpenFolder: vi.fn(), refreshFolder: vi.f
 vi.mock("../ipc/api", () => ({ settingsGet: vi.fn(), settingsSet: vi.fn(() => Promise.resolve()) }));
 import { toggleFullscreen } from "./fullscreen";
 import { useSettings } from "../stores/settings";
+import { useTip } from "../stores/tip";
 
 let unregister: (() => void) | null = null;
 afterEach(() => {
@@ -38,5 +39,18 @@ describe("app.settings", () => {
     expect(useSettings.getState().open).toBe(true);
     cmd!.run({ shift: false, repeat: false });
     expect(useSettings.getState().open).toBe(false);
+  });
+});
+
+describe("app.tip", () => {
+  it("没有快捷键，执行后切换打赏面板", () => {
+    unregister = registerAppCommands();
+    const cmd = allCommands().find((c) => c.id === "app.tip");
+    expect(cmd?.keys).toEqual([]);
+    expect(cmd?.title).toBe("cmd.app.tip");
+    cmd!.run({ shift: false, repeat: false });
+    expect(useTip.getState().open).toBe(true);
+    cmd!.run({ shift: false, repeat: false });
+    expect(useTip.getState().open).toBe(false);
   });
 });

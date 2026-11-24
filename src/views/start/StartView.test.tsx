@@ -8,6 +8,7 @@ import { appVersion, recentsList, recentsPin, recentsRemove } from "../../ipc/ap
 import type { RecentEntry } from "../../ipc/types";
 import { thumbKeyUrl } from "../../lib/glanceUrl";
 import { useRecents } from "../../stores/recents";
+import { useTip } from "../../stores/tip";
 import StartView from "./StartView";
 
 vi.mock("../../ipc/api", () => ({
@@ -63,6 +64,14 @@ describe("StartView", () => {
     // 键名对读屏隐藏：按钮的可访问名称就是文字本身
     const btn = screen.getByRole("button", { name: t("start.open") });
     expect(btn.querySelector("kbd")?.textContent).toBe(formatKey("Mod+O", IS_MAC));
+  });
+
+  it("点“打赏”链接打开打赏面板", async () => {
+    await mount([]);
+    useTip.setState({ open: false });
+    fireEvent.click(screen.getByRole("button", { name: t("tip.entry") }));
+    expect(useTip.getState().open).toBe(true);
+    useTip.setState({ open: false });
   });
 
   it("右下角显示 v<版本号>；取不到版本时不显示", async () => {
