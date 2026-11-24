@@ -38,9 +38,13 @@ export default function StartView() {
       <div className="start-footer">
         {version !== null && <span className="start-version">v{version}</span>}
       </div>
-      {/* 小老虎趴在窗口底边：隔一阵探头、歪头、冒爱心，平时眨眨眼；点它打开打赏大图 */}
-      <button type="button" className="start-peek" onClick={() => useTip.setState({ open: true })}>
-        <span className="start-peek-bubble">{t("tip.title")}</span>
+      {/* 小老虎趴在窗口底边：隔一阵探头、歪头、冒爱心，平时眨眨眼；没有文字，读屏用 aria-label；点它打开打赏大图 */}
+      <button
+        type="button"
+        className="start-peek"
+        aria-label={t("tip.title")}
+        onClick={() => useTip.setState({ open: true })}
+      >
         <span className="start-peek-body">
           <img className="start-peek-tiger" src={tigerPeek} alt="" draggable={false} />
           <img className="start-peek-blink" src={tigerBlink} alt="" draggable={false} />

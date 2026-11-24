@@ -66,16 +66,16 @@ describe("StartView", () => {
     expect(btn.querySelector("kbd")?.textContent).toBe(formatKey("Mod+O", IS_MAC));
   });
 
-  it("右下角探头的小老虎带着气泡文字，点它打开打赏面板", async () => {
+  it("右下角探头的小老虎没有文字、可访问名称是打赏标题，点它打开打赏面板", async () => {
     const { container } = await mount([]);
     useTip.setState({ open: false });
     const peek = screen.getByRole("button", { name: t("tip.title") });
-    // 主图与闭眼贴片两张图都是装饰，可访问名称只来自气泡文字
+    // 主图与闭眼贴片两张图都是装饰，可访问名称来自 aria-label
     const imgs = peek.querySelectorAll("img");
     expect(imgs).toHaveLength(2);
     for (const img of imgs) expect(img.getAttribute("alt")).toBe("");
     expect(peek.querySelector(".start-peek-heart")?.getAttribute("aria-hidden")).toBe("true");
-    expect(peek.textContent).toContain(t("tip.title"));
+    expect(peek.textContent).toBe("");
     // 原来的文字链接不再出现
     expect(screen.queryByRole("button", { name: t("tip.entry") })).toBeNull();
     expect(container.querySelector(".start-tip")).toBeNull();
