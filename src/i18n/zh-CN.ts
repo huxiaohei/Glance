@@ -176,4 +176,10 @@ export const zhCN = {
   "settings.wheel": "滚轮",
   "settings.wheel.zoom": "缩放",
   "settings.wheel.switch": "切换图片",
+  "settings.group.update": "更新",
+  "settings.checkUpdates": "启动时检查更新",
+  "update.available": "发现新版本 {v}",
+  "update.install": "更新并重启",
+  "update.installing": "正在更新…",
+  "error.updateFailed": "更新失败，请稍后重试",
 } as const;

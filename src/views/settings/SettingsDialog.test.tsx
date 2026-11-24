@@ -30,7 +30,7 @@ describe("SettingsDialog", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("有 role=dialog 与 aria-modal，六个控件都能按标签文字找到", () => {
+  it("有 role=dialog 与 aria-modal，七个控件都能按标签文字找到", () => {
     render(<SettingsDialog />);
     const dialog = screen.getByRole("dialog", { name: t("settings.title") });
     expect(dialog.getAttribute("aria-modal")).toBe("true");
@@ -40,6 +40,7 @@ describe("SettingsDialog", () => {
     expect(control("settings.defaultSort").tagName).toBe("SELECT");
     expect(control("settings.loopAtEnd").type).toBe("checkbox");
     expect(control("settings.wheel").tagName).toBe("SELECT");
+    expect(control("settings.checkUpdates").type).toBe("checkbox");
     // 语言名不翻译
     const langs = [...control("settings.language").options].map((o) => o.textContent);
     expect(langs).toContain("简体中文");
@@ -103,5 +104,11 @@ describe("SettingsDialog", () => {
   it("打开时焦点在对话框内", () => {
     render(<SettingsDialog />);
     expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+  });
+
+  it("勾掉“启动时检查更新”后保存 checkUpdates: false", () => {
+    render(<SettingsDialog />);
+    fireEvent.click(control("settings.checkUpdates"));
+    expect(updateSettings).toHaveBeenCalledWith({ checkUpdates: false });
   });
 });

@@ -1,14 +1,24 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { pickAndOpenFolder } from "../../app/openFolder";
 import { formatKey, IS_MAC } from "../../app/keys";
 import { t } from "../../i18n";
+import { appVersion } from "../../ipc/api";
 import { loadRecents } from "../../stores/recents";
 import RecentList from "./RecentList";
 import "./start.css";
 
 export default function StartView() {
+  const [version, setVersion] = useState<string | null>(null);
   useEffect(() => {
     void loadRecents();
+    let alive = true;
+    // 取不到版本号就不显示
+    appVersion()
+      .then((v) => alive && typeof v === "string" && setVersion(v))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
   return (
     <div className="start">
@@ -22,6 +32,7 @@ export default function StartView() {
         </div>
         <RecentList />
       </div>
+      {version !== null && <div className="start-version">v{version}</div>}
     </div>
   );
 }

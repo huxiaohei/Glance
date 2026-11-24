@@ -177,5 +177,11 @@ export const en: Record<MessageKey, string> = {
   "settings.loopAtEnd": "Wrap around to the first image after the last",
   "settings.wheel": "Mouse wheel",
   "settings.wheel.zoom": "Zoom",
+  "settings.group.update": "Updates",
+  "settings.checkUpdates": "Check for updates on launch",
+  "update.available": "Version {v} is available",
+  "update.install": "Update and restart",
+  "update.installing": "Updating…",
+  "error.updateFailed": "Update failed. Please try again later.",
   "settings.wheel.switch": "Switch images",
 };

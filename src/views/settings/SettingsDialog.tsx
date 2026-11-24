@@ -17,7 +17,7 @@ function Row({ id, label, children }: { id: string; label: MessageKey; children:
   );
 }
 
-function Check({ id, label, field }: { id: string; label: MessageKey; field: "includeSubdirs" | "loopAtEnd" }) {
+function Check({ id, label, field }: { id: string; label: MessageKey; field: "includeSubdirs" | "loopAtEnd" | "checkUpdates" }) {
   const checked = useSettings((s) => s.settings[field]);
   return (
     <div className="settings-row settings-check">
@@ -107,6 +107,10 @@ export default function SettingsDialog() {
           <Select id="settings-sort" label="settings.defaultSort" field="defaultSort" options={sorts} />
           <Check id="settings-loop" label="settings.loopAtEnd" field="loopAtEnd" />
           <Select id="settings-wheel" label="settings.wheel" field="wheel" options={wheels} />
+        </section>
+        <section className="settings-group">
+          <h3 className="settings-cat">{t("settings.group.update")}</h3>
+          <Check id="settings-updates" label="settings.checkUpdates" field="checkUpdates" />
         </section>
         <div className="settings-actions">
           <button type="button" onClick={close}>

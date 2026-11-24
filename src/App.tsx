@@ -4,6 +4,7 @@ import { registerFileCommands } from "./app/fileCommands";
 import { subscribeThumbs } from "./app/openFolder";
 import { startOpenRequests } from "./app/openRequests";
 import { startRecentsSync } from "./app/recentsSync";
+import { startUpdateCheck } from "./app/updateCheck";
 import { useFolderDrop } from "./app/useFolderDrop";
 import { useKeyboard } from "./app/useKeyboard";
 import Lab from "./lab/Lab";
@@ -40,7 +41,10 @@ export default function App() {
     void loadRecents();
     // 系统交来的打开请求：启动时取一次，之后每次通知再取
     const stopOpenRequests = startOpenRequests();
+    // 更新检查：启动 3 秒后一次，是否真的检查由后端按设置与构建类型决定
+    const stopUpdateCheck = startUpdateCheck();
     return () => {
+      stopUpdateCheck();
       stopOpenRequests();
       stopRecents();
       offSingle();

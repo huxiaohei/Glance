@@ -147,3 +147,10 @@
 .recent-remove:hover { color: var(--danger); }
 
 .recent-item.is-missing .recent-main { opacity: 0.45; }
+.start-version {
+  position: fixed;
+  right: calc(2 * var(--gap));
+  bottom: var(--gap);
+  font-size: 12px;
+  color: var(--text-dim);
+}

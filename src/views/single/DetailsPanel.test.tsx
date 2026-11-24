@@ -2,7 +2,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
-import { imageDetails, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant } from "../../ipc/api";
+import { appVersion, imageDetails, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
 import type { ImageDetails } from "../../ipc/types";
 import { setLanguage, t } from "../../i18n";
 import { useCatalog } from "../../stores/catalog";
@@ -23,6 +23,8 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   vi.mocked(thumbsSubscribe).mockResolvedValue();
   vi.mocked(takeOpenRequest).mockResolvedValue(null);
+  vi.mocked(updateCheck).mockResolvedValue(null);
+  vi.mocked(appVersion).mockResolvedValue("0.1.0");
   vi.mocked(onOpenRequest).mockResolvedValue(() => {});
   vi.mocked(thumbsWant).mockResolvedValue([]);
   vi.mocked(imageDetails).mockReset();

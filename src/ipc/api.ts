@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import type { SortKey } from "../lib/deriveList";
 import type {
@@ -129,4 +130,19 @@ export function takeOpenRequest(): Promise<string | null> {
 /** 后端记下新的打开请求时触发（无内容）；返回取消监听的函数。 */
 export function onOpenRequest(handler: () => void): Promise<() => void> {
   return listen("open_request", () => handler());
+}
+
+/** 检查新版本：有则返回版本号，没有、关闭了或调试构建返回 null（是否检查由后端判断）。 */
+export function updateCheck(): Promise<string | null> {
+  return invoke<string | null>("update_check");
+}
+
+/** 下载并安装待更新的版本，成功后应用重启；失败时拒绝（`updateFailed`），再调一次可重试。 */
+export function updateInstall(): Promise<void> {
+  return invoke<void>("update_install");
+}
+
+/** 当前应用版本号。 */
+export function appVersion(): Promise<string> {
+  return getVersion();
 }

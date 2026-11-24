@@ -4,13 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { openRecent } from "../../app/openFolder";
 import { formatKey, IS_MAC } from "../../app/keys";
 import { t } from "../../i18n";
-import { recentsList, recentsPin, recentsRemove } from "../../ipc/api";
+import { appVersion, recentsList, recentsPin, recentsRemove } from "../../ipc/api";
 import type { RecentEntry } from "../../ipc/types";
 import { thumbKeyUrl } from "../../lib/glanceUrl";
 import { useRecents } from "../../stores/recents";
 import StartView from "./StartView";
 
 vi.mock("../../ipc/api", () => ({
+  appVersion: vi.fn(() => Promise.resolve("0.1.0")),
   recentsList: vi.fn(),
   recentsPin: vi.fn(),
   recentsRemove: vi.fn(),
@@ -42,6 +43,7 @@ async function mount(list: RecentEntry[]) {
 }
 
 beforeEach(() => {
+  vi.mocked(appVersion).mockResolvedValue("0.1.0");
   vi.mocked(recentsList).mockReset();
   vi.mocked(recentsPin).mockReset();
   vi.mocked(recentsRemove).mockReset();
@@ -61,6 +63,15 @@ describe("StartView", () => {
     // 键名对读屏隐藏：按钮的可访问名称就是文字本身
     const btn = screen.getByRole("button", { name: t("start.open") });
     expect(btn.querySelector("kbd")?.textContent).toBe(formatKey("Mod+O", IS_MAC));
+  });
+
+  it("右下角显示 v<版本号>；取不到版本时不显示", async () => {
+    const { unmount } = await mount([]);
+    expect(await screen.findByText("v0.1.0")).toBeTruthy();
+    unmount();
+    vi.mocked(appVersion).mockRejectedValue(new Error("x"));
+    const { container } = await mount([]);
+    expect(container.querySelector(".start-version")).toBeNull();
   });
 
   it("没有最近目录时不渲染列表", async () => {
