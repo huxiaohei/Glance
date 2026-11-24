@@ -70,7 +70,11 @@ describe("StartView", () => {
     const { container } = await mount([]);
     useTip.setState({ open: false });
     const peek = screen.getByRole("button", { name: t("tip.title") });
-    expect(peek.querySelector("img")?.getAttribute("alt")).toBe("");
+    // 主图与闭眼贴片两张图都是装饰，可访问名称只来自气泡文字
+    const imgs = peek.querySelectorAll("img");
+    expect(imgs).toHaveLength(2);
+    for (const img of imgs) expect(img.getAttribute("alt")).toBe("");
+    expect(peek.querySelector(".start-peek-heart")?.getAttribute("aria-hidden")).toBe("true");
     expect(peek.textContent).toContain(t("tip.title"));
     // 原来的文字链接不再出现
     expect(screen.queryByRole("button", { name: t("tip.entry") })).toBeNull();

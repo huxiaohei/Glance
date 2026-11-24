@@ -6,6 +6,7 @@ import { appVersion } from "../../ipc/api";
 import { loadRecents } from "../../stores/recents";
 import { useTip } from "../../stores/tip";
 import tigerPeek from "../../assets/tip/tiger_peek.webp";
+import tigerBlink from "../../assets/tip/tiger_peek_blink.webp";
 import RecentList from "./RecentList";
 import "./start.css";
 
@@ -37,10 +38,22 @@ export default function StartView() {
       <div className="start-footer">
         {version !== null && <span className="start-version">v{version}</span>}
       </div>
-      {/* 小老虎从窗口底边探头：一眼能看到打赏，点它打开大图 */}
+      {/* 小老虎趴在窗口底边：隔一阵探头、歪头、冒爱心，平时眨眨眼；点它打开打赏大图 */}
       <button type="button" className="start-peek" onClick={() => useTip.setState({ open: true })}>
         <span className="start-peek-bubble">{t("tip.title")}</span>
-        <img className="start-peek-tiger" src={tigerPeek} alt="" draggable={false} />
+        <span className="start-peek-body">
+          <img className="start-peek-tiger" src={tigerPeek} alt="" draggable={false} />
+          <img className="start-peek-blink" src={tigerBlink} alt="" draggable={false} />
+          <svg className="start-peek-heart" viewBox="0 0 32 30" aria-hidden="true">
+            <path
+              d="M16 28 C 6 20 2 15 2 9.5 A 7 7 0 0 1 16 6.5 A 7 7 0 0 1 30 9.5 C 30 15 26 20 16 28 Z"
+              fill="#F28C8C"
+              stroke="#3A2B2E"
+              strokeWidth="2.5"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
       </button>
     </div>
   );
