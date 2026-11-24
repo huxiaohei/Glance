@@ -22,12 +22,18 @@ export function startOpenRequests(): () => void {
   })
     .then((fn) => {
       // StrictMode 会先卸载再挂载：注册完成时若已停止，立刻取消
-      if (cancelled) fn();
-      else unlisten = fn;
+      if (cancelled) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+      // 初次取与监听生效之间发出的事件会丢：注册完成后再取一次补上
+      void take();
     })
     .catch(() => {});
   return () => {
     cancelled = true;
     unlisten?.();
+    unlisten = null;
   };
 }

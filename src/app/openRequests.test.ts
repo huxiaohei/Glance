@@ -101,4 +101,20 @@ describe("startOpenRequests", () => {
     await flush();
     expect(openFolder).toHaveBeenCalledWith("/gone");
   });
+
+  it("监听注册完成后补取一次（填补取与监听之间的空隙）", async () => {
+    vi.mocked(takeOpenRequest).mockResolvedValueOnce(null).mockResolvedValueOnce("/b");
+    startOpenRequests();
+    await flush();
+    expect(openFolder).toHaveBeenCalledTimes(1);
+    expect(openFolder).toHaveBeenCalledWith("/b");
+  });
+
+  it("重复调用停止函数只取消一次监听", async () => {
+    const stop = startOpenRequests();
+    await flush();
+    stop();
+    stop();
+    expect(hooks.unlisten).toHaveBeenCalledTimes(1);
+  });
 });
