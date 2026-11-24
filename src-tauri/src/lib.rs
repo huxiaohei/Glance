@@ -4,6 +4,8 @@ mod dragout;
 pub mod fileops;
 #[cfg(debug_assertions)]
 mod lab;
+#[cfg(target_os = "macos")]
+mod macos_service;
 mod protocol;
 mod shell;
 mod state;
@@ -73,6 +75,8 @@ pub fn run() {
                 &app.path().app_config_dir()?,
             ));
             state::settings::apply_window_theme(app.handle(), theme);
+            #[cfg(target_os = "macos")]
+            macos_service::install(app.handle());
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("glance", |ctx, request, responder| {

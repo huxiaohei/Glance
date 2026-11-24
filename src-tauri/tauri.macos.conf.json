@@ -1,5 +1,10 @@
 {
   "bundle": {
+    "macOS": {
+      "files": {
+        "Resources/zh-Hans.lproj/ServicesMenu.strings": "macos/zh-Hans.lproj/ServicesMenu.strings"
+      }
+    },
     "fileAssociations": [
       { "ext": ["png", "jpg", "jpeg", "webp", "gif", "bmp"], "name": "Image", "role": "Viewer", "rank": "Alternate" },
       { "ext": [], "contentTypes": ["public.folder"], "name": "Folder", "role": "Viewer", "rank": "Alternate" }

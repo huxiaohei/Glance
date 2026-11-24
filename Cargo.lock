@@ -1652,6 +1652,7 @@ dependencies = [
  "libc",
  "notify-debouncer-full",
  "objc2",
+ "objc2-app-kit",
  "objc2-foundation",
  "serde",
  "serde_json",

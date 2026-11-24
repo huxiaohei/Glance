@@ -26,3 +26,28 @@ fn macos_关联的扩展名与扫描一致() {
         .as_array()
         .is_some_and(|c| c.iter().any(|t| t == "public.folder"))));
 }
+
+#[test]
+fn macos_声明了打开服务() {
+    let dir = env!("CARGO_MANIFEST_DIR");
+    let plist = std::fs::read_to_string(format!("{dir}/Info.plist")).expect("读取 Info.plist");
+    for key in [
+        "NSServices",
+        "openInGlance",
+        "public.folder",
+        "public.image",
+    ] {
+        assert!(plist.contains(key), "Info.plist 缺少 {key}");
+    }
+    let strings =
+        std::fs::read_to_string(format!("{dir}/macos/zh-Hans.lproj/ServicesMenu.strings"))
+            .expect("读取 ServicesMenu.strings");
+    assert!(strings.contains("用 Glance 打开"));
+
+    let text = std::fs::read_to_string(format!("{dir}/tauri.macos.conf.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        v["bundle"]["macOS"]["files"]["Resources/zh-Hans.lproj/ServicesMenu.strings"],
+        "macos/zh-Hans.lproj/ServicesMenu.strings"
+    );
+}
