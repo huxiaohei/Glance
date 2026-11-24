@@ -455,6 +455,42 @@ describe("GridView", () => {
       expect(ids()).toEqual([]);
     });
 
+    const remove = (...idList: number[]) => {
+      act(() => useCatalog.getState().apply({ type: "removed", generation: 1, ids: idList }));
+    };
+
+    it("按着 Mod 框选途中，原先选中的一张被移除：框选结果里不再有它", () => {
+      const { scroller } = setup();
+      act(() => useSelection.getState().set(selectOnly(1)));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100, metaKey: true });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([1, 2]);
+
+      remove(1);
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 150, clientY: 60 });
+      flush();
+      expect(ids()).not.toContain(1);
+      expect(useSelection.getState().focus).not.toBe(1);
+      expect(useSelection.getState().anchor).not.toBe(1);
+      fireEvent.pointerUp(scroller, { clientX: 150, clientY: 60 });
+    });
+
+    it("框选途中原先选中的一张被移除后按 Esc：恢复的选中里不再有它", () => {
+      const { scroller } = setup();
+      act(() => useSelection.getState().set(selectOnly(1)));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([2]);
+
+      remove(1);
+      fireEvent.keyDown(scroller, { key: "Escape" });
+      expect(ids()).not.toContain(1);
+      expect(useSelection.getState().focus).not.toBe(1);
+      expect(useSelection.getState().anchor).not.toBe(1);
+    });
+
     it("网格被单张视图盖住（hidden）时结束进行中的框选，之后的 Esc 不再被框选拦下", () => {
       const { container, scroller, rerender } = setup();
       act(() => useSelection.getState().set(selectOnly(1)));

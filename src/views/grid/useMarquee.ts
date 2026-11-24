@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { IS_MAC } from "../../app/keys";
 import { GRID_PAD, idsInRect, type GridLayout, type Rect } from "../../lib/gridLayout";
 import { edgeScroll } from "../../lib/marquee";
-import { EMPTY, selectMany, type Selection } from "../../lib/selection";
+import { EMPTY, prune, selectMany, type Selection } from "../../lib/selection";
+import { useCatalog } from "../../stores/catalog";
+import { useGridCtx } from "../../stores/gridCtx";
 import { useSelection } from "../../stores/selection";
 
 const THRESHOLD = 4; // 移动超过这个距离（px）才算拖动
@@ -19,6 +21,11 @@ interface Press {
   lastY: number;
   rect: Rect | null; // 上一帧算出的矩形
   carry: number; // 自动滚动累积的不足 1 px 的部分（引擎会把小数滚动量舍掉）
+}
+
+/** 按下时记下的选中可能含框选途中被移除的图：用的时候按当前条目与列表顺序剪一遍。 */
+function liveBase(base: Selection): Selection {
+  return prune(base, useCatalog.getState().entries, useGridCtx.getState().list.ids);
 }
 
 /** 滚动区视口坐标 → 内容区坐标。 */
@@ -74,7 +81,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
         press.rect = r;
         setRect(r);
         // 非加选以空选中为底：什么都没碰到时 focus、anchor 也是空的，与空白处单击一致
-        const base = press.additive ? press.base : EMPTY;
+        const base = press.additive ? liveBase(press.base) : EMPTY;
         useSelection.getState().set(selectMany(base, idsInRect(lay, c, r), press.additive));
       }
       if (keepScrolling) schedule();
@@ -156,7 +163,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
       if (e.key !== "Escape" || !press?.active) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      useSelection.getState().set(press.base);
+      useSelection.getState().set(liveBase(press.base));
       finish();
     };
 
