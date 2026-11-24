@@ -51,7 +51,7 @@ describe("SettingsDialog", () => {
 
   it("各控件显示当前设置的值", () => {
     useSettings.setState({
-      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch" },
+      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch", checkUpdates: true },
     });
     render(<SettingsDialog />);
     expect(control("settings.theme").value).toBe("light");

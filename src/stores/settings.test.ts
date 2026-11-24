@@ -56,6 +56,7 @@ describe("settings store", () => {
       defaultSort: "name",
       loopAtEnd: false,
       wheel: "zoom",
+      checkUpdates: true,
     });
   });
 

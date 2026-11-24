@@ -61,6 +61,7 @@ export interface Settings {
   defaultSort: SortKey;
   loopAtEnd: boolean;
   wheel: WheelAction;
+  checkUpdates: boolean;
 }
 
 /** 最近目录的一项。path 只用于显示和原样传回 open_path / recents_pin / recents_remove（“前端只见 FileId”的明确例外）。

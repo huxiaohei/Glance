@@ -11,6 +11,7 @@ mod shell;
 mod state;
 mod system;
 mod thumbs;
+mod update;
 
 use catalog::registry::Registry;
 use catalog::session::Sessions;
@@ -40,8 +41,13 @@ pub fn run() {
                     StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED,
                 )
                 .build(),
-        )
+        );
+    // 公钥填占位串时插件照常注册：公钥只在校验下载包签名时才解码。
+    #[cfg(feature = "updater")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    let builder = builder
         .manage(Arc::new(Registry::default()))
+        .manage(update::PendingUpdate::default())
         .manage(Sessions::default())
         .manage(UndoLog::default())
         .manage(shell::OpenRequests::default())
@@ -105,6 +111,8 @@ pub fn run() {
         commands::recents_remove,
         commands::recents_note,
         shell::take_open_request,
+        update::update_check,
+        update::update_install,
         fileops::commands::fs_trash,
         fileops::commands::fs_rename,
         fileops::commands::fs_move,
@@ -134,6 +142,8 @@ pub fn run() {
         commands::recents_remove,
         commands::recents_note,
         shell::take_open_request,
+        update::update_check,
+        update::update_install,
         fileops::commands::fs_trash,
         fileops::commands::fs_rename,
         fileops::commands::fs_move,

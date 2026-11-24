@@ -1,9 +1,13 @@
 [package]
 name = "glance"
-version = "0.0.1"
+version = "0.1.0"
 description = "Glance"
 authors = ["Glance"]
 edition = "2024"
+
+[features]
+default = ["updater"]
+updater = ["dep:tauri-plugin-updater"]
 
 [lib]
 name = "glance_lib"
@@ -29,6 +33,7 @@ tauri-plugin-clipboard-manager = "2.5.0"
 tauri-plugin-opener = "2.7.3"
 tauri-plugin-window-state = "2"
 tauri-plugin-single-instance = "2.5.5"
+tauri-plugin-updater = { version = "2.14.1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

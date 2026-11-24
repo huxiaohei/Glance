@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultSort: "name",
   loopAtEnd: false,
   wheel: "zoom",
+  checkUpdates: true,
 };
 
 export const useSettings = create<{ settings: Settings; open: boolean }>(() => ({

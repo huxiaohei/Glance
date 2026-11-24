@@ -51,6 +51,8 @@ pub struct Settings {
     pub default_sort: SortKey,
     pub loop_at_end: bool,
     pub wheel: WheelAction,
+    /// 启动时检查更新（仅正式构建）。
+    pub check_updates: bool,
 }
 
 impl Default for Settings {
@@ -62,6 +64,7 @@ impl Default for Settings {
             default_sort: SortKey::Name,
             loop_at_end: false,
             wheel: WheelAction::Zoom,
+            check_updates: true,
         }
     }
 }
@@ -138,6 +141,36 @@ mod tests {
         assert_eq!(d.default_sort, SortKey::Name);
         assert!(!d.loop_at_end);
         assert_eq!(d.wheel, WheelAction::Zoom);
+        assert!(d.check_updates);
+    }
+
+    #[test]
+    fn old_settings_file_without_check_updates_reads_as_true() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            r#"{"theme":"light","includeSubdirs":false,"defaultSort":"size","loopAtEnd":true,"wheel":"switch","language":"en"}"#,
+        )
+        .unwrap();
+        let s = SettingsState::load(dir.path()).get();
+        assert!(s.check_updates);
+        assert_eq!(s.theme, Theme::Light);
+    }
+
+    #[test]
+    fn check_updates_false_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let st = SettingsState::load(dir.path());
+        let next = Settings {
+            check_updates: false,
+            ..Settings::default()
+        };
+        st.set(next.clone()).unwrap();
+        let text = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        assert!(
+            text.contains(r#""checkUpdates":false"#) || text.contains(r#""checkUpdates": false"#)
+        );
+        assert_eq!(SettingsState::load(dir.path()).get(), next);
     }
 
     #[test]
@@ -145,7 +178,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(Settings::default()).unwrap(),
             json!({"theme":"dark","language":"system","includeSubdirs":true,
-                   "defaultSort":"name","loopAtEnd":false,"wheel":"zoom"})
+                   "defaultSort":"name","loopAtEnd":false,"wheel":"zoom","checkUpdates":true})
         );
     }
 
