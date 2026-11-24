@@ -8,3 +8,5 @@ fixtures/
 .superpowers/
 src-tauri/gen/
 *.log
+# 文档只留在本机，不进 git
+docs/

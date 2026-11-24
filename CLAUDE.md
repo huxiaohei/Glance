@@ -10,13 +10,15 @@ Glance 是 Tauri 2 + Rust + React 的本地看图工具（macOS 与 Windows）�
 
 - **提交日志里不得出现任何 Claude 或 AI 相关信息**：不加 `Co-Authored-By`，不加“Generated with …”，正文也不提。PR 描述同理。
 - 提交信息用中文，带类型前缀：`feat:`、`fix:`、`chore:`、`docs:`、`ci:`、`test:`、`refactor:`，可带范围如 `feat(imaging):`。
-- 未经用户明确同意，不推送、不打标签、不发布。
+- 未经用户明确同意，不推送、不打标签、不发布。**所有功能（V0.1 到 V0.3）做完之前不发布**（用户 2026-11-24 决定），签名密钥与首次发布（V0.1-D2 任务 11）留到那时。
 - 不提交 `fixtures/`、`.superpowers/`、密钥文件。
+- **`docs/` 只留在本机，不进 git**（已在 `.gitignore` 里），历史里也不得出现；提交信息与 README 不要链接 `docs/` 下的文件。2026-11-24 已从全部历史中剔除并重建远端仓库，备份在 `.superpowers/backup-2026-11-24/`。
 
 ## 常用命令
 
 ```bash
 npm run tauri dev                              # 开发模式启动
+npm run tauri build -- --bundles app           # 本机打 macOS 应用包（不需要签名密钥）
 cargo test --workspace                         # Rust 测试
 cargo clippy --workspace -- -D warnings        # Rust 静态检查
 npm test                                       # 前端测试（Vitest）
@@ -39,12 +41,13 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 - 文件操作（V0.1-C）：后端 `src-tauri/src/fileops/{fsx,ops,undo,commands,trash}.rs`（`fsx` 是唯一改名 / 复制的地方，`ops` 是操作与撤销的主体，`undo` 是只记一步的撤销日志，`commands` 是 `fs_*` 命令与最近目标）、`src-tauri/src/system.rs`（剪贴板与“在访达中显示”）；前端 `app/{fileOps,fileCommands,contextMenu,nativeMenu}.ts`、`stores/{toast,rename}.ts`、`views/{toast,common}/`（提示条、重命名输入、名字对话框）、`lib/{lastSegment,menuLabel}.ts`。操作完成后后端把路径提示（`FsHint`）直接投递给会话线程，不等监听器。
 - 入口与设置（V0.1-D）：后端 `src-tauri/src/state/{store,settings,recents,session}.rs`（`store` 是唯一读写应用配置目录下小 JSON 的地方，先写临时文件再原子改名；`settings.json` 六项、`recents.json`、`session.json`）、`src-tauri/src/thumbs/sweep.rs`（启动时在后台线程清理缩略图缓存）；前端 `stores/{settings,recents}.ts`、`app/{applySettings,recentsSync,recentsMenu}.ts`、`views/settings/`（设置对话框）、`views/start/RecentList.tsx`（启动页最近目录）、`views/common/useModalFocus.ts`（对话框的焦点陷阱）、`lib/wheelStep.ts`（滚轮切图的累积与节流）。语言切换靠重挂视图树（`App.tsx` 里 `Fragment key={language}`）生效，网格滚动位置和临时界面状态会重置。
 - 拖拽（V0.1-C2）：后端 `src-tauri/src/dragout.rs`（`drag_out(ids)`：`FileId` 换路径、用缩略图缓存做预览图、在主线程直接调 `drag` 库，结束经 Channel 通知）；前端 `stores/drag.ts`（拖拽状态）、`lib/thumbDrag.ts`（`dragIds`、`transferPlan`、`copyModifier`、`selectModifier` 四个纯函数；目录树的边缘滚动沿用 `lib/marquee.ts` 的 `edgeScroll`）、`lib/dragOut.ts`（是否该转为系统拖拽：边缘 4 px 判断，以及目录树一栏上要出了视口才算）、`views/grid/{useThumbDrag,DragBadge}`（指针事件拖拽与光标旁徽标）、`app/nativeDrag.ts`（调 `drag_out` 并处理“自己拖出去又拖回”）。移动 / 复制的目标新增 `Dest::Dir`（相对根目录的目录）。已删除原来的拖拽插件及其权限。
+- 系统集成与出包（V0.1-D2）：后端 `src-tauri/src/{shell,macos_service,update}.rs`（`shell::submit` 是系统交来路径的唯一入口，前端经 `take_open_request` 取走后走 `openFolder`）；平台声明 `src-tauri/{tauri.macos.conf.json,Info.plist,tauri.windows.conf.json,windows/hooks.nsh}`，`catalog::scan::IMAGE_EXTS` 是扩展名的唯一出处（`tests/shell_config.rs` 比对）；`tauri.release.conf.json` 只在发布流程里带上；`.github/workflows/{ci,release}.yml`、`deny.toml`；前端 `app/{openRequests,updateCheck}.ts`、`stores/tip.ts`、`views/tip/`（打赏面板）、启动页探头小老虎（`assets/tip/`）。
 - 后端事件可能先于命令应答到达前端，也可能有上一次打开的迟到事件：前端按 `generation` 丢弃过期事件，`openSession` 负责缓冲。
 - 包管理器只用 npm；Tauri CLI 通过 `npm run tauri` 调用。
 
 ## 硬性约束
 
-- **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令，以及三处：仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`，移动 / 复制的目标目录（来自系统对话框或最近目标，含 `OpReport.dest`），以及最近目录的路径（`RecentEntry.path`，只用于显示，并原样传回 `open_path` / `recents_pin` / `recents_remove`）。撤销失败只返回文件名，不返回路径。
+- **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令、系统交来的打开路径（`take_open_request`，原样传给 `open_path`），以及三处：仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`，移动 / 复制的目标目录（来自系统对话框或最近目标，含 `OpReport.dest`），以及最近目录的路径（`RecentEntry.path`，只用于显示，并原样传回 `open_path` / `recents_pin` / `recents_remove`）。撤销失败只返回文件名，不返回路径。
 - **不向前端开放通用文件系统权限。** 文件访问集中在 `catalog`、`fileops`、`thumbs` 和 `state`（`state` 只读写应用配置目录下自己的文件）；已有的例外是 `system.rs`（读图复制到剪贴板）与 `dragout.rs`（检查文件是否存在、读缩略图缓存后把路径交给系统拖拽），二者只按 `FileId` 读取，不写文件；不在别处直接碰磁盘（也是为将来上架 Mac App Store 的沙盒预留）。
 - **内容安全策略禁止一切远程资源**；图片只允许 `glance:` 与 `http://glance.localhost`。只有 `devCsp` 为开发热更新放宽，正式 `csp` 不得放宽。
 - **读文件和 CPU 密集任务不上主线程。** 已接受的例外：设置、最近目录、最近目标三份小配置文件在启动时（`setup` 里、窗口显示之前）读一次。
@@ -54,7 +57,9 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 - **界面文字一律走 `src/i18n/`**，不在组件里写死中文或英文；`zh-CN.ts` 与 `en.ts` 必须同步。实验面板除外。
 - **单张视图用 `FileId` 记位置，不用下标**；解码好的图只来自预加载器，迟到的解码结果只有 id 和地址仍一致才显示。
 - **画面用直接写进 DOM 的 transform 布局**，热路径上不走 React 状态。
-- 窗口权限（capabilities）只为全屏增加了两项，另有 `dialog:allow-open`；没有拖拽权限（拖出由后端命令完成）。
+- 窗口权限（capabilities）只为全屏增加了两项，另有 `dialog:allow-open`；没有拖拽权限（拖出由后端命令完成）。更新器在 Rust 侧，不占窗口权限。
+- 唯一的网络请求是正式构建启动 3 秒后检查一次更新（设置里可关），失败静默。
+- Rust 版本由 `rust-toolchain.toml` 固定为 1.95.0，两个工作流里 `dtolnay/rust-toolchain` 同版本；升级时三处一起改。
 - 最低系统：macOS 12、Windows 10。
 - 依赖版本锁在 `Cargo.lock` 和 `package-lock.json` 里并提交。
 
@@ -69,11 +74,12 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 
 ## 当前进度
 
-- M0：任务 1 到 6 完成；任务 7（CI、出包、更新）和任务 8 的 Windows 部分未做，等待推送许可。
+- M0：任务 1 到 6 完成；任务 7 已由 V0.1-D2 完成（实验面板进测试包除外）；任务 8 的 Windows 部分未做。
 - V0.1-A1 完成：打开目录、分组缩略图网格、排序筛选、目录树。
 - V0.1-A2 完成：目录监听、选中与多选、键盘导航、命令表、快捷键一览。合并前须手动运行 `watch_live`（见上）。
 - V0.1-B 完成：单张视图（缩放平移、预加载切图、缩略图条、详情面板、全屏）。
 - V0.1-C 完成：删除（可撤销）、重命名、移动 / 复制（含新建子目录、重名跳过与“保留两者”）、右键菜单、剪贴板与在访达中显示、提示条。Windows 分支未编译，界面未目视确认（清单见后续事项）。
 - V0.1-D 完成：启动页（最近目录、固定、移除）、设置（主题、语言、默认排序、包含子目录、滚轮、到头循环）、浅色主题、中英文切换、窗口状态保存、缩略图缓存淘汰、详情与顶栏等细节。界面已由用户试用确认；Windows 分支未编译。
 - V0.1-C2 完成：缩略图拖到目录树移动（按住 Option / Ctrl 为复制）、拖出窗口交给其他应用、已选多张时按下不再立刻收成单选。界面已由用户在 macOS 上试用确认；Windows 分支未编译（清单见后续事项“目视确认”）。
-- 下一步：V0.1-D2（系统集成，随出包一起做），由用户决定。写计划前先读 `docs/plans/后续事项.md`。
+- V0.1-D2 完成（发布除外）：系统交来的打开请求（启动参数、单实例转交、macOS 打开事件与系统服务）、macOS 文件关联、Windows 安装器注册表钩子、自动更新（Rust 侧，`update_check` / `update_install`，Cargo 特性 `updater`）、双平台 CI 与打标签出包、许可证检查、打赏面板与启动页探头小老虎、新应用图标。打包后的应用在 macOS 上验证了冷启动、二次打开、打开图片；CI 在 macOS 与 Windows 上全绿。服务菜单、“打开方式”、拖到 Dock、更新流程、Windows 上的实际表现未目视确认。
+- 下一步由用户决定：V0.2（对比），或把 V0.3 里的裁剪提前。写计划前先读 `docs/plans/后续事项.md`。
