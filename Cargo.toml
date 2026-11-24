@@ -7,5 +7,10 @@ lto = "thin"
 codegen-units = 1
 strip = true
 
+# 构建期产物（proc-macro、构建脚本）不 strip：新版 macOS 的 dyld 拒绝加载
+# 被 strip 过的 proc-macro 动态库（mis-aligned LINKEDIT string pool），编译直接失败。
+[profile.release.build-override]
+strip = false
+
 [profile.dev.package."*"]
 opt-level = 2
