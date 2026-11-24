@@ -2,6 +2,7 @@
 name = "glance-imaging"
 version = "0.1.0"
 edition = "2024"
+publish = false
 
 [dependencies]
 fast_image_resize = { version = "6.2.0", default-features = false }

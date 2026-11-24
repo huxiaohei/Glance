@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+
+      - run: npx tsc --noEmit
+
+      - run: npm test
+
+      # glance 的编译依赖 dist/ 存在
+      - run: npm run build
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - run: cargo test --workspace
+
+      # 真实文件事件的端到端测试，只在 macOS 上跑
+      - name: 目录监听端到端测试
+        if: runner.os == 'macOS'
+        run: cargo test -p glance --test watch_live -- --ignored
+
+      # cargo-deny-action 是 Docker 动作，macOS 运行环境不支持，改为安装工具后直接运行
+      - name: 安装 cargo-deny
+        if: runner.os == 'macOS'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: 许可证检查
+        if: runner.os == 'macOS'
+        run: cargo deny check licenses

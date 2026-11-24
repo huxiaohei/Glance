@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Glance"
 authors = ["Glance"]
 edition = "2024"
+publish = false
 
 [features]
 default = ["updater"]

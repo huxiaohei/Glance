@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target universal-apple-darwin --config src-tauri/tauri.release.conf.json
+          - os: windows-latest
+            args: --config src-tauri/tauri.release.conf.json
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 校验标签与版本号一致
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          conf_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "$tag_version" != "$conf_version" ]; then
+            echo "标签版本 $tag_version 与 tauri.conf.json 的版本 $conf_version 不一致" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: 添加 macOS 两个架构的目标
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Glance ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true
+          args: ${{ matrix.args }}
