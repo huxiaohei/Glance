@@ -23,6 +23,7 @@ pub fn should_check(debug: bool, enabled: bool) -> bool {
 }
 
 /// 有新版本就存起来并返回版本号；其余情况（含任何错误）一律 `None`。
+/// 返回 `Result<_, ()>`：借用 `State` 的 async 命令必须返回 `Result`，这里永不 `Err`。
 #[tauri::command]
 pub async fn update_check(
     app: AppHandle,
@@ -38,7 +39,14 @@ async fn check(app: &AppHandle, pending: &PendingUpdate) -> Option<String> {
     if !should_check(cfg!(debug_assertions), enabled) {
         return None;
     }
-    let update = app.updater().ok()?.check().await.ok()??;
+    // 只给检查请求设超时，免得端点卡死；下载包较大，下面把超时去掉。
+    let updater = app
+        .updater_builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .ok()?;
+    let mut update = updater.check().await.ok()??;
+    update.timeout = None;
     let version = update.version.clone();
     *pending.slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(update);
     Some(version)
@@ -62,11 +70,12 @@ pub async fn update_install(
 
 #[cfg(feature = "updater")]
 async fn install(app: &AppHandle, pending: &PendingUpdate) -> Result<(), UpdateError> {
+    // 只克隆不取走：下载或安装失败时槽里仍有这份更新，可以重试。
     let update = pending
         .slot
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .take()
+        .clone()
         .ok_or(UpdateError::Failed)?;
     update
         .download_and_install(|_, _| {}, || {})
