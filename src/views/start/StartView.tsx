@@ -5,6 +5,7 @@ import { t } from "../../i18n";
 import { appVersion } from "../../ipc/api";
 import { loadRecents } from "../../stores/recents";
 import { useTip } from "../../stores/tip";
+import tigerPeek from "../../assets/tip/tiger_peek.webp";
 import RecentList from "./RecentList";
 import "./start.css";
 
@@ -34,11 +35,13 @@ export default function StartView() {
         <RecentList />
       </div>
       <div className="start-footer">
-        <button type="button" className="start-tip" onClick={() => useTip.setState({ open: true })}>
-          {t("tip.entry")}
-        </button>
         {version !== null && <span className="start-version">v{version}</span>}
       </div>
+      {/* 小老虎从窗口底边探头：一眼能看到打赏，点它打开大图 */}
+      <button type="button" className="start-peek" onClick={() => useTip.setState({ open: true })}>
+        <span className="start-peek-bubble">{t("tip.title")}</span>
+        <img className="start-peek-tiger" src={tigerPeek} alt="" draggable={false} />
+      </button>
     </div>
   );
 }

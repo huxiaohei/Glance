@@ -157,13 +157,42 @@
   font-size: 12px;
   color: var(--text-dim);
 }
-.start-tip {
+/* 打赏入口：小老虎趴在窗口底边，版本号让到它右边 */
+.start-peek {
+  position: fixed;
+  right: calc(9 * var(--gap));
+  bottom: 0;
+  display: flex;
+  align-items: flex-start;
   padding: 0;
-  font: inherit;
-  color: inherit;
   background: none;
   border: none;
   cursor: pointer;
-  text-decoration: underline;
 }
-.start-tip:hover { color: var(--text); }
+.start-peek-tiger {
+  display: block;
+  width: 156px;
+  height: auto;
+  transform-origin: 50% 100%;
+  transition: transform 0.15s ease-out;
+  user-select: none;
+}
+.start-peek:hover .start-peek-tiger,
+.start-peek:focus-visible .start-peek-tiger { transform: scale(1.06); }
+.start-peek-bubble {
+  position: relative;
+  margin: 14px -8px 0 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.start-peek:hover .start-peek-bubble { border-color: var(--accent); }
+/* 窗口窄时只留小老虎，气泡不去挤最近列表 */
+@media (max-width: 860px) {
+  .start-peek-bubble { display: none; }
+}

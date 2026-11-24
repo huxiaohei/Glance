@@ -66,10 +66,16 @@ describe("StartView", () => {
     expect(btn.querySelector("kbd")?.textContent).toBe(formatKey("Mod+O", IS_MAC));
   });
 
-  it("点“打赏”链接打开打赏面板", async () => {
-    await mount([]);
+  it("右下角探头的小老虎带着气泡文字，点它打开打赏面板", async () => {
+    const { container } = await mount([]);
     useTip.setState({ open: false });
-    fireEvent.click(screen.getByRole("button", { name: t("tip.entry") }));
+    const peek = screen.getByRole("button", { name: t("tip.title") });
+    expect(peek.querySelector("img")?.getAttribute("alt")).toBe("");
+    expect(peek.textContent).toContain(t("tip.title"));
+    // 原来的文字链接不再出现
+    expect(screen.queryByRole("button", { name: t("tip.entry") })).toBeNull();
+    expect(container.querySelector(".start-tip")).toBeNull();
+    fireEvent.click(peek);
     expect(useTip.getState().open).toBe(true);
     useTip.setState({ open: false });
   });
@@ -98,7 +104,7 @@ describe("StartView", () => {
     expect(main.textContent).toContain(t("start.count", { n: 12 }));
     const slots = container.querySelectorAll(".recent-thumb");
     expect(slots).toHaveLength(4);
-    const imgs = container.querySelectorAll("img");
+    const imgs = container.querySelectorAll(".recent-thumb img");
     expect(imgs).toHaveLength(2);
     expect(imgs[0].getAttribute("src")).toBe(thumbKeyUrl("aa11"));
     expect(imgs[1].getAttribute("src")).toBe(thumbKeyUrl("bb22"));
