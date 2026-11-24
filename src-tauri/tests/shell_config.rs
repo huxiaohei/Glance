@@ -51,3 +51,50 @@ fn macos_声明了打开服务() {
         "macos/zh-Hans.lproj/ServicesMenu.strings"
     );
 }
+
+fn 读钩子() -> String {
+    let dir = env!("CARGO_MANIFEST_DIR");
+    let text = std::fs::read_to_string(format!("{dir}/windows/hooks.nsh")).expect("读取 hooks.nsh");
+    text.trim_start_matches('\u{feff}').to_string()
+}
+
+#[test]
+fn windows_钩子覆盖全部扩展名且装卸对称() {
+    let hooks = 读钩子();
+    for ext in IMAGE_EXTS {
+        let key = format!("Software\\Classes\\.{ext}\\OpenWithProgids");
+        assert_eq!(hooks.matches(&key).count(), 2, "{ext} 应写一次、删一次");
+    }
+    for s in [
+        "Directory\\shell\\Glance",
+        "Directory\\Background\\shell\\Glance",
+        "\"%V\"",
+        "\"%1\"",
+        "用 Glance 打开",
+        "Open with Glance",
+        "NSIS_HOOK_POSTINSTALL",
+        "NSIS_HOOK_PREUNINSTALL",
+    ] {
+        assert!(hooks.contains(s), "hooks.nsh 缺少 {s}");
+    }
+    assert!(hooks.matches("DeleteRegKey").count() >= 3);
+    assert!(!hooks.contains("HKCR"));
+    assert!(!hooks.contains("UserChoice"));
+    for line in hooks.lines().filter(|l| l.contains("Software\\Classes\\.")) {
+        assert!(
+            line.contains("OpenWithProgids"),
+            "不得写扩展名键默认值：{line}"
+        );
+    }
+
+    let dir = env!("CARGO_MANIFEST_DIR");
+    let win = std::fs::read_to_string(format!("{dir}/tauri.windows.conf.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&win).unwrap();
+    let hook_path = v["bundle"]["windows"]["nsis"]["installerHooks"]
+        .as_str()
+        .unwrap();
+    assert!(std::path::Path::new(dir).join(hook_path).exists());
+    let base = std::fs::read_to_string(format!("{dir}/tauri.conf.json")).unwrap();
+    assert!(!win.contains("fileAssociations"));
+    assert!(!base.contains("fileAssociations"));
+}
