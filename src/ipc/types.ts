@@ -75,3 +75,6 @@ export interface RecentEntry {
   sort: SortKey | null;
   includeSubdirs: boolean | null;
 }
+
+/** 拖出窗口的系统拖拽结束结果。 */
+export type DragEnd = "dropped" | "cancelled";

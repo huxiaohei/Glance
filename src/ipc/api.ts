@@ -4,6 +4,7 @@ import type {
   CatalogEvent,
   Conflict,
   Dest,
+  DragEnd,
   FileId,
   ImageDetails,
   OpReport,
@@ -74,6 +75,12 @@ export function clipboardCopyImage(id: FileId): Promise<void> {
 
 export function clipboardCopyPaths(ids: FileId[]): Promise<void> {
   return invoke<void>("clipboard_copy_paths", { ids });
+}
+
+/** 把这些文件拖出窗口，交给系统拖拽。拖拽发起后就兑现，结束时调用 onEnd；
+ *  失败时以错误码字符串（如 "notFound"）拒绝。 */
+export function dragOut(ids: FileId[], onEnd: (r: DragEnd) => void): Promise<void> {
+  return invoke<void>("drag_out", { ids, onEnd: channel(onEnd) });
 }
 
 export function reveal(id: FileId): Promise<void> {

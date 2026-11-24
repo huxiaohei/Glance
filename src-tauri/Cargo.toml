@@ -19,7 +19,7 @@ serde_json = "1"
 glance-imaging = { path = "../crates/glance-imaging" }
 tauri-plugin-dialog = "2"
 thiserror = "2"
-tauri-plugin-drag = "2.1.1"
+drag = "2.1.1"
 walkdir = "2"
 imagesize = "0.15.0"
 blake3 = { version = "1.8.7", default-features = false }

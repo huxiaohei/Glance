@@ -1,5 +1,6 @@
 pub mod catalog;
 mod commands;
+mod dragout;
 pub mod fileops;
 #[cfg(debug_assertions)]
 mod lab;
@@ -21,7 +22,6 @@ use thumbs::{ThumbCache, Thumbs};
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
@@ -94,10 +94,10 @@ pub fn run() {
         system::clipboard_copy_image,
         system::clipboard_copy_paths,
         system::reveal,
+        dragout::drag_out,
         state::settings::settings_get,
         state::settings::settings_set,
         lab::lab_register_dir,
-        lab::lab_paths,
         lab::lab_protocol_hits,
         lab::lab_trash,
         lab::lab_restore
@@ -122,6 +122,7 @@ pub fn run() {
         system::clipboard_copy_image,
         system::clipboard_copy_paths,
         system::reveal,
+        dragout::drag_out,
         state::settings::settings_get,
         state::settings::settings_set
     ]);

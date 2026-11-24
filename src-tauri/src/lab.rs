@@ -1,6 +1,6 @@
 //! 开发期实验命令，仅 debug 构建编译。
 
-use crate::catalog::registry::{FileId, Registry};
+use crate::catalog::registry::Registry;
 use crate::fileops::trash::{self, TrashHandle};
 use crate::protocol::HITS;
 use std::path::PathBuf;
@@ -57,14 +57,4 @@ pub fn lab_trash(path: String) -> Result<TrashHandle, String> {
 #[tauri::command]
 pub fn lab_restore(handle: TrashHandle) -> Result<(), String> {
     trash::restore(&handle).map_err(|e| e.to_string())
-}
-
-/// 实验专用：把 ID 换成真实路径（原生拖拽插件需要）。未知 ID 跳过。
-/// 正式版会封装为 `start_drag(ids)`，前端始终拿不到路径。
-#[tauri::command]
-pub fn lab_paths(registry: State<'_, Arc<Registry>>, ids: Vec<u32>) -> Vec<String> {
-    ids.into_iter()
-        .filter_map(|id| registry.path(FileId(id)))
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect()
 }

@@ -1,6 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { useRef, useState, type PointerEvent } from "react";
+import { dragOut } from "../ipc/api";
 import { glanceUrl } from "../lib/glanceUrl";
 import { isLeavingWindow, type Point } from "../lib/dragOut";
 import { isImageName, pickAndRegisterDir, type LabEntry } from "./labApi";
@@ -55,11 +54,7 @@ export default function DragLab() {
     setOverTree(false);
     if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
     try {
-      const [path] = await invoke<string[]>("lab_paths", { ids: [entry.id] });
-      if (!path) throw new Error("未知 ID");
-      await startDrag({ item: [path], icon: path }, (r) =>
-        say(`原生拖拽结束：${r.result}`),
-      );
+      await dragOut([entry.id], (r) => say(`原生拖拽结束：${r}`));
       say(`已转为原生拖拽：${entry.name}`);
     } catch (e) {
       say(`原生拖拽失败：${String(e)}`);
