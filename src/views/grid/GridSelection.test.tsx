@@ -342,7 +342,7 @@ describe("GridView", () => {
       proto.setPointerCapture = vi.fn();
       proto.releasePointerCapture = vi.fn();
       restore.push(() => { proto.setPointerCapture = had.set; proto.releasePointerCapture = had.rel; });
-      // jsdom 没有 elementFromPoint；在格子上按下拖动会开始缩略图拖拽，它每帧要找落点
+      // jsdom 没有 elementFromPoint；在格子上按下拖动会开始缩略图拖拽，松手时它要按指针位置找落点
       const doc = document as unknown as Record<string, unknown>;
       const hadEfp = doc.elementFromPoint;
       doc.elementFromPoint = () => null;

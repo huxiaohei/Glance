@@ -275,7 +275,7 @@ const ERROR_CODES: readonly FsErrorCode[] = [
 ];
 
 /** 后端以错误码字符串拒绝；认不出的一律当作 other。 */
-function codeOf(err: unknown): FsErrorCode {
+export function codeOf(err: unknown): FsErrorCode {
   return ERROR_CODES.find((c) => c === err) ?? "other";
 }
 

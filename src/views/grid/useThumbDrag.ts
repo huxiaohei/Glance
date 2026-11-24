@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import { captureNames, isBusy, transferTo } from "../../app/fileOps";
 import { IS_MAC } from "../../app/keys";
+import { startNativeDrag } from "../../app/nativeDrag";
 import type { FileId } from "../../ipc/types";
+import { isLeavingWindow } from "../../lib/dragOut";
 import { edgeScroll } from "../../lib/marquee";
 import { selectOnly } from "../../lib/selection";
 import { copyModifier, dragIds, selectModifier, transferPlan } from "../../lib/thumbDrag";
@@ -28,6 +30,7 @@ interface Press {
   target: string | null; // 目录树上的有效落点（相对目录，"" 为根目录）
   plan: FileId[]; // 落在 target 上时实际要处理的图
   carry: number; // 目录树自动滚动累积的不足 1 px 的部分
+  tree: HTMLElement | null; // 激活时找到的目录树列表（听它的 scroll）
 }
 
 /** 指针下目录树的行所代表的相对目录（"" 为根目录）；不在任何行上为 null。 */
@@ -39,7 +42,8 @@ function dropDirAt(x: number, y: number): string | null {
 /**
  * 在缩略图上按下主键并拖动超过 4 px 开始拖拽：徽标跟着指针，松手或取消即结束。
  * 拖到目录树的某一行上松手即移动到该目录（按着 Option / Ctrl 为复制）。落点与目录树的边缘自动滚动每帧至多算一次；
- * 修饰键不动鼠标也生效（激活期间在 window 上听 keydown / keyup）。
+ * 修饰键不动鼠标也生效（激活期间在 window 上听 keydown / keyup），切换的那一刻就重算落点；滚轮滚动目录树时下一帧重算。
+ * 拖到窗口边缘 4 px 内：结束窗口内拖拽（同取消），把这批图交给系统拖拽（startNativeDrag）。
  * 监听挂在 scroller 上（原生监听，先于格子的 React 处理函数执行，所以按下时只读选中、不写）。
  * 激活前不捕获指针（否则双击会落到滚动区上）。enabled 为假（网格被单张视图盖住）时不挂监听，进行中的拖拽就此结束。
  */
@@ -64,9 +68,10 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
       sync(p);
     };
 
+    const findTree = () => el.closest(".grid-view")?.querySelector<HTMLElement>(".dir-tree-list") ?? null;
     /** 指针在目录树列表的上下边缘带内时滚动它（只滚整像素，到头停）；返回是否还要继续滚。 */
     const scrollTree = (p: Press): boolean => {
-      const list = el.closest(".grid-view")?.querySelector<HTMLElement>(".dir-tree-list");
+      const list = p.tree;
       if (!list) return false;
       const r = list.getBoundingClientRect();
       const inside = p.lastX >= r.left && p.lastX < r.right && p.lastY >= r.top && p.lastY < r.bottom;
@@ -108,6 +113,7 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("keyup", onKey, true);
       el.removeEventListener("lostpointercapture", onLost);
+      p.tree?.removeEventListener("scroll", schedule);
       if (p.active) {
         el.classList.remove("grid-dragging");
         try { el.releasePointerCapture(p.pointerId); } catch { /* 已释放 */ }
@@ -127,6 +133,8 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
       try { el.setPointerCapture(p.pointerId); } catch { /* 指针已不在 */ }
       el.addEventListener("lostpointercapture", onLost);
       el.classList.add("grid-dragging");
+      p.tree = findTree();
+      p.tree?.addEventListener("scroll", schedule); // 滚轮滚动目录树而指针不动：指针下的行变了
       window.addEventListener("keydown", onKey, true);
       window.addEventListener("keyup", onKey, true);
       schedule();
@@ -158,6 +166,7 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
         target: null,
         plan: [],
         carry: 0,
+        tree: null,
       };
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
@@ -175,16 +184,25 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
       }
       p.lastX = e.clientX;
       p.lastY = e.clientY;
-      if (!p.active) {
+      const activating = !p.active;
+      if (activating) {
         if (Math.hypot(e.clientX - p.startX, e.clientY - p.startY) <= THRESHOLD) return;
         activate(p, e);
+      }
+      // 即将离开窗口：按取消结束窗口内拖拽，剩下的（还在条目表里的）交给系统拖拽
+      if (isLeavingWindow({ x: e.clientX, y: e.clientY }, { width: window.innerWidth, height: window.innerHeight })) {
+        const entries = useCatalog.getState().entries;
+        const ids = p.ids.filter((id) => entries.has(id));
+        end();
+        startNativeDrag(ids);
         return;
       }
+      if (activating) return;
       moveBadge(e.clientX, e.clientY);
       const copy = copyModifier(e, IS_MAC);
       if (copy !== p.copy) {
         p.copy = copy;
-        sync(p);
+        retarget(p); // 当场重算，免得新的复制状态配着旧落点留一帧
       }
       schedule();
     };
@@ -227,8 +245,7 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
       const copy = copyModifier(e, IS_MAC);
       if (copy === p.copy) return;
       p.copy = copy;
-      sync(p);
-      schedule();
+      retarget(p);
     };
 
     el.addEventListener("pointerdown", onDown);

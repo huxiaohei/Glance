@@ -77,7 +77,8 @@ export function clipboardCopyPaths(ids: FileId[]): Promise<void> {
   return invoke<void>("clipboard_copy_paths", { ids });
 }
 
-/** 把这些文件拖出窗口，交给系统拖拽。拖拽发起后就兑现，结束时调用 onEnd；
+/** 把这些文件拖出窗口，交给系统拖拽，结束时调用 onEnd。macOS 上拖拽发起后就兑现；
+ *  Windows 上要到松手后才兑现，可能晚于 onEnd —— 不要依赖两者的先后。
  *  失败时以错误码字符串（如 "notFound"）拒绝。 */
 export function dragOut(ids: FileId[], onEnd: (r: DragEnd) => void): Promise<void> {
   return invoke<void>("drag_out", { ids, onEnd: channel(onEnd) });

@@ -73,7 +73,8 @@ fn plain_square() -> Vec<u8> {
 }
 
 /// 发起系统拖拽。换算路径、读缓存和编码预览图都在命令线程上，只有发起拖拽在主线程。
-/// 命令在拖拽发起后就返回，不等它结束；结束时经 `on_end` 通知前端（发送失败忽略）。
+/// macOS 上命令在拖拽发起后就返回；Windows 上系统拖拽占住主线程，命令要到松手后才返回，
+/// 可能晚于 `on_end`。结束时经 `on_end` 通知前端（发送失败忽略）。
 #[tauri::command(async)]
 pub fn drag_out(
     ids: Vec<u32>,
@@ -89,8 +90,8 @@ pub fn drag_out(
     start_system_drag(app, window, paths, png, on_end)
 }
 
-/// Windows 上系统拖拽会占住主线程直到松手（OLE 的正常行为），所以只等“发起”的结果送回，
-/// 不等拖拽结束。（Windows 分支未在本机编译）
+/// 在主线程发起拖拽，等“发起”的结果送回。macOS 上发起后立刻送回；Windows 上系统拖拽会占住主线程
+/// 直到松手（OLE 的正常行为），结果要到松手后才送回，此时 `on_end` 可能已经发出。（Windows 分支未在本机编译）
 #[cfg(not(target_os = "linux"))]
 fn start_system_drag(
     app: AppHandle,

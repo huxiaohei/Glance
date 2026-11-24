@@ -3,7 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleKeyDown } from "../../app/useKeyboard";
 import { t } from "../../i18n";
-import { fsCopy, fsMove, thumbsWant } from "../../ipc/api";
+import { dragOut, fsCopy, fsMove, thumbsWant } from "../../ipc/api";
 import type { OpReport } from "../../ipc/types";
 import { useCatalog } from "../../stores/catalog";
 import { useDrag } from "../../stores/drag";
@@ -70,6 +70,8 @@ describe("GridView 缩略图拖拽", () => {
     env.mac = true;
     vi.mocked(fsMove).mockReset();
     vi.mocked(fsCopy).mockReset();
+    vi.mocked(dragOut).mockReset();
+    vi.mocked(dragOut).mockResolvedValue(undefined);
     vi.mocked(thumbsWant).mockResolvedValue([]); // 异步的用例会等到登记缩略图的定时器
     useToast.setState({ current: null });
 
@@ -501,6 +503,45 @@ describe("GridView 缩略图拖拽", () => {
       expect(frames.size).toBe(0);
     });
 
+    it("拖动中切换复制修饰键：同一刻重算落点，不留下一帧的旧高亮", () => {
+      const { cell, scroller, row } = setupTree();
+      selectIds(1, 2);
+      dragTo(cell, scroller, 1, row("a"));
+      expect(highlighted()).toHaveLength(0);
+      // 移动里按下 Option：不推进帧，落点已经有效
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 30, clientY: 200, altKey: true });
+      expect(useDrag.getState()).toMatchObject({ copy: true, target: "a" });
+      expect(row("a").classList.contains("dir-item-drop")).toBe(true);
+      // 移动里松开：同样立刻失效
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 30, clientY: 200, altKey: false });
+      expect(useDrag.getState()).toMatchObject({ copy: false, target: null });
+      expect(highlighted()).toHaveLength(0);
+      // 键盘切换也一样
+      fireEvent.keyDown(window, { key: "Alt", altKey: true });
+      expect(useDrag.getState()).toMatchObject({ copy: true, target: "a" });
+      fireEvent.keyUp(window, { key: "Alt", altKey: false });
+      expect(useDrag.getState()).toMatchObject({ copy: false, target: null });
+      expect(highlighted()).toHaveLength(0);
+    });
+
+    it("指针不动、滚轮滚动目录树：下一帧重算落点；结束后不再监听", () => {
+      const { container, cell, scroller, row } = setupTree();
+      const list = container.querySelector(".dir-tree-list") as HTMLElement;
+      dragTo(cell, scroller, 1, row("b"));
+      expect(useDrag.getState().target).toBe("b");
+      hit = row("a"); // 列表滚过去了，指针下换成了另一行
+      fireEvent.scroll(list);
+      flush();
+      expect(useDrag.getState().target).toBeNull(); // 1 本来就在 a：移动无效
+      hit = row("b");
+      fireEvent.scroll(list);
+      flush();
+      expect(useDrag.getState().target).toBe("b");
+      fireEvent.keyDown(window, { key: "Escape" });
+      fireEvent.scroll(list);
+      expect(frames.size).toBe(0);
+    });
+
     it("拖拽结束（松手 / Esc）后没有任何行带 dir-item-drop", async () => {
       vi.mocked(fsMove).mockResolvedValue(report({}));
       const { cell, scroller, row } = setupTree();
@@ -515,6 +556,79 @@ describe("GridView 缩略图拖拽", () => {
       fireEvent.pointerUp(scroller, { clientX: 30, clientY: 200 });
       expect(highlighted()).toHaveLength(0);
       await act(async () => {});
+    });
+  });
+
+  describe("拖出窗口", () => {
+    const listOrder = (want: number[]) => useGridCtx.getState().list.ids.filter((id) => want.includes(id));
+    const W = () => window.innerWidth;
+
+    it("拖到窗口边缘 4 px 内：徽标消失，调用 dragOut，带的是选中的那批 id（按列表顺序）", () => {
+      const { cell, scroller } = setup();
+      act(() => useSelection.getState().set({ ids: new Set([3, 1, 2]), focus: 3, anchor: 3 }));
+      press(cell(2));
+      move(scroller, 60, 100);
+      expect(badge()).not.toBeNull();
+      move(scroller, W() - 2, 100);
+      expect(badge()).toBeNull();
+      expect(scroller.classList.contains("grid-dragging")).toBe(false);
+      expect(useDrag.getState().count).toBe(0);
+      expect(dragOut).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(dragOut).mock.calls[0][0]).toEqual(listOrder([1, 2, 3]));
+      // 窗口内拖拽已结束：之后的移动与松手都不再处理
+      move(scroller, 200, 100);
+      fireEvent.pointerUp(scroller, { clientX: 200, clientY: 100 });
+      expect(badge()).toBeNull();
+      expect(dragOut).toHaveBeenCalledTimes(1);
+      expect(fsMove).not.toHaveBeenCalled();
+    });
+
+    it("没激活（移动不足 4 px）时到了边缘：不调用 dragOut", () => {
+      const { cell, scroller } = setup();
+      press(cell(1), { clientX: 5, clientY: 100 });
+      move(scroller, 2, 100);
+      expect(badge()).toBeNull();
+      expect(dragOut).not.toHaveBeenCalled();
+    });
+
+    it("转为系统拖拽后选中不变，目录树没有高亮", () => {
+      const rels: Record<number, string> = { 1: "a/1.jpg", 2: "a/2.jpg", 3: "3.jpg", 4: "b/4.jpg" };
+      const { container, cell, scroller } = setup((id) => rels[id]);
+      select3();
+      press(cell(2));
+      move(scroller, 60, 100);
+      hit = container.querySelector('[data-drop-dir="b"]');
+      move(scroller, 30, 200);
+      flush();
+      expect(container.querySelectorAll(".dir-item-drop")).toHaveLength(1);
+      move(scroller, 30, 1);
+      expect(dragOut).toHaveBeenCalledTimes(1);
+      expect(container.querySelectorAll(".dir-item-drop")).toHaveLength(0);
+      expect(useDrag.getState()).toMatchObject({ count: 0, copy: false, target: null });
+      flush();
+      expect(frames.size).toBe(0);
+      expect(container.querySelectorAll(".dir-item-drop")).toHaveLength(0);
+      expect(ids()).toEqual([1, 2, 3]);
+    });
+
+    it("拖动途中条目被移除：不再带上它；全都没了就不调用 dragOut", () => {
+      const { cell, scroller } = setup();
+      select3();
+      press(cell(1));
+      move(scroller, 60, 100);
+      act(() => useCatalog.getState().apply({ type: "removed", generation: 1, ids: [2] }));
+      move(scroller, W() - 1, 100);
+      expect(vi.mocked(dragOut).mock.calls[0][0]).toEqual(listOrder([1, 3]));
+
+      vi.mocked(dragOut).mockClear();
+      act(() => useSelection.getState().set({ ids: new Set([4]), focus: 4, anchor: 4 }));
+      press(cell(4));
+      move(scroller, 60, 100);
+      act(() => useCatalog.getState().apply({ type: "removed", generation: 1, ids: [4] }));
+      move(scroller, 60, 1);
+      expect(dragOut).not.toHaveBeenCalled();
+      expect(badge()).toBeNull();
+      expect(useDrag.getState().count).toBe(0);
     });
   });
 });
