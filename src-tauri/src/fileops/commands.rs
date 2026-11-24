@@ -1,7 +1,7 @@
 //! 面向界面的文件操作与撤销命令。命令本身只取出状态，主体在不依赖 tauri 的 `run_*` 函数里。
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -37,6 +37,7 @@ pub struct OpReport {
 pub enum Dest {
     Path { path: String },     // 选目录对话框或最近目标给出的路径
     NewChild { name: String }, // 在当前根目录下新建（或复用）这个名字的子目录
+    Dir { dir: String },       // 当前根目录下已存在的目录，以 `/` 分隔的相对写法；"" 是根目录本身
 }
 
 /// kind 为 None 表示没有可撤销的操作。
@@ -313,6 +314,31 @@ fn resolve_dest(sessions: &Sessions, dest: &Dest) -> Result<(PathBuf, Option<Ste
             let root = sessions.root().ok_or(FsError::NotFound)?;
             ops::make_dir(&root, name)
         }
+        Dest::Dir { dir } => {
+            let root = sessions.root().ok_or(FsError::NotFound)?;
+            Ok((resolve_rel_dir(&root, dir)?, None))
+        }
+    }
+}
+
+/// 根目录下已存在的相对目录。每一段必须恰好是一个普通名字（空段、`.`、`..`、带根或盘符的都不行）；
+/// 不新建目录，也不做规范化（根目录本身已是规范路径）。
+fn resolve_rel_dir(root: &Path, dir: &str) -> Result<PathBuf, FsError> {
+    if dir.is_empty() {
+        return Ok(root.to_path_buf());
+    }
+    let mut path = root.to_path_buf();
+    for segment in dir.split('/') {
+        let mut parts = Path::new(segment).components();
+        match (parts.next(), parts.next()) {
+            (Some(Component::Normal(name)), None) => path.push(name),
+            _ => return Err(FsError::InvalidName),
+        }
+    }
+    if path.is_dir() {
+        Ok(path)
+    } else {
+        Err(FsError::NotFound)
     }
 }
 
@@ -859,6 +885,97 @@ mod tests {
         assert_eq!(report.dest, None);
         assert!(w.root().join("a.png").is_file());
         assert!(!w.root().join("x").exists());
+    }
+
+    #[test]
+    fn dest_dir_deserializes() {
+        let d: Dest =
+            serde_json::from_value(serde_json::json!({ "kind": "dir", "dir": "a" })).unwrap();
+        assert_eq!(d, Dest::Dir { dir: "a".into() });
+    }
+
+    fn rel(dir: &str) -> Dest {
+        Dest::Dir { dir: dir.into() }
+    }
+
+    #[test]
+    fn move_to_existing_subdir_by_relative_dir() {
+        let w = World::new();
+        let inner = w.mkdir("sub/inner");
+        let a = w.file("a.png", b"a");
+
+        let report = w.mv(&[a], rel("sub/inner"), Conflict::Skip, None);
+        assert_eq!(report.done, vec![a]);
+        assert!(report.token.is_some());
+        let inner_str = inner.to_string_lossy().into_owned();
+        assert_eq!(report.dest.as_deref(), Some(inner_str.as_str()));
+        assert_eq!(fs::read(inner.join("a.png")).unwrap(), b"a");
+        assert!(!w.root().join("a.png").exists());
+    }
+
+    #[test]
+    fn move_to_root_by_empty_dir() {
+        let w = World::new();
+        let a = w.file("sub/a.png", b"a");
+
+        let report = w.mv(&[a], rel(""), Conflict::Skip, None);
+        assert_eq!(report.done, vec![a]);
+        let root_str = w.root().to_string_lossy().into_owned();
+        assert_eq!(report.dest.as_deref(), Some(root_str.as_str()));
+        assert_eq!(fs::read(w.root().join("a.png")).unwrap(), b"a");
+        assert!(!w.root().join("sub/a.png").exists());
+    }
+
+    #[test]
+    fn undo_after_move_to_relative_dir_restores() {
+        let w = World::new();
+        let a = w.file("sub/a.png", b"a");
+        w.mv(&[a], rel(""), Conflict::Skip, None);
+
+        let undone = run_undo(&w.sessions, &w.undo);
+        assert_eq!(undone.kind, Some(OpKind::Move));
+        assert_eq!(undone.failed, vec![]);
+        assert_eq!(fs::read(w.root().join("sub/a.png")).unwrap(), b"a");
+        assert!(!w.root().join("a.png").exists());
+    }
+
+    #[test]
+    fn relative_dir_rejects_escapes() {
+        let w = World::new();
+        let a = w.file("a.png", b"a");
+        for bad in ["../x", "/abs", "a//b", "a/./b", "a/.."] {
+            let report = w.mv(&[a], rel(bad), Conflict::Skip, None);
+            assert_eq!(report.done, Vec::<u32>::new(), "{bad}");
+            assert_eq!(report.failed, vec![fail(a, FsError::InvalidName)], "{bad}");
+            assert_eq!(report.dest, None, "{bad}");
+        }
+        assert!(w.root().join("a.png").is_file());
+        let parent = w.root().parent().unwrap().join("x");
+        assert!(!parent.exists());
+        let names: Vec<_> = fs::read_dir(w.root()).unwrap().collect();
+        assert_eq!(names.len(), 1);
+    }
+
+    #[test]
+    fn relative_dir_must_exist_and_be_a_directory() {
+        let w = World::new();
+        let a = w.file("a.png", b"a");
+        for bad in ["nope", "a.png"] {
+            let report = w.mv(&[a], rel(bad), Conflict::Skip, None);
+            assert_eq!(report.failed, vec![fail(a, FsError::NotFound)], "{bad}");
+        }
+        assert!(w.root().join("a.png").is_file());
+        assert!(!w.root().join("nope").exists());
+        assert_eq!(fs::read_dir(w.root()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn relative_dir_without_session_is_not_found() {
+        let w = World::without_session();
+        let a = w.file("a.png", b"a");
+        let report = w.mv(&[a], rel(""), Conflict::Skip, None);
+        assert_eq!(report.failed, vec![fail(a, FsError::NotFound)]);
+        assert_eq!(report.dest, None);
     }
 
     #[test]

@@ -42,7 +42,10 @@ export type FsErrorCode = "notFound" | "exists" | "invalidName" | "readOnly" | "
 export type OpKind = "trash" | "rename" | "move" | "copy";
 /** 文件操作的结果。dest 是移动 / 复制的目标目录，只用于显示。 */
 export interface OpReport { kind: OpKind; done: FileId[]; failed: { id: FileId; code: FsErrorCode }[]; token: number | null; dest: string | null }
-export type Dest = { kind: "path"; path: string } | { kind: "newChild"; name: string };
+export type Dest =
+  | { kind: "path"; path: string }
+  | { kind: "newChild"; name: string }
+  | { kind: "dir"; dir: string };
 export type Conflict = "skip" | "keepBoth";
 /** 撤销失败的一步：name 只是文件名（最后一级），不是路径 */
 export interface UndoFailure { name: string; code: FsErrorCode }
