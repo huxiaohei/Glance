@@ -24,13 +24,14 @@ pub const IGNORED_DIRS: [&str; 6] = [
     "System Volume Information",
 ];
 
-/// 扩展名为 png / jpg / jpeg / webp / gif / bmp（不分大小写）。
+/// 支持的图片扩展名（小写）。系统侧的文件关联声明用测试与它比对。
+pub const IMAGE_EXTS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+
+/// 扩展名属于 `IMAGE_EXTS`（不分大小写）。
 pub fn is_image_path(path: &Path) -> bool {
-    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-        ["png", "jpg", "jpeg", "webp", "gif", "bmp"]
-            .iter()
-            .any(|x| e.eq_ignore_ascii_case(x))
-    })
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| IMAGE_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
 /// 单级名称是否要跳过：点开头，或是被忽略的目录名。
