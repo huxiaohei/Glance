@@ -38,14 +38,14 @@ cargo test -p glance --test watch_live -- --ignored                       # 目�
 - 前端新增：`app/{commands,keys,useKeyboard,appCommands,useImageList}.ts`、`stores/{selection,gridCtx}.ts`、`lib/{selection,marquee}.ts`、`views/help/`（快捷键一览）、`views/grid/{gridCommands,useMarquee}.ts`、`test/setup.ts`。
 - 文件操作（V0.1-C）：后端 `src-tauri/src/fileops/{fsx,ops,undo,commands,trash}.rs`（`fsx` 是唯一改名 / 复制的地方，`ops` 是操作与撤销的主体，`undo` 是只记一步的撤销日志，`commands` 是 `fs_*` 命令与最近目标）、`src-tauri/src/system.rs`（剪贴板与“在访达中显示”）；前端 `app/{fileOps,fileCommands,contextMenu,nativeMenu}.ts`、`stores/{toast,rename}.ts`、`views/{toast,common}/`（提示条、重命名输入、名字对话框）、`lib/{lastSegment,menuLabel}.ts`。操作完成后后端把路径提示（`FsHint`）直接投递给会话线程，不等监听器。
 - 入口与设置（V0.1-D）：后端 `src-tauri/src/state/{store,settings,recents,session}.rs`（`store` 是唯一读写应用配置目录下小 JSON 的地方，先写临时文件再原子改名；`settings.json` 六项、`recents.json`、`session.json`）、`src-tauri/src/thumbs/sweep.rs`（启动时在后台线程清理缩略图缓存）；前端 `stores/{settings,recents}.ts`、`app/{applySettings,recentsSync,recentsMenu}.ts`、`views/settings/`（设置对话框）、`views/start/RecentList.tsx`（启动页最近目录）、`views/common/useModalFocus.ts`（对话框的焦点陷阱）、`lib/wheelStep.ts`（滚轮切图的累积与节流）。语言切换靠重挂视图树（`App.tsx` 里 `Fragment key={language}`）生效，网格滚动位置和临时界面状态会重置。
-- 拖拽（V0.1-C2）：后端 `src-tauri/src/dragout.rs`（`drag_out(ids)`：`FileId` 换路径、用缩略图缓存做预览图、在主线程直接调 `drag` 库，结束经 Channel 通知）；前端 `stores/drag.ts`（拖拽状态）、`lib/thumbDrag.ts`（落点与边缘滚动的纯函数）、`views/grid/{useThumbDrag,DragBadge}`（指针事件拖拽与光标旁徽标）、`app/nativeDrag.ts`（调 `drag_out` 并处理“自己拖出去又拖回”）。移动 / 复制的目标新增 `Dest::Dir`（相对根目录的目录）。已删除原来的拖拽插件及其权限。
+- 拖拽（V0.1-C2）：后端 `src-tauri/src/dragout.rs`（`drag_out(ids)`：`FileId` 换路径、用缩略图缓存做预览图、在主线程直接调 `drag` 库，结束经 Channel 通知）；前端 `stores/drag.ts`（拖拽状态）、`lib/thumbDrag.ts`（`dragIds`、`transferPlan`、`copyModifier`、`selectModifier` 四个纯函数；目录树的边缘滚动沿用 `lib/marquee.ts` 的 `edgeScroll`）、`lib/dragOut.ts`（是否该转为系统拖拽：边缘 4 px 判断，以及目录树一栏上要出了视口才算）、`views/grid/{useThumbDrag,DragBadge}`（指针事件拖拽与光标旁徽标）、`app/nativeDrag.ts`（调 `drag_out` 并处理“自己拖出去又拖回”）。移动 / 复制的目标新增 `Dest::Dir`（相对根目录的目录）。已删除原来的拖拽插件及其权限。
 - 后端事件可能先于命令应答到达前端，也可能有上一次打开的迟到事件：前端按 `generation` 丢弃过期事件，`openSession` 负责缓冲。
 - 包管理器只用 npm；Tauri CLI 通过 `npm run tauri` 调用。
 
 ## 硬性约束
 
 - **前端和协议地址里只出现 `FileId`，不出现文件路径。** 路径只在 Rust 侧由 `catalog::registry::Registry` 换算。例外只有实验面板的调试命令，以及三处：仅用于显示的 `RootInfo.path` 和 `ImageDetails.path`，移动 / 复制的目标目录（来自系统对话框或最近目标，含 `OpReport.dest`），以及最近目录的路径（`RecentEntry.path`，只用于显示，并原样传回 `open_path` / `recents_pin` / `recents_remove`）。撤销失败只返回文件名，不返回路径。
-- **不向前端开放通用文件系统权限。** 文件访问集中在 `catalog`、`fileops`、`thumbs` 和 `state`（`state` 只读写应用配置目录下自己的文件），不在别处直接碰磁盘（也是为将来上架 Mac App Store 的沙盒预留）。
+- **不向前端开放通用文件系统权限。** 文件访问集中在 `catalog`、`fileops`、`thumbs` 和 `state`（`state` 只读写应用配置目录下自己的文件）；已有的例外是 `system.rs`（读图复制到剪贴板）与 `dragout.rs`（检查文件是否存在、读缩略图缓存后把路径交给系统拖拽），二者只按 `FileId` 读取，不写文件；不在别处直接碰磁盘（也是为将来上架 Mac App Store 的沙盒预留）。
 - **内容安全策略禁止一切远程资源**；图片只允许 `glance:` 与 `http://glance.localhost`。只有 `devCsp` 为开发热更新放宽，正式 `csp` 不得放宽。
 - **读文件和 CPU 密集任务不上主线程。** 已接受的例外：设置、最近目录、最近目标三份小配置文件在启动时（`setup` 里、窗口显示之前）读一次。
 - **所有写文件的操作先写同目录临时文件，再原子改名。** 任何情况下不静默覆盖用户文件；改名、移动、复制只在 `fileops/fsx.rs` 里做（目标已存在即失败，不“先检查再改名”）。
