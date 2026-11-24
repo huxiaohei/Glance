@@ -4,6 +4,7 @@ import { GRID_PAD, idsInRect, type GridLayout, type Rect } from "../../lib/gridL
 import { edgeScroll } from "../../lib/marquee";
 import { EMPTY, prune, selectMany, type Selection } from "../../lib/selection";
 import { useCatalog } from "../../stores/catalog";
+import { useDrag } from "../../stores/drag";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useSelection } from "../../stores/selection";
 
@@ -15,6 +16,7 @@ interface Press {
   startClientY: number;
   start: { x: number; y: number }; // 内容区坐标
   base: Selection; // 按下时的选中（Esc 恢复用）
+  order: readonly number[]; // 按下时的列表顺序（被移除的焦点要按它找相邻的图）
   additive: boolean;
   active: boolean; // 已超过阈值、正在框选
   lastX: number;
@@ -23,9 +25,10 @@ interface Press {
   carry: number; // 自动滚动累积的不足 1 px 的部分（引擎会把小数滚动量舍掉）
 }
 
-/** 按下时记下的选中可能含框选途中被移除的图：用的时候按当前条目与列表顺序剪一遍。 */
-function liveBase(base: Selection): Selection {
-  return prune(base, useCatalog.getState().entries, useGridCtx.getState().list.ids);
+/** 按下时记下的选中可能含框选途中被移除的图：用的时候按当前条目剪一遍，
+ *  焦点与锚点按按下时的列表顺序落到相邻的图（此刻 gridCtx 里多半已是移除之后的顺序）。 */
+function liveBase(base: Selection, order: readonly number[]): Selection {
+  return prune(base, useCatalog.getState().entries, order);
 }
 
 /** 滚动区视口坐标 → 内容区坐标。 */
@@ -81,7 +84,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
         press.rect = r;
         setRect(r);
         // 非加选以空选中为底：什么都没碰到时 focus、anchor 也是空的，与空白处单击一致
-        const base = press.additive ? liveBase(press.base) : EMPTY;
+        const base = press.additive ? liveBase(press.base, press.order) : EMPTY;
         useSelection.getState().set(selectMany(base, idsInRect(lay, c, r), press.additive));
       }
       if (keepScrolling) schedule();
@@ -101,6 +104,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
     };
 
     const onDown = (e: PointerEvent) => {
+      if (useDrag.getState().count > 0) return; // 缩略图拖拽进行中：另一个指针不开始框选
       if (e.button !== 0 || (IS_MAC && e.ctrlKey)) return; // macOS 上 Ctrl + 单击等同右键
       if ((e.target as Element).closest(".thumb-cell, .group-header")) return;
       // 竖向滚动条在内容区右侧，按下点落在 clientWidth 之外
@@ -114,6 +118,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
         startClientY: e.clientY,
         start: toContent(el, e.clientX, e.clientY),
         base: { ids, focus, anchor },
+        order: useGridCtx.getState().list.ids,
         additive,
         active: false,
         lastX: e.clientX,
@@ -163,7 +168,7 @@ export function useMarquee(scroller: HTMLElement | null, layout: GridLayout, cel
       if (e.key !== "Escape" || !press?.active) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      useSelection.getState().set(liveBase(press.base));
+      useSelection.getState().set(liveBase(press.base, press.order));
       finish();
     };
 

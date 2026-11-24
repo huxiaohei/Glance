@@ -7,6 +7,7 @@ import { handleKeyDown } from "../../app/useKeyboard";
 import { GRID_PAD, layoutGrid, rowIndexOf } from "../../lib/gridLayout";
 import { selectOnly } from "../../lib/selection";
 import { useCatalog } from "../../stores/catalog";
+import { useDrag } from "../../stores/drag";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useListView } from "../../stores/listView";
 import { topView, useNav } from "../../stores/nav";
@@ -471,8 +472,8 @@ describe("GridView", () => {
       fireEvent.pointerMove(scroller, { buttons: 1, clientX: 150, clientY: 60 });
       flush();
       expect(ids()).not.toContain(1);
-      expect(useSelection.getState().focus).not.toBe(1);
-      expect(useSelection.getState().anchor).not.toBe(1);
+      expect(useSelection.getState().focus).toBe(2);
+      expect(useSelection.getState().anchor).toBe(2);
       fireEvent.pointerUp(scroller, { clientX: 150, clientY: 60 });
     });
 
@@ -487,8 +488,38 @@ describe("GridView", () => {
       remove(1);
       fireEvent.keyDown(scroller, { key: "Escape" });
       expect(ids()).not.toContain(1);
-      expect(useSelection.getState().focus).not.toBe(1);
-      expect(useSelection.getState().anchor).not.toBe(1);
+      expect(useSelection.getState().focus).toBe(2);
+      expect(useSelection.getState().anchor).toBe(2);
+    });
+
+    it("框选途中焦点所在的图被移除后按 Esc：恢复的选中里没有它，焦点落到按下时列表里它后面最近的仍存在的图", () => {
+      open(null);
+      const { scroller } = (() => {
+        const { container } = render(<GridView />);
+        add(1, 1, 2, 3);
+        return { scroller: container.querySelector(".grid-scroll") as HTMLElement };
+      })();
+      act(() => useSelection.getState().set({ ids: new Set([1, 2]), focus: 2, anchor: 2 }));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
+      flush();
+      remove(2);
+      fireEvent.keyDown(scroller, { key: "Escape" });
+      expect(ids()).toEqual([1]);
+      expect(useSelection.getState().focus).toBe(3);
+      expect(useSelection.getState().anchor).toBe(3);
+    });
+
+    it("缩略图拖拽进行中，另一个指针在空白处按下：选中不变，不出现框选矩形", () => {
+      const { container, scroller } = setup();
+      act(() => useSelection.getState().set(selectOnly(1)));
+      act(() => useDrag.setState({ count: 1, copy: false, target: null }));
+      restore.push(() => useDrag.setState({ count: 0, copy: false, target: null }));
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 500, clientY: 100 });
+      fireEvent.pointerMove(scroller, { buttons: 1, clientX: 200, clientY: 60 });
+      flush();
+      expect(ids()).toEqual([1]);
+      expect(marquee(container)).toBeNull();
     });
 
     it("网格被单张视图盖住（hidden）时结束进行中的框选，之后的 Esc 不再被框选拦下", () => {
