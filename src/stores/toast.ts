@@ -14,6 +14,8 @@ export interface ToastSpec {
   details?: string[];
   /** 加载状态：不自动消失，没有关闭按钮 */
   busy?: boolean;
+  /** 不自动消失，但保留关闭按钮（busy 则连关闭按钮也没有） */
+  sticky?: boolean;
 }
 
 export type CurrentToast = ToastSpec & { key: number };

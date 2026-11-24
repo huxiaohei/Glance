@@ -8,6 +8,7 @@ export const UPDATE_DELAY_MS = 3000;
 function offerInstall(version: string): void {
   showToast({
     text: t("update.available", { v: version }),
+    sticky: true,
     actions: [{ label: t("update.install"), run: () => void install(version) }],
   });
 }
@@ -19,6 +20,7 @@ async function install(version: string): Promise<void> {
   } catch {
     showToast({
       text: t("error.updateFailed"),
+      sticky: true,
       actions: [{ label: t("update.install"), run: () => void install(version) }],
     });
   }

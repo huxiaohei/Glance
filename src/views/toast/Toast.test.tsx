@@ -24,6 +24,15 @@ describe("Toast", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
+  it("sticky 的提示超过 5 秒仍在，且有关闭按钮", () => {
+    render(<Toast />);
+    act(() => { showToast({ text: "新版本", sticky: true }); });
+    tick(60000);
+    expect(screen.queryByRole("status")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("toast.close") }));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("新的提示替换旧的，旧提示的计时不会关掉新的", () => {
     render(<Toast />);
     act(() => { showToast({ text: "旧" }); });

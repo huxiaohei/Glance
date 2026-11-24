@@ -11,6 +11,7 @@ export default function Toast() {
   const current = useToast((s) => s.current);
   const key = current?.key;
   const busy = current?.busy ?? false;
+  const sticky = current?.sticky ?? false;
   const [hover, setHover] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -22,10 +23,10 @@ export default function Toast() {
 
   // 悬停或展开状态一变就重新计一个完整的 5 秒
   useEffect(() => {
-    if (key === undefined || busy || hover || expanded) return;
+    if (key === undefined || busy || sticky || hover || expanded) return;
     const timer = setTimeout(() => dismissToast(key), TOAST_MS);
     return () => clearTimeout(timer);
-  }, [key, busy, hover, expanded]);
+  }, [key, busy, sticky, hover, expanded]);
 
   if (current === null) return null;
   return (

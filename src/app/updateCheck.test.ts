@@ -36,6 +36,7 @@ describe("startUpdateCheck", () => {
     await vi.advanceTimersByTimeAsync(UPDATE_DELAY_MS);
     const cur = useToast.getState().current;
     expect(cur?.text).toContain("0.1.1");
+    expect(cur?.sticky).toBe(true);
     expect(cur?.actions).toHaveLength(1);
     expect(cur?.actions?.[0].label).toBe(t("update.install"));
   });
@@ -60,6 +61,7 @@ describe("startUpdateCheck", () => {
     await flush();
     expect(updateInstall).toHaveBeenCalledTimes(1);
     expect(useToast.getState().current?.text).toBe(t("error.updateFailed"));
+    expect(useToast.getState().current?.sticky).toBe(true);
     useToast.getState().current?.actions?.[0].run();
     await flush();
     expect(updateInstall).toHaveBeenCalledTimes(2);
