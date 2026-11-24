@@ -2,7 +2,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
-import { imageDetails, thumbsSubscribe, thumbsWant } from "../../ipc/api";
+import { imageDetails, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant } from "../../ipc/api";
 import type { ImageDetails } from "../../ipc/types";
 import { setLanguage, t } from "../../i18n";
 import { useCatalog } from "../../stores/catalog";
@@ -22,6 +22,8 @@ beforeEach(() => {
   // 详情请求去抖 120 ms：用假定时器推进
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   vi.mocked(thumbsSubscribe).mockResolvedValue();
+  vi.mocked(takeOpenRequest).mockResolvedValue(null);
+  vi.mocked(onOpenRequest).mockResolvedValue(() => {});
   vi.mocked(thumbsWant).mockResolvedValue([]);
   vi.mocked(imageDetails).mockReset();
   for (const prop of ["clientWidth", "clientHeight"] as const) {

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { registerAppCommands } from "./app/appCommands";
 import { registerFileCommands } from "./app/fileCommands";
 import { subscribeThumbs } from "./app/openFolder";
+import { startOpenRequests } from "./app/openRequests";
 import { startRecentsSync } from "./app/recentsSync";
 import { useFolderDrop } from "./app/useFolderDrop";
 import { useKeyboard } from "./app/useKeyboard";
@@ -37,7 +38,10 @@ export default function App() {
     // 最近目录：启动时读取一次，并开始汇报浏览状态
     const stopRecents = startRecentsSync();
     void loadRecents();
+    // 系统交来的打开请求：启动时取一次，之后每次通知再取
+    const stopOpenRequests = startOpenRequests();
     return () => {
+      stopOpenRequests();
       stopRecents();
       offSingle();
       offFile();

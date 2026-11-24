@@ -3,7 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { t } from "../../i18n";
-import { thumbsSubscribe, thumbsWant } from "../../ipc/api";
+import { onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant } from "../../ipc/api";
 import { switchStats } from "../../lib/perfMarks";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
@@ -35,6 +35,8 @@ let decodes: Decode[] = [];
 beforeEach(() => {
   decodes = [];
   vi.mocked(thumbsSubscribe).mockResolvedValue();
+  vi.mocked(takeOpenRequest).mockResolvedValue(null);
+  vi.mocked(onOpenRequest).mockResolvedValue(() => {});
   vi.mocked(thumbsWant).mockResolvedValue([]);
   stubProp(Element.prototype, "clientWidth", { get: () => 800 });
   stubProp(Element.prototype, "clientHeight", { get: () => 600 });

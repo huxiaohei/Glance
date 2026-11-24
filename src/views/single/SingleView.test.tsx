@@ -3,7 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { allCommands, findCommand } from "../../app/commands";
-import { imageDetails, openPath, thumbsSubscribe, thumbsWant } from "../../ipc/api";
+import { imageDetails, openPath, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant } from "../../ipc/api";
 import { selectOnly } from "../../lib/selection";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
@@ -34,6 +34,8 @@ const decoded = () => act(async () => {});
 
 beforeEach(() => {
   vi.mocked(thumbsSubscribe).mockResolvedValue();
+  vi.mocked(takeOpenRequest).mockResolvedValue(null);
+  vi.mocked(onOpenRequest).mockResolvedValue(() => {});
   vi.mocked(thumbsWant).mockResolvedValue([]);
   stubSize("clientWidth", 600);
   stubSize("clientHeight", 400);

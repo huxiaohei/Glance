@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { SortKey } from "../lib/deriveList";
 import type {
   CatalogEvent,
@@ -118,4 +119,14 @@ export function recentsNote(note: {
   includeSubdirs: boolean;
 }): Promise<void> {
   return invoke<void>("recents_note", note);
+}
+
+/** 取走并清除最近一条待处理的打开请求（路径）；没有则为 null。 */
+export function takeOpenRequest(): Promise<string | null> {
+  return invoke<string | null>("take_open_request");
+}
+
+/** 后端记下新的打开请求时触发（无内容）；返回取消监听的函数。 */
+export function onOpenRequest(handler: () => void): Promise<() => void> {
+  return listen("open_request", () => handler());
 }
