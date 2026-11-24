@@ -37,7 +37,7 @@ jobs:
           node-version: 26
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
 
       - name: 添加 macOS 两个架构的目标
         if: runner.os == 'macOS'

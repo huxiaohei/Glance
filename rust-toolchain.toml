@@ -1,0 +1,5 @@
+# 本机与 CI 用同一个 Rust 版本：新版 clippy 会带来新的 lint，不固定的话 CI 会随上游升级突然变红。
+# 升级时改这里，并同步两个工作流里 dtolnay/rust-toolchain 的版本。
+[toolchain]
+channel = "1.95.0"
+components = ["clippy", "rustfmt"]
