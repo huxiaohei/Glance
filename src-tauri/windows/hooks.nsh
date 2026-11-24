@@ -5,10 +5,11 @@
 !macro NSIS_HOOK_POSTINSTALL
   ; 菜单文字随安装语言：简体中文 2052，其余英文
   Push $0
-  StrCmp $LANGUAGE 2052 0 +3
-  StrCpy $0 "用 Glance 打开"
-  Goto +2
-  StrCpy $0 "Open with Glance"
+  ${If} $LANGUAGE == 2052
+    StrCpy $0 "用 Glance 打开"
+  ${Else}
+    StrCpy $0 "Open with Glance"
+  ${EndIf}
 
   WriteRegStr SHCTX "Software\Classes\Glance.Image" "" "Image"
   WriteRegStr SHCTX "Software\Classes\Glance.Image\DefaultIcon" "" '$INSTDIR\${MAINBINARYNAME}.exe,0'

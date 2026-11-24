@@ -54,8 +54,15 @@ fn macos_声明了打开服务() {
 
 fn 读钩子() -> String {
     let dir = env!("CARGO_MANIFEST_DIR");
-    let text = std::fs::read_to_string(format!("{dir}/windows/hooks.nsh")).expect("读取 hooks.nsh");
-    text.trim_start_matches('\u{feff}').to_string()
+    let bytes = std::fs::read(format!("{dir}/windows/hooks.nsh")).expect("读取 hooks.nsh");
+    assert!(
+        bytes.starts_with(&[0xEF, 0xBB, 0xBF]),
+        "hooks.nsh 须为 UTF-8 带 BOM"
+    );
+    String::from_utf8(bytes)
+        .expect("hooks.nsh 须为 UTF-8")
+        .trim_start_matches('\u{feff}')
+        .to_string()
 }
 
 #[test]
@@ -65,6 +72,11 @@ fn windows_钩子覆盖全部扩展名且装卸对称() {
         let key = format!("Software\\Classes\\.{ext}\\OpenWithProgids");
         assert_eq!(hooks.matches(&key).count(), 2, "{ext} 应写一次、删一次");
     }
+    assert_eq!(
+        hooks.matches("\\OpenWithProgids").count(),
+        2 * IMAGE_EXTS.len(),
+        "钩子里不得有多余的扩展名"
+    );
     for s in [
         "Directory\\shell\\Glance",
         "Directory\\Background\\shell\\Glance",
@@ -95,6 +107,10 @@ fn windows_钩子覆盖全部扩展名且装卸对称() {
         .unwrap();
     assert!(std::path::Path::new(dir).join(hook_path).exists());
     let base = std::fs::read_to_string(format!("{dir}/tauri.conf.json")).unwrap();
+    let langs = v["bundle"]["windows"]["nsis"]["languages"]
+        .as_array()
+        .unwrap();
+    assert!(langs.iter().any(|l| l == "SimpChinese"));
     assert!(!win.contains("fileAssociations"));
     assert!(!base.contains("fileAssociations"));
 }
