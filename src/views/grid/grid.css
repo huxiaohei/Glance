@@ -59,6 +59,7 @@
   min-height: 0;
   overflow-y: auto;
   position: relative;
+  -webkit-user-select: none;
   user-select: none; /* Shift + 单击连选时不触发文字选择 */
 }
 .grid-pin {
@@ -100,6 +101,7 @@
 
 .group-header {
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   box-sizing: border-box;
   width: 100%;

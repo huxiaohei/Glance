@@ -16,3 +16,8 @@ export function isLeavingWindow(p: Point, viewport: Size, margin = 4): boolean {
     p.y >= viewport.height - margin
   );
 }
+
+/** 指针是否已在窗口内容区之外（贴着边缘但仍在视口内不算）。 */
+export function isOutsideWindow(p: Point, viewport: Size): boolean {
+  return p.x < 0 || p.y < 0 || p.x >= viewport.width || p.y >= viewport.height;
+}

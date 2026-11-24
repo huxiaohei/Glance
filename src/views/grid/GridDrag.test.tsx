@@ -601,7 +601,7 @@ describe("GridView 缩略图拖拽", () => {
       move(scroller, 30, 200);
       flush();
       expect(container.querySelectorAll(".dir-item-drop")).toHaveLength(1);
-      move(scroller, 30, 1);
+      move(scroller, 30, -1); // 在目录树一栏上：要真正出了视口才转系统拖拽
       expect(dragOut).toHaveBeenCalledTimes(1);
       expect(container.querySelectorAll(".dir-item-drop")).toHaveLength(0);
       expect(useDrag.getState()).toMatchObject({ count: 0, copy: false, target: null });
@@ -609,6 +609,37 @@ describe("GridView 缩略图拖拽", () => {
       expect(frames.size).toBe(0);
       expect(container.querySelectorAll(".dir-item-drop")).toHaveLength(0);
       expect(ids()).toEqual([1, 2, 3]);
+    });
+
+    it("拖到目录行上且指针贴着左边缘（x = 0）：不调用 dragOut，该行高亮，松手调用 fsMove", () => {
+      vi.mocked(fsMove).mockResolvedValue({ kind: "move", done: [], failed: [], token: null, dest: "/p/b" });
+      const rels: Record<number, string> = { 1: "a/1.jpg", 2: "a/2.jpg", 3: "3.jpg", 4: "b/4.jpg" };
+      const { container, cell, scroller } = setup((id) => rels[id]);
+      press(cell(1));
+      move(scroller, 60, 100);
+      hit = container.querySelector('[data-drop-dir="b"] .dir-name');
+      move(scroller, 0, 200);
+      flush();
+      expect(dragOut).not.toHaveBeenCalled();
+      expect(badge()).not.toBeNull();
+      expect(container.querySelector('[data-drop-dir="b"]')!.classList.contains("dir-item-drop")).toBe(true);
+      fireEvent.pointerUp(scroller, { clientX: 0, clientY: 200 });
+      expect(fsMove).toHaveBeenCalledWith([1], { kind: "dir", dir: "b" }, "skip");
+      expect(dragOut).not.toHaveBeenCalled();
+    });
+
+    it("指针在目录树一栏上方移到视口之外（x = -5）：调用 dragOut", () => {
+      const rels: Record<number, string> = { 1: "a/1.jpg", 2: "a/2.jpg", 3: "3.jpg", 4: "b/4.jpg" };
+      const { container, cell, scroller } = setup((id) => rels[id]);
+      press(cell(1));
+      move(scroller, 60, 100);
+      hit = container.querySelector('[data-drop-dir="b"]');
+      move(scroller, 0, 200);
+      expect(dragOut).not.toHaveBeenCalled();
+      move(scroller, -5, 200);
+      expect(dragOut).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(dragOut).mock.calls[0][0]).toEqual([1]);
+      expect(badge()).toBeNull();
     });
 
     it("拖动途中条目被移除：不再带上它；全都没了就不调用 dragOut", () => {

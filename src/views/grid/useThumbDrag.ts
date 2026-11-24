@@ -3,7 +3,7 @@ import { captureNames, isBusy, transferTo } from "../../app/fileOps";
 import { IS_MAC } from "../../app/keys";
 import { startNativeDrag } from "../../app/nativeDrag";
 import type { FileId } from "../../ipc/types";
-import { isLeavingWindow } from "../../lib/dragOut";
+import { isLeavingWindow, isOutsideWindow } from "../../lib/dragOut";
 import { edgeScroll } from "../../lib/marquee";
 import { selectOnly } from "../../lib/selection";
 import { copyModifier, dragIds, selectModifier, transferPlan } from "../../lib/thumbDrag";
@@ -40,10 +40,22 @@ function dropDirAt(x: number, y: number): string | null {
 }
 
 /**
+ * 是否转为系统拖拽：到了窗口边缘 4 px 内即转；但目录树贴着窗口左边缘，指针在目录树一栏上时
+ * 要真正出了视口才转（越界时 elementFromPoint 返回 null，自然不算在树上）。只在边距内才查指针下的元素。
+ */
+function shouldDragOut(x: number, y: number): boolean {
+  const p = { x, y };
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  if (!isLeavingWindow(p, viewport)) return false;
+  if (isOutsideWindow(p, viewport)) return true;
+  return !document.elementFromPoint(x, y)?.closest(".dir-tree");
+}
+
+/**
  * 在缩略图上按下主键并拖动超过 4 px 开始拖拽：徽标跟着指针，松手或取消即结束。
  * 拖到目录树的某一行上松手即移动到该目录（按着 Option / Ctrl 为复制）。落点与目录树的边缘自动滚动每帧至多算一次；
  * 修饰键不动鼠标也生效（激活期间在 window 上听 keydown / keyup），切换的那一刻就重算落点；滚轮滚动目录树时下一帧重算。
- * 拖到窗口边缘 4 px 内：结束窗口内拖拽（同取消），把这批图交给系统拖拽（startNativeDrag）。
+ * 拖到窗口边缘 4 px 内（在目录树一栏上则要出了视口）：结束窗口内拖拽（同取消），把这批图交给系统拖拽（startNativeDrag）。
  * 监听挂在 scroller 上（原生监听，先于格子的 React 处理函数执行，所以按下时只读选中、不写）。
  * 激活前不捕获指针（否则双击会落到滚动区上）。enabled 为假（网格被单张视图盖住）时不挂监听，进行中的拖拽就此结束。
  */
@@ -190,7 +202,7 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
         activate(p, e);
       }
       // 即将离开窗口：按取消结束窗口内拖拽，剩下的（还在条目表里的）交给系统拖拽
-      if (isLeavingWindow({ x: e.clientX, y: e.clientY }, { width: window.innerWidth, height: window.innerHeight })) {
+      if (shouldDragOut(e.clientX, e.clientY)) {
         const entries = useCatalog.getState().entries;
         const ids = p.ids.filter((id) => entries.has(id));
         end();
