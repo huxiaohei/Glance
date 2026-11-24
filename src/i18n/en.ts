@@ -13,6 +13,8 @@ export const en: Record<MessageKey, string> = {
   "grid.total": "{n} images",
   "status.watchFailed": "Can't watch this folder for changes. Press F5 to refresh.",
   "status.selected": "{n} selected",
+  "drag.count": "{n} images",
+  "drag.countCopy": "Copy {n} images",
   "status.sep": "\u00a0·\u00a0",
   "grid.empty": "No images in this folder",
   "grid.rootGone": "This folder was moved or deleted",

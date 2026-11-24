@@ -17,6 +17,7 @@ interface Props { entry: ImageEntry; cell: number; selected: boolean; focused: b
 
 /**
  * 按下主键时选中：单击只选它，Mod + 单击切换，Shift + 单击从锚点连选。
+ * 按在已选多张之一上时选中不变、只移焦点（可能要把它们一起拖走）；没拖就松手时由 useThumbDrag 收成只选它。
  * 右键（以及 macOS 上等同右键的 Ctrl + 单击）在 contextmenu 事件里处理，这里不管。
  * 模块级函数、id 取自 data-id：所有格子共用同一个处理函数，不破坏 memo。
  */
@@ -26,6 +27,7 @@ function onCellPointerDown(e: PointerEvent<HTMLDivElement>): void {
   const sel = useSelection.getState();
   if (e.shiftKey) sel.set(selectRange(sel, useGridCtx.getState().list, id));
   else if (IS_MAC ? e.metaKey : e.ctrlKey) sel.set(toggle(sel, id));
+  else if (sel.ids.has(id) && sel.ids.size > 1) sel.set(selectForContext(sel, id));
   else sel.set(selectOnly(id));
 }
 

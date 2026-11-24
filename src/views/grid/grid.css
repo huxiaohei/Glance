@@ -257,3 +257,25 @@
 .dir-item-active, .dir-item-active:hover { background: var(--line); }
 .dir-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dir-count { flex: none; font-size: 12px; color: var(--text-dim); }
+
+/* 拖拽中：滚动区显示抓手光标 */
+.grid-dragging,
+.grid-dragging * { cursor: grabbing; }
+
+/* 拖拽中跟着指针的张数徽标。位置由 moveBadge 直接写 transform；
+   层级在网格之上、提示条（50）之下 */
+.drag-badge {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  pointer-events: none;
+  padding: 2px var(--gap);
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  white-space: nowrap;
+}

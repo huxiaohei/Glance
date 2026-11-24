@@ -15,12 +15,14 @@ import { useListView } from "../../stores/listView";
 import { useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
 import DirTree from "./DirTree";
+import DragBadge from "./DragBadge";
 import GridToolbar from "./GridToolbar";
 import GroupHeader from "./GroupHeader";
 import { registerGridCommands } from "./gridCommands";
 import StatusBar from "./StatusBar";
 import ThumbCell from "./ThumbCell";
 import { useMarquee } from "./useMarquee";
+import { useThumbDrag } from "./useThumbDrag";
 import { useVisibleThumbs } from "./useVisibleThumbs";
 import "./grid.css";
 
@@ -147,6 +149,8 @@ export default function GridView({ hidden = false }: { hidden?: boolean }) {
   useVisibleThumbs(layout, scrollTop, size.height, tier);
   // 空白处的指针处理（单击清空、框选）都在这里
   const marquee = useMarquee(scroller, layout, cell, !hidden);
+  // 格子上的按下与拖动（拖起来、徽标、取消）
+  useThumbDrag(scroller, !hidden);
 
   // Cmd/Ctrl + 滚轮调格子大小。React 的 onWheel 是被动监听，preventDefault 拦不住页面缩放，须手动挂非被动监听。
   const wheelAcc = useRef(0);
@@ -267,6 +271,7 @@ export default function GridView({ hidden = false }: { hidden?: boolean }) {
         </div>
       </div>
       <StatusBar total={total} />
+      <DragBadge />
     </div>
   );
 }
