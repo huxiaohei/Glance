@@ -5,6 +5,7 @@ import {
   compareColumns,
   fitFocused,
   moveFocus,
+  moveFocused,
   openFocused,
   removeFocused,
   toggleSync,
@@ -32,6 +33,11 @@ const compareCommands: Command[] = [
   { id: "compare.focusRight", title: "cmd.compare.focusRight", category: "cmd.cat.compare", keys: ["ArrowRight"], views: ["compare"], run: () => moveFocus(1) },
   { id: "compare.focusUp", title: "cmd.compare.focusUp", category: "cmd.cat.compare", keys: ["ArrowUp"], views: ["compare"], run: () => moveFocus(-compareColumns()) },
   { id: "compare.focusDown", title: "cmd.compare.focusDown", category: "cmd.cat.compare", keys: ["ArrowDown"], views: ["compare"], run: () => moveFocus(compareColumns()) },
+  // Alt+方向键：与相邻格交换，按住时连续交换
+  { id: "compare.moveLeft", title: "cmd.compare.moveLeft", category: "cmd.cat.compare", keys: ["Alt+ArrowLeft"], views: ["compare"], run: () => moveFocused(-1) },
+  { id: "compare.moveRight", title: "cmd.compare.moveRight", category: "cmd.cat.compare", keys: ["Alt+ArrowRight"], views: ["compare"], run: () => moveFocused(1) },
+  { id: "compare.moveUp", title: "cmd.compare.moveUp", category: "cmd.cat.compare", keys: ["Alt+ArrowUp"], views: ["compare"], run: () => moveFocused(-compareColumns()) },
+  { id: "compare.moveDown", title: "cmd.compare.moveDown", category: "cmd.cat.compare", keys: ["Alt+ArrowDown"], views: ["compare"], run: () => moveFocused(compareColumns()) },
   // 键盘焦点在按钮、开关、下拉框上时 Enter 归那个控件（不拦默认行为）
   { id: "compare.open", title: "cmd.compare.open", category: "cmd.cat.compare", keys: ["Enter"], views: ["compare"], when: noControlFocused, run: once(openFocused) },
   // Delete 在对比视图里只表示移出，不删文件

@@ -164,4 +164,45 @@ describe("对比视图命令", () => {
     press("Enter");
     expect(topView().kind).toBe("compare");
   });
+
+  describe("Alt+方向键交换", () => {
+    const alt = (k: string) => ({ ...key(k), altKey: true });
+    function pressAlt(k: string) {
+      const cmd = findCommand(alt(k), "compare", false, true);
+      expect(cmd, `命令 Alt+${k}`).not.toBeNull();
+      cmd!.run({ shift: false, repeat: false });
+      return cmd!;
+    }
+
+    it("四个方向与相邻格交换，焦点仍是原图", () => {
+      useCompareUi.setState({ focus: 6 });
+      expect(pressAlt("ArrowLeft").id).toBe("compare.moveLeft");
+      expect(useBasket.getState().order.slice(3, 6)).toEqual([4, 6, 5]);
+      expect(useCompareUi.getState().focus).toBe(6);
+      expect(pressAlt("ArrowRight").id).toBe("compare.moveRight");
+      expect(useBasket.getState().order.slice(3, 6)).toEqual([4, 5, 6]);
+      expect(pressAlt("ArrowUp").id).toBe("compare.moveUp");
+      expect(useBasket.getState().order.slice(0, 6)).toEqual([1, 6, 3, 4, 5, 2]);
+      expect(pressAlt("ArrowDown").id).toBe("compare.moveDown");
+      expect(useBasket.getState().order.slice(0, 6)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(useCompareUi.getState().focus).toBe(6);
+    });
+
+    it("越界不动", () => {
+      useCompareUi.setState({ focus: 1 });
+      pressAlt("ArrowLeft");
+      pressAlt("ArrowUp");
+      useCompareUi.setState({ focus: 10 });
+      pressAlt("ArrowRight");
+      pressAlt("ArrowDown");
+      expect(useBasket.getState().order).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    });
+
+    it("普通方向键只移动焦点，不交换", () => {
+      useCompareUi.setState({ focus: 2 });
+      expect(press("ArrowRight").id).toBe("compare.focusRight");
+      expect(useCompareUi.getState().focus).toBe(3);
+      expect(useBasket.getState().order).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    });
+  });
 });

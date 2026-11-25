@@ -87,6 +87,17 @@ export function moveFocus(delta: number): void {
   ui.setFocus(order[j]);
 }
 
+/** 焦点格与 index+delta 的格交换位置；越界不动，焦点仍是原图。 */
+export function moveFocused(delta: number): void {
+  const { focus } = useCompareUi.getState();
+  if (focus === null) return;
+  const { order, swap } = useBasket.getState();
+  const i = order.indexOf(focus);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= order.length) return;
+  swap(focus, order[j]);
+}
+
 /** 每排张数（上下移动的步长）。 */
 export function compareColumns(): number {
   return useSettings.getState().settings.compareColumns;
