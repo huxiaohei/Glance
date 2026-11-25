@@ -249,8 +249,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         browse_tree(tmp.path());
         let registry = Registry::default();
-        // 目录会话登记的是规范化后的路径（macOS 上临时目录 /var 实为 /private/var）
-        let canon = fs::canonicalize(tmp.path()).unwrap();
+        // 目录会话登记的是按 canonical_dir 规范化后的路径（macOS 上临时目录 /var 实为 /private/var；
+        // Windows 上不规范化，fs::canonicalize 会加 \\?\ 前缀，与目录会话不一致）
+        let canon = session::canonical_dir(tmp.path()).unwrap();
         let id = registry.register(&canon.join("a.png"));
         let r = run_browse(&registry, tmp.path()).unwrap();
         let e = r.entries.iter().find(|e| e.name == "a.png").unwrap();
