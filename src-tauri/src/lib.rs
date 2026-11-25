@@ -140,6 +140,8 @@ pub fn run() {
         edit::commands::edit_preview,
         edit::commands::edit_close,
         edit::commands::edit_save,
+        edit::commands::edit_params_get,
+        edit::commands::edit_params_set,
         state::settings::settings_get,
         state::settings::settings_set,
         lab::lab_register_dir,
@@ -179,6 +181,8 @@ pub fn run() {
         edit::commands::edit_preview,
         edit::commands::edit_close,
         edit::commands::edit_save,
+        edit::commands::edit_params_get,
+        edit::commands::edit_params_set,
         state::settings::settings_get,
         state::settings::settings_set
     ]);

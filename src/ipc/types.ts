@@ -87,6 +87,8 @@ export interface Settings {
   compareBackground: CompareBackground;
   /** 底部按当前状态给出的快捷键提示 */
   showKeyHints: boolean;
+  /** 编辑面板的默认保存方式 */
+  editSaveMode: "copy" | "overwrite";
 }
 
 /** 最近目录的一项。path 只用于显示和原样传回 open_path / recents_pin / recents_remove（“前端只见 FileId”的明确例外）。

@@ -51,6 +51,15 @@ pub enum CompareBackground {
     Checker,
 }
 
+/// 编辑完成后的默认保存方式：存副本，或覆盖原图。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum EditSaveMode {
+    #[default]
+    Copy,
+    Overwrite,
+}
+
 pub const COMPARE_COLUMNS_MIN: u8 = 2;
 pub const COMPARE_COLUMNS_MAX: u8 = 8;
 
@@ -82,6 +91,8 @@ pub struct Settings {
     pub compare_background: CompareBackground,
     /// 在底部给出按当前状态预测的快捷键提示。
     pub show_key_hints: bool,
+    /// 编辑面板的默认保存方式。
+    pub edit_save_mode: EditSaveMode,
 }
 
 impl Default for Settings {
@@ -98,6 +109,7 @@ impl Default for Settings {
             compare_sync_on_enter: true,
             compare_background: CompareBackground::Dark,
             show_key_hints: true,
+            edit_save_mode: EditSaveMode::Copy,
         }
     }
 }
@@ -167,6 +179,20 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn old_settings_default_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("settings.json"), r#"{"theme":"light"}"#).unwrap();
+        let s = SettingsState::load(dir.path()).get();
+        assert_eq!(s.edit_save_mode, EditSaveMode::Copy);
+        assert_eq!(
+            serde_json::to_value(Settings::default()).unwrap()["editSaveMode"],
+            "copy"
+        );
+        let o: Settings = serde_json::from_str(r#"{"editSaveMode":"overwrite"}"#).unwrap();
+        assert_eq!(o.edit_save_mode, EditSaveMode::Overwrite);
+    }
+
+    #[test]
     fn defaults_match_the_spec() {
         let d = Settings::default();
         assert_eq!(d.theme, Theme::Dark);
@@ -214,7 +240,7 @@ mod tests {
             json!({"theme":"dark","language":"system","includeSubdirs":true,
                    "defaultSort":"name","loopAtEnd":false,"wheel":"zoom","checkUpdates":true,
                    "compareColumns":4,"compareSyncOnEnter":true,"compareBackground":"dark",
-                   "showKeyHints":true})
+                   "showKeyHints":true,"editSaveMode":"copy"})
         );
     }
 

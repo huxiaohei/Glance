@@ -14,6 +14,7 @@ use crate::catalog::session::Sessions;
 use crate::fileops::edit_save::{SaveTarget, save_bytes};
 use crate::fileops::fsx::{FsError, validate_name};
 use crate::fileops::undo::{OpKind, UndoLog};
+use crate::state::session::{EditParamsMemory, SessionStore};
 
 /// 打开编辑会话（先关旧的）。动图返回 `Animated`，不建会话。
 #[tauri::command]
@@ -456,4 +457,22 @@ mod tests {
             }
         );
     }
+}
+
+/// 读上次记住的编辑参数（内存副本，不碰磁盘）。
+#[tauri::command]
+pub fn edit_params_get(store: State<'_, Arc<SessionStore>>) -> EditParamsMemory {
+    store.edit_params()
+}
+
+/// 记住编辑参数；写盘，不上主线程。
+#[tauri::command]
+pub async fn edit_params_set(
+    p: EditParamsMemory,
+    store: State<'_, Arc<SessionStore>>,
+) -> Result<(), ()> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.set_edit_params(p))
+        .await
+        .map_err(|_| ())
 }

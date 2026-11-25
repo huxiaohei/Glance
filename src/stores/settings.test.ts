@@ -61,6 +61,7 @@ describe("settings store", () => {
       compareSyncOnEnter: true,
       compareBackground: "dark",
       showKeyHints: true,
+      editSaveMode: "copy",
     });
   });
 

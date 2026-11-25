@@ -61,7 +61,7 @@ describe("SettingsDialog", () => {
 
   it("各控件显示当前设置的值", () => {
     useSettings.setState({
-      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch", checkUpdates: true, compareColumns: 3, compareSyncOnEnter: false, compareBackground: "dark", showKeyHints: false },
+      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch", checkUpdates: true, compareColumns: 3, compareSyncOnEnter: false, compareBackground: "dark", showKeyHints: false, editSaveMode: "copy" },
     });
     render(<SettingsDialog />);
     expect(control("settings.theme").value).toBe("light");

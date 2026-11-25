@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: Settings = {
   compareSyncOnEnter: true,
   compareBackground: "dark",
   showKeyHints: true,
+  editSaveMode: "copy",
 };
 
 export const useSettings = create<{ settings: Settings; open: boolean }>(() => ({
