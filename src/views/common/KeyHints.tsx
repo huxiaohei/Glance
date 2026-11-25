@@ -47,9 +47,8 @@ function hintKeys(id: HintId): string[] | null {
       return k ? [k] : null;
     }
     case "panel.move": {
-      const l = commandKey("compare.focusLeft");
-      const r = commandKey("compare.focusRight");
-      return l && r ? [l, r] : null;
+      const keys = ["Left", "Right", "Up", "Down"].map((d) => commandKey(`compare.focus${d}`));
+      return keys.every((k) => k !== null) ? (keys as string[]) : null;
     }
     case "panel.toggle": {
       const k = commandKey("compare.panelToggle");

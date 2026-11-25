@@ -74,6 +74,19 @@ describe("KeyHints", () => {
     ]);
   });
 
+  it("面板移动焦点显示四个方向键；缺一个就不显示", () => {
+    offs.push(registerCommands([
+      cmd("compare.focusLeft", ["ArrowLeft"]),
+      cmd("compare.focusRight", ["ArrowRight"]),
+      cmd("compare.focusUp", ["ArrowUp"]),
+    ]));
+    const { container, rerender } = render(<KeyHints hints={[{ id: "panel.move" }]} />);
+    expect(rows(container)).toEqual([]);
+    offs.push(registerCommands([cmd("compare.focusDown", ["ArrowDown"])]));
+    rerender(<KeyHints hints={[{ id: "panel.move" }]} />);
+    expect(rows(container)).toEqual([{ keys: ["←", "→", "↑", "↓"], text: t("hint.panel.move") }]);
+  });
+
   it("没有提示时不渲染", () => {
     const { container } = render(<KeyHints hints={[]} />);
     expect(container.firstChild).toBeNull();
