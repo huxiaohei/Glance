@@ -58,6 +58,14 @@ function hintKeys(id: HintId): string[] | null {
       const k = commandKey("compare.back");
       return k ? [k] : null;
     }
+    case "edit.save": {
+      const k = commandKey("edit.save");
+      return k ? [k] : null;
+    }
+    case "edit.cancel": {
+      const k = commandKey("edit.cancel");
+      return k ? [k] : null;
+    }
     case "compare.zoom":
       return [`${IS_MAC ? "⌘" : "Ctrl"} ${t("hint.key.wheel")}`];
     case "compare.pan":

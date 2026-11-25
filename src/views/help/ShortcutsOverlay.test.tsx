@@ -89,4 +89,19 @@ describe("ShortcutsOverlay", () => {
     expect(rows).toContainEqual([t("cmd.basket.open"), "C"]);
     expect(rows).toContainEqual([t("cmd.compare.toggleSync"), "S"]);
   });
+
+  it("help_lists_edit_group：编辑类别列出打开、保存、取消，保存与取消标“编辑中”", async () => {
+    const { registerEditCommands } = await import("../edit/editCommands");
+    off = registerEditCommands();
+    useHelp.setState({ open: true });
+    const { container } = render(<ShortcutsOverlay />);
+    const g = [...container.querySelectorAll(".help-group")].find(
+      (x) => x.querySelector(".help-cat")!.textContent === t("cmd.cat.edit"),
+    )!;
+    expect(g).toBeTruthy();
+    expect([...g.querySelectorAll(".help-row > span")].map((r) => r.textContent)).toEqual([
+      t("cmd.edit.open"), t("cmd.edit.save"), t("cmd.edit.cancel"),
+    ]);
+    expect([...g.querySelectorAll(".help-view")].map((r) => r.textContent)).toEqual([t("help.view.single"), t("help.view.edit")]);
+  });
 });

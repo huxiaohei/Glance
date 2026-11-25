@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareHints, gridHints, singleHints } from "./keyHints";
+import { compareHints, editHints, gridHints, singleHints } from "./keyHints";
 
 describe("gridHints", () => {
   it("没有选中、篮空：没有提示", () => {
@@ -111,4 +111,10 @@ describe("compareHints 同步关", () => {
     ]);
   });
 });
+});
+
+describe("editHints", () => {
+  it("hints_in_edit_mode：编辑中只提示保存与取消", () => {
+    expect(editHints()).toEqual([{ id: "edit.save" }, { id: "edit.cancel" }]);
+  });
 });

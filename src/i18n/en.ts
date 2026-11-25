@@ -310,6 +310,8 @@ export const en: Record<MessageKey, string> = {
   "hint.panel.back": "Back to images",
   "hint.key.wheel": "Wheel",
   "hint.key.drag": "Drag",
+  "hint.edit.save": "Save",
+  "hint.edit.cancel": "Cancel",
   "update.available": "Version {v} is available",
   "update.install": "Update and restart",
   "update.installing": "Updating…",

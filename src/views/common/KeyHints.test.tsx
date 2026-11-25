@@ -117,4 +117,13 @@ describe("KeyHints", () => {
     expect(rows(container)).toEqual([{ keys: [`⌘ ${t("hint.key.wheel")}`], text: t("hint.compare.zoomSolo") }]);
     expect(t("hint.compare.zoomSolo")).toBe("缩放");
   });
+
+  it("编辑提示的键名取自 edit.save / edit.cancel", () => {
+    offs.push(registerCommands([cmd("edit.save", ["Enter"]), cmd("edit.cancel", ["Escape"])]));
+    const { container } = render(<KeyHints hints={[{ id: "edit.save" }, { id: "edit.cancel" }]} />);
+    expect(rows(container)).toEqual([
+      { keys: ["Enter"], text: t("hint.edit.save") },
+      { keys: ["Escape"], text: t("hint.edit.cancel") },
+    ]);
+  });
 });

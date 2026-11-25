@@ -12,7 +12,9 @@ export type HintId =
   | "compare.panel"
   | "panel.move"
   | "panel.toggle"
-  | "panel.back";
+  | "panel.back"
+  | "edit.save"
+  | "edit.cancel";
 /** solo：只用于 compare.zoom，同步关时为真（文字不带“同步”）。 */
 export interface Hint { id: HintId; n?: number; solo?: boolean }
 
@@ -51,4 +53,9 @@ export function compareHints(s: { zoomed: boolean; sync?: boolean; panelOpen?: b
   if (s.zoomed) out.push({ id: "compare.pan" });
   out.push({ id: "compare.sync" }, s.panelOpen ? { id: "compare.remove" } : { id: "compare.panel" });
   return out.slice(0, MAX_HINTS);
+}
+
+/** 编辑模式：保存与取消（左右切图在编辑中不可用，不提示）。 */
+export function editHints(): Hint[] {
+  return [{ id: "edit.save" }, { id: "edit.cancel" }];
 }
