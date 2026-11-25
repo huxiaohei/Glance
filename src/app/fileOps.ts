@@ -6,6 +6,7 @@ import { lastSegment } from "../lib/lastSegment";
 import { useBasket } from "../stores/basket";
 import { useCatalog } from "../stores/catalog";
 import { useCompareUi } from "../stores/compareUi";
+import { useEditUi } from "../stores/editUi";
 import { topView } from "../stores/nav";
 import { useSelection } from "../stores/selection";
 import { showToast, withBusy, type ToastAction } from "../stores/toast";
@@ -35,6 +36,16 @@ export function opTargets(): FileId[] {
     return focus !== null && order.includes(focus) && !missing.has(focus) ? [focus] : [];
   }
   return [];
+}
+
+/** 只读操作（复制图片 / 路径、在访达中显示）的对象：编辑中是正在编辑的那张，其余同 opTargets。
+ *  编辑中 opTargets 为空，改文件的操作因此碰不到正在编辑的图。 */
+export function readTargets(): FileId[] {
+  if (activeView() === "edit") {
+    const { id } = useEditUi.getState();
+    return id === null ? [] : [id];
+  }
+  return opTargets();
 }
 
 /** 调用之前取好文件名：操作成功后条目可能已被移除（事件可能先于应答到达）。 */
@@ -303,14 +314,14 @@ async function quick(work: () => Promise<void>, doneText: string | null): Promis
 
 /** 把操作对象的第一张复制到剪贴板（像素）。没有对象时什么都不做。 */
 export async function copyImage(): Promise<void> {
-  const [id] = opTargets();
+  const [id] = readTargets();
   if (id === undefined) return;
   await quick(() => clipboardCopyImage(id), t("fs.copiedImage"));
 }
 
 /** 把全部操作对象的路径复制到剪贴板，一行一个。没有对象时什么都不做。 */
 export async function copyPaths(): Promise<void> {
-  const ids = opTargets();
+  const ids = readTargets();
   if (ids.length === 0) return;
   const text = ids.length === 1 ? t("fs.copiedPath") : t("fs.copiedPaths", { n: ids.length });
   await quick(() => clipboardCopyPaths(ids), text);
@@ -318,7 +329,7 @@ export async function copyPaths(): Promise<void> {
 
 /** 在访达 / 资源管理器里选中操作对象的第一张；成功时不提示。 */
 export async function revealFirst(): Promise<void> {
-  const [id] = opTargets();
+  const [id] = readTargets();
   if (id === undefined) return;
   await quick(() => reveal(id), null);
 }

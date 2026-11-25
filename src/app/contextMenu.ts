@@ -1,11 +1,12 @@
 import { t } from "../i18n";
 import { fsRecentTargets } from "../ipc/api";
 import { lastSegment } from "../lib/lastSegment";
+import { useAnimated } from "../stores/animated";
 import { useBasket } from "../stores/basket";
 import { useCompareUi } from "../stores/compareUi";
 import { topView } from "../stores/nav";
-import { allCommands } from "./commands";
-import { opTargets, pickAndTransfer, transferTo, transferToNewChild, type TransferKind } from "./fileOps";
+import { activeView, allCommands } from "./commands";
+import { opTargets, pickAndTransfer, readTargets, transferTo, transferToNewChild, type TransferKind } from "./fileOps";
 import { popup } from "./nativeMenu";
 import { singleSource } from "./singleSource";
 
@@ -16,8 +17,17 @@ export type MenuNode =
 
 /** readOnly：不出改文件的项（重命名、移动到、复制到、删除），用于对比篮来源的单张视图。
  *  compare：对比视图，只有“移出对比”与复制图片 / 路径、在访达中显示（同样不出改文件的项）。
- *  removable：对比视图里焦点格在篮内（缺失也算）：count 为 0（焦点缺失）时仍出四项，只有“移出对比”可用。 */
-export interface MenuCtx { view: "grid" | "single" | "compare"; count: number; recent: string[]; readOnly?: boolean; removable?: boolean }
+ *  removable：对比视图里焦点格在篮内（缺失也算）：count 为 0（焦点缺失）时仍出四项，只有“移出对比”可用。
+ *  edit：编辑模式，只有复制图片 / 路径、在访达中显示（不改文件，也不重新进入编辑）。
+ *  animated：唯一的操作对象已知是动图，“编辑”置灰。 */
+export interface MenuCtx {
+  view: "grid" | "single" | "compare" | "edit";
+  count: number;
+  recent: string[];
+  readOnly?: boolean;
+  removable?: boolean;
+  animated?: boolean;
+}
 
 /** 命令表里的一条命令做成菜单项：标签与快捷键取自命令表，点击即命令的 run。命令未注册时没有这一项。 */
 function commandItem(id: string, enabled: boolean): MenuNode[] {
@@ -58,10 +68,10 @@ export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
   if (ctx.count === 0 && !(compare && ctx.removable)) return [];
   const single = ctx.count === 1;
   const groups: MenuNode[][] = [
-    ctx.view === "grid" ? [...commandItem("grid.open", single), ...commandItem("grid.edit", single)] : [],
-    ctx.view === "single" ? commandItem("edit.open", single) : [],
+    ctx.view === "grid" ? [...commandItem("grid.open", single), ...commandItem("grid.edit", single && !ctx.animated)] : [],
+    ctx.view === "single" ? commandItem("edit.open", single && !ctx.animated) : [],
     compare ? commandItem("compare.remove", true) : [],
-    ctx.readOnly || ctx.view === "compare" ? [] : [
+    ctx.readOnly || compare || ctx.view === "edit" ? [] : [
       ...commandItem("file.rename", single),
       transferSubmenu("move", ctx.recent),
       transferSubmenu("copy", ctx.recent),
@@ -84,13 +94,16 @@ export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
 
 /** 取最近目标后弹出菜单；弹出出错不向外抛。 */
 export async function showImageMenu(): Promise<void> {
-  const count = opTargets().length;
+  const editing = activeView() === "edit";
+  const targets = editing ? readTargets() : opTargets();
+  const count = targets.length;
   const kind = topView().kind;
-  const view = kind === "single" || kind === "compare" ? kind : "grid";
+  const view = editing ? "edit" : kind === "single" || kind === "compare" ? kind : "grid";
+  const animated = count === 1 && useAnimated.getState().ids.has(targets[0]);
   const recent = await fsRecentTargets().catch(() => [] as string[]);
   const focus = useCompareUi.getState().focus;
   const removable = view === "compare" && focus !== null && useBasket.getState().order.includes(focus);
-  const nodes = buildImageMenu({ view, count, recent, readOnly: singleSource() === "basket", removable });
+  const nodes = buildImageMenu({ view, count, recent, readOnly: singleSource() === "basket", removable, animated });
   if (nodes.length === 0) return;
   try {
     await popup(nodes);

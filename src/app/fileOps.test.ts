@@ -11,7 +11,8 @@ import { useListView } from "../stores/listView";
 import { useNav } from "../stores/nav";
 import { useSelection } from "../stores/selection";
 import { useToast } from "../stores/toast";
-import { copyImage, copyPaths, errorText, isBusy, opTargets, revealFirst, pickAndTransfer, renameTo, reportOp, transferTo, transferToNewChild, trashTargets, undoLast } from "./fileOps";
+import { useEditUi } from "../stores/editUi";
+import { copyImage, copyPaths, errorText, isBusy, opTargets, readTargets, revealFirst, pickAndTransfer, renameTo, reportOp, transferTo, transferToNewChild, trashTargets, undoLast } from "./fileOps";
 
 vi.mock("../ipc/api", () => ({
   fsRename: vi.fn(),
@@ -397,6 +398,33 @@ describe("移动与复制", () => {
     vi.mocked(fsMove).mockResolvedValue(report({ kind: "move", done: [1], token: 1, dest: "/r/新目录" }));
     await transferToNewChild("move");
     expect(fsMove).toHaveBeenCalledWith([1], { kind: "newChild", name: "新目录" }, "skip");
+  });
+});
+
+describe("编辑中的操作对象", () => {
+  afterEach(() => useEditUi.setState({ status: "idle", id: null }));
+
+  it("编辑中改文件的操作没有对象，复制图片 / 路径与显示取正在编辑的那张", async () => {
+    useNav.getState().openSingle(2);
+    useEditUi.setState({ status: "ready", id: 2 });
+    expect(opTargets()).toEqual([]);
+    expect(readTargets()).toEqual([2]);
+    vi.mocked(clipboardCopyImage).mockResolvedValue();
+    vi.mocked(clipboardCopyPaths).mockResolvedValue();
+    vi.mocked(reveal).mockResolvedValue();
+    await copyImage();
+    expect(clipboardCopyImage).toHaveBeenCalledWith(2);
+    await copyPaths();
+    expect(clipboardCopyPaths).toHaveBeenCalledWith([2]);
+    await revealFirst();
+    expect(reveal).toHaveBeenCalledWith(2);
+    await trashTargets();
+    expect(fsTrash).not.toHaveBeenCalled();
+  });
+
+  it("不在编辑时 readTargets 与 opTargets 相同", () => {
+    useSelection.getState().set(toggle(selectOnly(3), 1));
+    expect(readTargets()).toEqual(opTargets());
   });
 });
 

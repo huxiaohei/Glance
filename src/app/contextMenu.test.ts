@@ -5,6 +5,7 @@ vi.mock("./fileOps", () => ({
   pickAndTransfer: vi.fn(),
   transferToNewChild: vi.fn(),
   opTargets: vi.fn(() => [1]),
+  readTargets: vi.fn(() => [1]),
   trashTargets: vi.fn(),
   copyImage: vi.fn(),
   copyPaths: vi.fn(),
@@ -22,6 +23,9 @@ import { registerCompareCommands } from "../views/compare/compareCommands";
 import { registerGridCommands } from "../views/grid/gridCommands";
 import { buildImageMenu, showImageMenu, type MenuNode } from "./contextMenu";
 import { registerFileCommands } from "./fileCommands";
+import { useEditUi } from "../stores/editUi";
+import { noteAnimated } from "../stores/animated";
+import { registerEditCommands } from "../views/edit/editCommands";
 import { opTargets, pickAndTransfer, transferTo, transferToNewChild } from "./fileOps";
 import { popup } from "./nativeMenu";
 
@@ -157,6 +161,46 @@ describe("showImageMenu", () => {
     await showImageMenu();
     const nodes = vi.mocked(popup).mock.calls[0][0];
     expect(labels(nodes)).toEqual([T("cmd.compare.remove"), "-", T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]);
+  });
+
+  it("编辑中只出不改文件的三项：复制图片、复制路径、在访达中显示", async () => {
+    const off = registerEditCommands();
+    useNav.getState().openSingle(1);
+    useEditUi.setState({ status: "ready", id: 1 });
+    vi.mocked(opTargets).mockReturnValue([]);
+    try {
+      await showImageMenu();
+      expect(popup).toHaveBeenCalledTimes(1);
+      const nodes = vi.mocked(popup).mock.calls[0][0];
+      expect(labels(nodes)).toEqual([T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]);
+      expect(nodes.every((n) => n.kind !== "item" || n.enabled)).toBe(true);
+    } finally {
+      vi.mocked(opTargets).mockImplementation(() => [1]);
+      useEditUi.setState({ status: "idle", id: null });
+      off();
+    }
+  });
+
+  it("已知是动图时“编辑”置灰", async () => {
+    const off = registerEditCommands();
+    useNav.getState().openSingle(1);
+    noteAnimated(1, true);
+    try {
+      await showImageMenu();
+      const nodes = vi.mocked(popup).mock.calls[0][0];
+      expect((find(nodes, T("cmd.edit.open")) as Item).enabled).toBe(false);
+      useNav.getState().reset();
+      await showImageMenu();
+      const grid = vi.mocked(popup).mock.calls[1][0];
+      expect((find(grid, T("cmd.grid.edit")) as Item).enabled).toBe(false);
+      noteAnimated(1, false);
+      await showImageMenu();
+      const again = vi.mocked(popup).mock.calls[2][0];
+      expect((find(again, T("cmd.grid.edit")) as Item).enabled).toBe(true);
+    } finally {
+      noteAnimated(1, false);
+      off();
+    }
   });
 
   it("对比视图里焦点格缺失时也弹出四项菜单", async () => {
