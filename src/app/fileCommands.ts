@@ -1,4 +1,5 @@
-import { registerCommands, type Command } from "./commands";
+import { activeView, registerCommands, type Command } from "./commands";
+import { singleSource } from "./singleSource";
 import { copyImage, copyPaths, pickAndTransfer, revealFirst, transferToNewChild, trashTargets, undoLast } from "./fileOps";
 import { startRename } from "../stores/rename";
 import { IS_MAC } from "./keys";
@@ -7,6 +8,9 @@ import { IS_MAC } from "./keys";
 function noTextSelected(): boolean {
   return (window.getSelection()?.toString() ?? "") === "";
 }
+
+/** 会改文件的命令只在目录来源下可用：对比篮来源的单张视图里不提供（设计 §4.4）。 */
+const notBasket = () => singleSource() !== "basket";
 
 /** 文件操作的命令。删除键按平台习惯：macOS 用 ⌘⌫（⌘⌦ 同样可用），其他平台用 Delete。 */
 export function fileCommands(isMac: boolean): Command[] {
@@ -17,6 +21,7 @@ export function fileCommands(isMac: boolean): Command[] {
       category: "cmd.cat.file",
       keys: isMac ? ["Mod+Backspace", "Mod+Delete"] : ["Delete"],
       views: ["grid", "single"],
+      when: notBasket,
       run: (ctx) => {
         if (!ctx.repeat) void trashTargets();
       },
@@ -27,6 +32,7 @@ export function fileCommands(isMac: boolean): Command[] {
       category: "cmd.cat.file",
       keys: ["F2"],
       views: ["grid", "single"],
+      when: notBasket,
       run: () => startRename(),
     },
     {
@@ -35,6 +41,7 @@ export function fileCommands(isMac: boolean): Command[] {
       category: "cmd.cat.file",
       keys: [],
       views: ["grid", "single"],
+      when: notBasket,
       run: (ctx) => {
         if (!ctx.repeat) void pickAndTransfer("move");
       },
@@ -45,6 +52,7 @@ export function fileCommands(isMac: boolean): Command[] {
       category: "cmd.cat.file",
       keys: [],
       views: ["grid", "single"],
+      when: notBasket,
       run: (ctx) => {
         if (!ctx.repeat) void pickAndTransfer("copy");
       },
@@ -55,6 +63,7 @@ export function fileCommands(isMac: boolean): Command[] {
       category: "cmd.cat.file",
       keys: [],
       views: ["grid", "single"],
+      when: notBasket,
       run: (ctx) => {
         if (!ctx.repeat) void transferToNewChild("move");
       },
@@ -98,6 +107,8 @@ export function fileCommands(isMac: boolean): Command[] {
       keys: ["Mod+Z"],
       // 不标 allowInInput：输入框里的 Mod+Z 留给文字撤销
       views: "all",
+      // 对比篮来源的单张与对比视图里没有文件操作，Mod+Z 不响应（设计 §4.5）
+      when: () => notBasket() && activeView() !== "compare",
       run: (ctx) => {
         if (!ctx.repeat) void undoLast();
       },

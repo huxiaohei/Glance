@@ -48,4 +48,32 @@ describe("nav store", () => {
     useCatalog.getState().reset();
     expect(useNav.getState().stack).toEqual([{ kind: "grid" }]);
   });
+
+  it("openCompare 压栈；basket 来源的单张上 openCompare 等同 back；已是 compare 时不变", () => {
+    useNav.getState().openCompare();
+    expect(useNav.getState().stack).toEqual([{ kind: "grid" }, { kind: "compare" }]);
+    useNav.getState().openSingle(4, "basket");
+    expect(topView()).toEqual({ kind: "single", source: "basket", id: 4 });
+    useNav.getState().setCurrent(6);
+    expect(topView()).toEqual({ kind: "single", source: "basket", id: 6 });
+    useNav.getState().openCompare();
+    expect(useNav.getState().stack).toEqual([{ kind: "grid" }, { kind: "compare" }]);
+    const before = useNav.getState();
+    useNav.getState().openCompare();
+    expect(useNav.getState()).toBe(before);
+    useNav.getState().reset();
+    expect(useNav.getState().stack).toEqual([{ kind: "grid" }]);
+  });
+
+  it("folder 来源的单张上 openCompare 压栈；openSingle 默认 folder 来源", () => {
+    useNav.getState().openSingle(3);
+    useNav.getState().openCompare();
+    expect(useNav.getState().stack).toEqual([
+      { kind: "grid" },
+      { kind: "single", source: "folder", id: 3 },
+      { kind: "compare" },
+    ]);
+    useNav.getState().back();
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 3 });
+  });
 });

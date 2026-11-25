@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { allCommands, findCommand } from "./commands";
 import { fileCommands, registerFileCommands } from "./fileCommands";
 import { startRename } from "../stores/rename";
+import { useCatalog } from "../stores/catalog";
+import { useNav } from "../stores/nav";
 import { copyImage, copyPaths, pickAndTransfer, revealFirst, transferToNewChild, trashTargets, undoLast } from "./fileOps";
 
 vi.mock("./fileOps", () => ({
@@ -20,6 +22,8 @@ const key = (k: string, mods: Partial<KeyboardEvent> = {}) =>
 
 let off: (() => void) | null = null;
 afterEach(() => {
+  useNav.getState().reset();
+  useCatalog.getState().reset();
   off?.();
   off = null;
   vi.clearAllMocks();
@@ -116,5 +120,30 @@ describe("file commands", () => {
     expect(win.title).toBe("cmd.file.revealWin");
     mac.run({ shift: false, repeat: false });
     expect(revealFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it("basket 来源的单张视图里改文件的命令都不匹配；复制图片与路径保留", () => {
+    selectText("");
+    off = registerFileCommands(true);
+    useCatalog.setState({ root: { path: "/r" } as never });
+    useNav.getState().openCompare();
+    useNav.getState().openSingle(1, "basket");
+    expect(findCommand(key("F2"), "single", false, true)).toBeNull();
+    expect(findCommand(key("Backspace", { metaKey: true }), "single", false, true)).toBeNull();
+    expect(findCommand(key("z", { metaKey: true }), "single", false, true)).toBeNull();
+    for (const id of ["file.moveTo", "file.copyTo", "file.moveToNew"]) {
+      expect(allCommands().find((c) => c.id === id)!.when!()).toBe(false);
+    }
+    expect(findCommand(key("c", { metaKey: true }), "single", false, true)?.id).toBe("file.copyImage");
+    expect(findCommand(key("C", { metaKey: true, shiftKey: true }), "single", false, true)?.id).toBe("file.copyPath");
+  });
+
+  it("对比视图里 Mod+Z 不响应", () => {
+    off = registerFileCommands(true);
+    useCatalog.setState({ root: { path: "/r" } as never });
+    useNav.getState().openCompare();
+    expect(findCommand(key("z", { metaKey: true }), "compare", false, true)).toBeNull();
+    useNav.getState().back();
+    expect(findCommand(key("z", { metaKey: true }), "grid", false, true)?.id).toBe("file.undo");
   });
 });

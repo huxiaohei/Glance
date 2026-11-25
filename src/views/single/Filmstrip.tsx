@@ -1,4 +1,5 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { getSingleEntry } from "../../app/singleSource";
 import { t } from "../../i18n";
 import { thumbsWant } from "../../ipc/api";
 import type { FileId } from "../../ipc/types";
@@ -123,10 +124,9 @@ export default function Filmstrip({ list, current }: { list: ImageList; current:
     if (view <= 0) return;
     const timer = setTimeout(() => {
       const { broken, ready } = useThumbs.getState();
-      const { entries } = useCatalog.getState();
       const have = (id: FileId) => {
         const r = ready.get(id);
-        const e = entries.get(id);
+        const e = getSingleEntry(id);
         return !!r && !!e && r.tier >= TIER && r.v === `${e.mtimeMs}-${e.size}`;
       };
       thumbsWant("strip", shown.filter((id) => !broken.has(id) && !have(id)), TIER)

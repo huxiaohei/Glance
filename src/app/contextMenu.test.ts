@@ -124,4 +124,12 @@ describe("showImageMenu", () => {
     await showImageMenu();
     expect(popup).toHaveBeenCalledTimes(1);
   });
+
+  it("basket 来源的单张视图里不出重命名、移动、复制到与删除", async () => {
+    useNav.getState().openCompare();
+    useNav.getState().openSingle(1, "basket");
+    await showImageMenu();
+    const nodes = vi.mocked(popup).mock.calls[0][0];
+    expect(labels(nodes)).toEqual([T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]);
+  });
 });

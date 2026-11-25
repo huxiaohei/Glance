@@ -1,8 +1,7 @@
-import { useImageList } from "../../app/useImageList";
+import { useSingleEntry, useSingleList } from "../../app/singleSource";
 import type { FileId } from "../../ipc/types";
 import { hasSize } from "../../lib/deriveList";
 import { formatBytes } from "../../lib/formatBytes";
-import { useCatalog } from "../../stores/catalog";
 
 /** 格式标签：扩展名大写，jpeg 显示为 JPG；没有扩展名返回 null。 */
 function formatLabel(name: string): string | null {
@@ -14,8 +13,8 @@ function formatLabel(name: string): string | null {
 
 /** 单张视图底部常驻信息条：文件名、宽 × 高、大小、格式，右侧 序号 / 总数。 */
 export default function InfoBar({ id }: { id: FileId }) {
-  const entry = useCatalog((s) => s.entries.get(id));
-  const list = useImageList();
+  const entry = useSingleEntry(id);
+  const list = useSingleList();
   const index = list.ids.indexOf(id);
   const format = entry ? formatLabel(entry.name) : null;
 

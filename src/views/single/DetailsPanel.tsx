@@ -3,7 +3,7 @@ import { locale, t, type MessageKey } from "../../i18n";
 import type { FileId, ImageDetails } from "../../ipc/types";
 import { formatBytes } from "../../lib/formatBytes";
 import { hasSize } from "../../lib/deriveList";
-import { useCatalog } from "../../stores/catalog";
+import { useSingleEntry } from "../../app/singleSource";
 import { useImageDetails } from "./useImageDetails";
 
 function Row({ label, children, selectable }: { label: string; children: ReactNode; selectable?: boolean }) {
@@ -51,7 +51,7 @@ function formatModified(ms: number): string {
 
 /** 右侧详细信息面板：文件、图像、拍摄信息三组；缺失的项不显示。 */
 export default function DetailsPanel({ id }: { id: FileId }) {
-  const entry = useCatalog((s) => s.entries.get(id));
+  const entry = useSingleEntry(id);
   const version = entry ? `${entry.mtimeMs}-${entry.size}` : "";
   const { details, loading, error } = useImageDetails(id, version);
   const yesNo = (b: boolean) => t(b ? "details.yes" : "details.no");

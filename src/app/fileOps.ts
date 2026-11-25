@@ -9,18 +9,21 @@ import { useSelection } from "../stores/selection";
 import { showToast, withBusy, type ToastAction } from "../stores/toast";
 import { activeView } from "./commands";
 import { askName } from "../views/common/NamePrompt";
+import { getSingleList } from "./singleSource";
 import { getImageList } from "./useImageList";
 
-/** 操作对象：单张视图 → 正在显示的那张；网格 → 选中集合里当前列表可见的那些，按列表顺序。其余视图 → []。 */
+/** 操作对象：单张视图 → 正在显示的那张（按来源的列表判断：对比篮来源下须仍在篮内且未缺失）；
+ *  网格 → 选中集合里当前列表可见的那些，按列表顺序。其余视图 → []。
+ *  对比篮来源下会改文件的命令已被各自的 when 挡掉，这里只供复制图片 / 路径与在访达中显示。 */
 export function opTargets(): FileId[] {
   const view = activeView();
-  const ids = getImageList().ids;
   if (view === "single") {
     const top = topView();
-    // 已不在列表里的图（刚被删或被筛掉）不再操作
-    return top.kind === "single" && ids.includes(top.id) ? [top.id] : [];
+    // 已不在列表里的图（刚被删、被筛掉或移出对比篮）不再操作
+    return top.kind === "single" && getSingleList().ids.includes(top.id) ? [top.id] : [];
   }
   if (view === "grid") {
+    const ids = getImageList().ids;
     const sel = useSelection.getState().ids;
     return sel.size === 0 ? [] : ids.filter((id) => sel.has(id));
   }

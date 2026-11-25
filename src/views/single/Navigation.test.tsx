@@ -5,6 +5,7 @@ import App from "../../App";
 import { t } from "../../i18n";
 import { appVersion, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
 import { switchStats } from "../../lib/perfMarks";
+import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
 import { topView, useNav } from "../../stores/nav";
@@ -51,6 +52,7 @@ beforeEach(() => {
   });
   useCatalog.getState().reset();
   useNav.getState().reset();
+  useBasket.getState().clear();
   useThumbs.getState().reset();
   useSelection.getState().clear();
   useSettings.setState({ settings: DEFAULT_SETTINGS });
@@ -410,5 +412,53 @@ describe("单张视图切图", () => {
     key("ArrowLeft");
     expect(current()).toBe(1);
     expect(hint(c)).toBe(t("hint.first"));
+  });
+});
+
+describe("对比篮来源的单张视图", () => {
+  /** 目录里 1–5（2、4 在子目录 a），篮里依次是 2、4、5，从对比进入 2。 */
+  function setupBasket() {
+    const c = setup([1, 2, 3, 4, 5], { 2: "a", 4: "a" });
+    act(() => {
+      useBasket.getState().toggle([2, 4, 5]);
+      useNav.getState().openCompare();
+      useNav.getState().openSingle(2, "basket");
+    });
+    return c;
+  }
+
+  it("右方向键在篮内切换，不进入目录里的下一张；缩略图条与序号只算篮内", () => {
+    const c = setupBasket();
+    expect(c.querySelectorAll(".strip-item")).toHaveLength(3);
+    expect(c.querySelector(".info-index")?.textContent).toBe("1 / 3");
+    key("ArrowRight");
+    expect(current()).toBe(4);
+    expect(topView()).toEqual({ kind: "single", source: "basket", id: 4 });
+    // 只有一个分组：不提示目录
+    expect(hint(c)).toBeNull();
+    key("ArrowRight");
+    expect(current()).toBe(5);
+    key("ArrowRight");
+    expect(current()).toBe(5);
+    expect(hint(c)).toBe(t("hint.last"));
+    expect(c.querySelector(".info-index")?.textContent).toBe("3 / 3");
+  });
+
+  it("移出当前图后跳到下一张，最后一张移出后跳上一张，全空后栈顶不再是 single", () => {
+    setupBasket();
+    act(() => void useBasket.getState().remove([2]));
+    expect(current()).toBe(4);
+    act(() => useNav.getState().setCurrent(5));
+    act(() => void useBasket.getState().remove([5]));
+    expect(current()).toBe(4);
+    act(() => void useBasket.getState().remove([4]));
+    expect(topView().kind).not.toBe("single");
+    expect(topView()).toEqual({ kind: "compare" });
+  });
+
+  it("当前图在篮里被标为缺失时同样跳走", () => {
+    setupBasket();
+    act(() => useBasket.setState({ missing: new Set([2]) }));
+    expect(current()).toBe(4);
   });
 });

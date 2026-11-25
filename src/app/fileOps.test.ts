@@ -5,6 +5,7 @@ import { clipboardCopyImage, clipboardCopyPaths, fsCopy, fsMove, fsRename, fsTra
 import { askName } from "../views/common/NamePrompt";
 import type { OpReport } from "../ipc/types";
 import { selectOnly, toggle } from "../lib/selection";
+import { useBasket } from "../stores/basket";
 import { useCatalog } from "../stores/catalog";
 import { useListView } from "../stores/listView";
 import { useNav } from "../stores/nav";
@@ -65,6 +66,21 @@ describe("opTargets", () => {
   it("opTargets：单张视图里那张已不在列表里时为空", () => {
     useNav.getState().openSingle(3);
     useListView.getState().toggleCollapsed("b");
+    expect(opTargets()).toEqual([]);
+  });
+
+  it("opTargets：basket 来源时取正在显示的那张，已移出或缺失时为空", () => {
+    useBasket.getState().clear();
+    useBasket.getState().toggle([2, 3]);
+    useNav.getState().openCompare();
+    // 不在当前列表里（被筛掉）也不影响 basket 来源
+    useListView.getState().toggleCollapsed("b");
+    useNav.getState().openSingle(3, "basket");
+    expect(opTargets()).toEqual([3]);
+    useBasket.setState({ missing: new Set([3]) });
+    expect(opTargets()).toEqual([]);
+    useBasket.setState({ missing: new Set() });
+    useBasket.getState().remove([3]);
     expect(opTargets()).toEqual([]);
   });
 });

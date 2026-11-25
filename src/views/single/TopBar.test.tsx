@@ -19,6 +19,14 @@ beforeEach(() => {
 });
 
 describe("TopBar 重命名", () => {
+  it("对比篮来源时双击文件名不开始重命名", () => {
+    useNav.getState().openCompare();
+    useNav.getState().openSingle(1, "basket");
+    const { container } = render(<TopBar id={1} />);
+    fireEvent.doubleClick(container.querySelector(".topbar-name")!);
+    expect(useRename.getState().id).toBeNull();
+  });
+
   it("重命名期间文件名处是输入框；双击文件名开始重命名", () => {
     const { container } = render(<TopBar id={1} />);
     expect(container.querySelector("input")).toBeNull();

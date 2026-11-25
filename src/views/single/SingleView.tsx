@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useImageList } from "../../app/useImageList";
+import { getSingleEntry, useSingleList } from "../../app/singleSource";
 import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
 import { resolveCurrent } from "../../lib/currentImage";
 import { cancelSwitch } from "../../lib/perfMarks";
 import { preloadPlan } from "../../lib/preloadPlan";
+import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
 import { useRename } from "../../stores/rename";
@@ -66,14 +67,17 @@ function ArrowZone({ side }: { side: "left" | "right" }) {
   );
 }
 
-/** 单张视图：显示栈顶 single 的那张图；列表变化时修正当前图，列表空了回到网格。前后各两张预解码。 */
+/** 单张视图：显示栈顶 single 的那张图，列表与条目按来源取（当前目录或对比篮）。列表变化时修正当前图，
+ *  列表空了弹栈（回到网格，或对比篮来源时回到对比）。前后各两张预解码。 */
 export default function SingleView() {
   const id = useNav((s) => {
     const top = s.stack[s.stack.length - 1];
     return top.kind === "single" ? top.id : null;
   });
-  const list = useImageList();
+  const list = useSingleList();
+  // 条目经 getSingleEntry 按来源取；这两份只用来在条目变化（尺寸补全、改写、快照更新）时重算预解码集合
   const entries = useCatalog((s) => s.entries);
+  const basketItems = useBasket((s) => s.items);
   const infoOpen = useSingleUi((s) => s.infoOpen);
   const [preloader] = useState(() => new Preloader());
 
@@ -112,17 +116,17 @@ export default function SingleView() {
   useLayoutEffect(() => {
     if (id === null || index < 0) return;
     const pixelsOf = (x: FileId) => {
-      const e = entries.get(x);
+      const e = getSingleEntry(x);
       return e?.width && e.height ? e.width * e.height : null;
     };
     const plan = preloadPlan(list.ids, index, pixelsOf);
     preloader.want(
       plan.flatMap((x) => {
-        const e = entries.get(x);
+        const e = getSingleEntry(x);
         return e ? [{ id: x, url: imageUrl(e) }] : [];
       }),
     );
-  }, [id, index, list, entries, preloader]);
+  }, [id, index, list, entries, basketItems, preloader]);
 
   return (
     <div

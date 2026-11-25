@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { IS_MAC, formatKey } from "../../app/keys";
+import { useSingleEntry } from "../../app/singleSource";
 import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
-import { useCatalog } from "../../stores/catalog";
+import { useNav } from "../../stores/nav";
 import { startRename, useRename } from "../../stores/rename";
 import { useSingleUi } from "../../stores/singleUi";
 import RenameInput from "../common/RenameInput";
@@ -16,7 +17,12 @@ const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 
 /** 单张视图顶栏：返回按钮 + “子目录 / 文件名”。当前图所在目录与上一张不同时目录名高亮 1 秒。 */
 export default function TopBar({ id }: { id: FileId }) {
-  const entry = useCatalog((s) => s.entries.get(id));
+  const entry = useSingleEntry(id);
+  // 对比篮来源不提供改名（与 F2 一致）
+  const canRename = useNav((s) => {
+    const top = s.stack[s.stack.length - 1];
+    return !(top.kind === "single" && top.source === "basket");
+  });
   const renaming = useRename((s) => s.id === id);
   const dir = entry?.dir;
 
@@ -60,7 +66,7 @@ export default function TopBar({ id }: { id: FileId }) {
           {renaming ? (
             <RenameInput id={id} name={entry.name} />
           ) : (
-            <span className="topbar-name" title={entry.name} onDoubleClick={() => startRename(id)}>
+            <span className="topbar-name" title={entry.name} onDoubleClick={canRename ? () => startRename(id) : undefined}>
               {entry.name}
             </span>
           )}

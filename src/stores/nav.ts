@@ -2,33 +2,50 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type { FileId } from "../ipc/types";
 import { useCatalog } from "./catalog";
 
-export type View = { kind: "grid" } | { kind: "single"; source: "folder"; id: FileId };
+/** 单张视图的来源：folder 是当前目录的列表，basket 是对比篮。 */
+export type SingleSource = "folder" | "basket";
+
+export type View =
+  | { kind: "grid" }
+  | { kind: "compare" }
+  | { kind: "single"; source: SingleSource; id: FileId };
 
 export interface NavState {
   stack: View[];                       // 栈底恒为 grid
-  openSingle(id: FileId): void;        // 栈顶已是 single 时只换 id，否则压栈
-  setCurrent(id: FileId): void;        // 栈顶不是 single 时不做事
+  /** source 默认 "folder"。栈顶已是 single 时原地换成 (id, source)（界面上不会跨来源，不另压一层），否则压栈 */
+  openSingle(id: FileId, source?: SingleSource): void;
+  /** 栈顶已是 compare 时不做事；栈顶是 basket 来源的 single 时等同 back()（对比之上最多一层单张）；否则压栈 */
+  openCompare(): void;
+  setCurrent(id: FileId): void;        // 栈顶不是 single 时不做事；来源不变
   back(): void;                        // 弹出栈顶；只剩 grid 时不做事
   reset(): void;                       // 回到只有 grid
 }
 
 const GRID: View = { kind: "grid" };
 const top = (stack: View[]): View => stack[stack.length - 1];
-const single = (id: FileId): View => ({ kind: "single", source: "folder", id });
+const COMPARE: View = { kind: "compare" };
+const single = (id: FileId, source: SingleSource): View => ({ kind: "single", source, id });
 
 export const useNav: UseBoundStore<StoreApi<NavState>> = create<NavState>((set) => ({
   stack: [GRID],
-  openSingle: (id) =>
+  openSingle: (id, source = "folder") =>
     set((s) => {
       const t = top(s.stack);
-      if (t.kind !== "single") return { stack: [...s.stack, single(id)] };
-      return t.id === id ? s : { stack: [...s.stack.slice(0, -1), single(id)] };
+      if (t.kind !== "single") return { stack: [...s.stack, single(id, source)] };
+      return t.id === id && t.source === source ? s : { stack: [...s.stack.slice(0, -1), single(id, source)] };
+    }),
+  openCompare: () =>
+    set((s) => {
+      const t = top(s.stack);
+      if (t.kind === "compare") return s;
+      if (t.kind === "single" && t.source === "basket") return { stack: s.stack.slice(0, -1) };
+      return { stack: [...s.stack, COMPARE] };
     }),
   setCurrent: (id) =>
     set((s) => {
       const t = top(s.stack);
       if (t.kind !== "single" || t.id === id) return s;
-      return { stack: [...s.stack.slice(0, -1), single(id)] };
+      return { stack: [...s.stack.slice(0, -1), single(id, t.source)] };
     }),
   back: () => set((s) => (s.stack.length <= 1 ? s : { stack: s.stack.slice(0, -1) })),
   reset: () => set((s) => (s.stack.length === 1 ? s : { stack: [GRID] })),

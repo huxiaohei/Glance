@@ -7,7 +7,7 @@ import type { ImageEntry } from "../../lib/deriveList";
 import { glanceUrl } from "../../lib/glanceUrl";
 import { markSwitchPainted } from "../../lib/perfMarks";
 import type { Size } from "../../lib/viewport";
-import { useCatalog } from "../../stores/catalog";
+import { useSingleEntry } from "../../app/singleSource";
 import { useThumbs } from "../../stores/thumbs";
 import type { Loaded, Preloader } from "./preloader";
 import { useStageViewport, type StageApi } from "./useStageViewport";
@@ -48,7 +48,7 @@ function useLoaded(preloader: Preloader, id: FileId, url: string | null): Loaded
  * 新版本解码完成（或失败）前保留旧图，按旧尺寸与旧视口显示。左下角显示当前比例；children 叠在画面之上。
  */
 export default function Stage({ id, preloader, children }: { id: FileId; preloader: Preloader; children?: ReactNode }) {
-  const entry = useCatalog((s) => s.entries.get(id));
+  const entry = useSingleEntry(id);
   const thumb = useThumbs((s) => s.ready.get(id));
   const [box, setBox] = useState<HTMLDivElement | null>(null);
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
