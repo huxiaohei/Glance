@@ -107,8 +107,8 @@ export function fileCommands(isMac: boolean): Command[] {
       keys: ["Mod+Z"],
       // 不标 allowInInput：输入框里的 Mod+Z 留给文字撤销
       views: "all",
-      // 对比篮来源的单张与对比视图里没有文件操作，Mod+Z 不响应（设计 §4.5）
-      when: () => notBasket() && activeView() !== "compare",
+      // 对比篮来源的单张与对比视图里没有文件操作，Mod+Z 不响应（设计 §4.5）；编辑中不改文件，也不响应
+      when: () => notBasket() && activeView() !== "compare" && activeView() !== "edit",
       run: (ctx) => {
         if (!ctx.repeat) void undoLast();
       },

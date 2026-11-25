@@ -7,7 +7,7 @@ import { buildImageMenu } from "../../app/contextMenu";
 import { saveEdit } from "../../app/editSave";
 import { t } from "../../i18n";
 import {
-  appVersion, basketRestore, editClose, editOpen, editParamsGet, editPreview, editResultUrl, fsRename, fsTrash,
+  appVersion, basketRestore, editClose, editOpen, editParamsGet, editPreview, editResultUrl, fsRename, fsTrash, fsUndo,
   onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck,
 } from "../../ipc/api";
 import type { EditOpened } from "../../ipc/types";
@@ -22,6 +22,9 @@ import { useRename } from "../../stores/rename";
 import { useSelection } from "../../stores/selection";
 import { useThumbs } from "../../stores/thumbs";
 import { useToast } from "../../stores/toast";
+import { undoLast } from "../../app/fileOps";
+import { useStageApi } from "../single/Stage";
+import { useSingleUi } from "../../stores/singleUi";
 
 vi.mock("../../ipc/api");
 vi.mock("../../app/editSave", () => ({ saveEdit: vi.fn(async () => {}) }));
@@ -143,11 +146,44 @@ describe("编辑模式", () => {
     key("Backspace", { metaKey: true });
     expect(fsTrash).not.toHaveBeenCalled();
     expect(fsRename).not.toHaveBeenCalled();
+    // 撤销上一次文件操作也不响应：快捷键与提示条上的“撤销”按钮
+    key("z", { metaKey: true });
+    await act(() => undoLast());
+    expect(fsUndo).not.toHaveBeenCalled();
     // 滚轮切图走的 go() 也不切
     const { go } = await import("../single/go");
     act(() => go("next"));
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
     expect(useEditUi.getState().status).toBe("ready");
+  });
+
+  it("zoom_keys_work_while_editing", async () => {
+    await enterEditing();
+    const api = useStageApi.getState().api!;
+    const zoomBy = vi.spyOn(api, "zoomBy");
+    const fit = vi.spyOn(api, "fit");
+    const actual = vi.spyOn(api, "actual");
+    key("+");
+    key("-");
+    key("0");
+    key("1");
+    expect(zoomBy.mock.calls).toEqual([[1.25], [0.8]]);
+    expect(fit).toHaveBeenCalledTimes(1);
+    expect(actual).toHaveBeenCalledTimes(1);
+    key("i");
+    expect(useSingleUi.getState().infoOpen).toBe(true);
+    act(() => useSingleUi.setState({ infoOpen: false }));
+    expect(useEditUi.getState().status).toBe("ready");
+  });
+
+  it("open_folder_and_refresh_while_editing", async () => {
+    await enterEditing();
+    const { findCommand } = await import("../../app/commands");
+    const ev = (k: string, meta = false) =>
+      ({ key: k, metaKey: meta, ctrlKey: false, altKey: false, shiftKey: false }) as KeyboardEvent;
+    // Mod+O 不换目录；F5 仍被拦下（不落到 WebView 重新载入页面）
+    expect(findCommand(ev("o", true), "edit", false, true)).toBeNull();
+    expect(findCommand(ev("F5"), "edit", false, true)?.id).toBe("view.refresh");
   });
 
   it("enter_saves", async () => {

@@ -2,7 +2,7 @@ import { useListView } from "../stores/listView";
 import { useSettings } from "../stores/settings";
 import { useTip } from "../stores/tip";
 import { pickAndOpenFolder, refreshFolder } from "./openFolder";
-import { registerCommands, type Command } from "./commands";
+import { activeView, registerCommands, type Command } from "./commands";
 import { toggleFullscreen } from "./fullscreen";
 import { useHelp } from "./useKeyboard";
 
@@ -14,6 +14,8 @@ const appCommands: Command[] = [
     keys: ["Mod+O"],
     views: "all",
     allowInInput: true,
+    // 编辑中不换目录（换目录会丢掉编辑）：先保存或取消
+    when: () => activeView() !== "edit",
     run: () => void pickAndOpenFolder(),
   },
   {
@@ -21,8 +23,8 @@ const appCommands: Command[] = [
     title: "cmd.view.refresh",
     category: "cmd.cat.view",
     keys: ["F5", "Mod+R"],
-    // 单张视图里也要拦下：否则按键落到 WebView，WebView2 会重新载入页面、丢掉全部状态
-    views: ["grid", "single"],
+    // 单张视图与编辑中也要拦下：否则按键落到 WebView，WebView2 会重新载入页面、丢掉全部状态
+    views: ["grid", "single", "edit"],
     allowInInput: true,
     run: () => void refreshFolder(),
   },

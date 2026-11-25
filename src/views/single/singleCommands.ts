@@ -18,7 +18,7 @@ const withStage = (fn: (api: StageApi) => void) => () => {
   if (api && topView().kind === "single") fn(api);
 };
 
-// 切图命令不忽略自动重复：按住方向键连续切换
+// 切图命令不忽略自动重复：按住方向键连续切换。缩放与详情面板在编辑模式中照常可用（视图含 "edit"）
 const singleCommands: Command[] = [
   {
     id: "single.prev",
@@ -67,7 +67,7 @@ const singleCommands: Command[] = [
     title: "cmd.single.zoomIn",
     category: "cmd.cat.view",
     keys: ["+", "="],
-    views: ["single"],
+    views: ["single", "edit"],
     run: withStage((api) => api.zoomBy(1.25)),
   },
   {
@@ -75,7 +75,7 @@ const singleCommands: Command[] = [
     title: "cmd.single.zoomOut",
     category: "cmd.cat.view",
     keys: ["-"],
-    views: ["single"],
+    views: ["single", "edit"],
     run: withStage((api) => api.zoomBy(0.8)),
   },
   {
@@ -83,7 +83,7 @@ const singleCommands: Command[] = [
     title: "cmd.single.fit",
     category: "cmd.cat.view",
     keys: ["0"],
-    views: ["single"],
+    views: ["single", "edit"],
     run: withStage((api) => api.fit()),
   },
   {
@@ -91,7 +91,7 @@ const singleCommands: Command[] = [
     title: "cmd.single.actual",
     category: "cmd.cat.view",
     keys: ["1"],
-    views: ["single"],
+    views: ["single", "edit"],
     run: withStage((api) => api.actual()),
   },
   {
@@ -99,7 +99,7 @@ const singleCommands: Command[] = [
     title: "cmd.single.toggleInfo",
     category: "cmd.cat.view",
     keys: ["I"],
-    views: ["single"],
+    views: ["single", "edit"],
     run: ({ repeat }) => {
       if (!repeat && topView().kind === "single") useSingleUi.getState().toggleInfo();
     },

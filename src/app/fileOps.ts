@@ -171,8 +171,9 @@ export async function trashTargets(): Promise<void> {
   if (r) reportOp(r, { names });
 }
 
-/** 撤销最近一次文件操作。 */
+/** 撤销最近一次文件操作。编辑中不做事（提示条上的“撤销”按钮也走这里）：编辑中不改文件。 */
 export async function undoLast(): Promise<void> {
+  if (activeView() === "edit") return;
   const r = await call(t("fs.busy.undo"), () => fsUndo());
   if (!r) return;
   if (r.kind === null) showToast({ text: t("fs.undo.nothing") });
