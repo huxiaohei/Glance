@@ -20,6 +20,10 @@ export interface CompareUiState {
   toggleCaptions(): void;
   /** 开 → 关：各格从当前共享视口出发；关 → 开：共享视口取焦点格自己的（没有则不变） */
   toggleSync(): void;
+  /** 交互结束时把热路径上的视口写回 */
+  commit(viewport: CompareViewport, perCell: Map<FileId, CompareViewport> | null): void;
+  /** 改一格的视口：同步开时改共享视口，否则只改 id 这一格（没有自己的则从共享视口出发） */
+  updateViewport(id: FileId, fn: (vp: CompareViewport) => CompareViewport): void;
 }
 
 export const useCompareUi: UseBoundStore<StoreApi<CompareUiState>> = create<CompareUiState>((set) => ({
@@ -35,6 +39,18 @@ export const useCompareUi: UseBoundStore<StoreApi<CompareUiState>> = create<Comp
       if (s.perCell === null) return { perCell: new Map() };
       const own = s.focus === null ? undefined : s.perCell.get(s.focus);
       return { perCell: null, viewport: own ?? s.viewport };
+    }),
+  commit: (viewport, perCell) =>
+    set((s) => (s.viewport === viewport && s.perCell === perCell ? s : { viewport, perCell })),
+  updateViewport: (id, fn) =>
+    set((s) => {
+      if (s.perCell === null) {
+        const viewport = fn(s.viewport);
+        return viewport === s.viewport ? s : { viewport };
+      }
+      const old = viewportOf(s, id);
+      const next = fn(old);
+      return next === old ? s : { perCell: new Map(s.perCell).set(id, next) };
     }),
 }));
 

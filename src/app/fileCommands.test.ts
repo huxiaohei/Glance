@@ -96,13 +96,20 @@ describe("file commands", () => {
     off = registerFileCommands(true);
     const img = findCommand(key("c", { metaKey: true }), "single", false, true);
     expect(img?.id).toBe("file.copyImage");
-    expect(img?.views).toEqual(["grid", "single"]);
+    expect(img?.views).toEqual(["grid", "single", "compare"]);
     img!.run({ shift: false, repeat: false });
     expect(copyImage).toHaveBeenCalledTimes(1);
     const paths = findCommand(key("C", { metaKey: true, shiftKey: true }), "grid", false, true);
     expect(paths?.id).toBe("file.copyPath");
     paths!.run({ shift: true, repeat: false });
     expect(copyPaths).toHaveBeenCalledTimes(1);
+  });
+
+  it("对比视图里只有复制图片、复制路径、在访达中显示三项文件命令", () => {
+    const inCompare = fileCommands(true).filter((c) => c.views === "all" || c.views.includes("compare")).map((c) => c.id);
+    expect(inCompare).toEqual(["file.copyImage", "file.copyPath", "file.reveal", "file.undo"]);
+    off = registerFileCommands(true);
+    expect(findCommand(key("Backspace", { metaKey: true }), "compare", false, true)).toBeNull();
   });
 
   it("有选中文字时 Mod+C 不匹配 file.copyImage", () => {

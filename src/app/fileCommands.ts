@@ -73,7 +73,7 @@ export function fileCommands(isMac: boolean): Command[] {
       title: "cmd.file.copyImage",
       category: "cmd.cat.file",
       keys: ["Mod+C"],
-      views: ["grid", "single"],
+      views: ["grid", "single", "compare"],
       when: noTextSelected,
       run: (ctx) => {
         if (!ctx.repeat) void copyImage();
@@ -84,7 +84,7 @@ export function fileCommands(isMac: boolean): Command[] {
       title: "cmd.file.copyPath",
       category: "cmd.cat.file",
       keys: ["Mod+Shift+C"],
-      views: ["grid", "single"],
+      views: ["grid", "single", "compare"],
       when: noTextSelected,
       run: (ctx) => {
         if (!ctx.repeat) void copyPaths();
@@ -95,7 +95,7 @@ export function fileCommands(isMac: boolean): Command[] {
       title: isMac ? "cmd.file.revealMac" : "cmd.file.revealWin",
       category: "cmd.cat.file",
       keys: [],
-      views: ["grid", "single"],
+      views: ["grid", "single", "compare"],
       run: (ctx) => {
         if (!ctx.repeat) void revealFirst();
       },

@@ -12,8 +12,9 @@ export type MenuNode =
   | { kind: "separator" }
   | { kind: "submenu"; label: string; enabled: boolean; children: MenuNode[] };
 
-/** readOnly：不出改文件的项（重命名、移动到、复制到、删除），用于对比篮来源的单张视图。 */
-export interface MenuCtx { view: "grid" | "single"; count: number; recent: string[]; readOnly?: boolean }
+/** readOnly：不出改文件的项（重命名、移动到、复制到、删除），用于对比篮来源的单张视图。
+ *  compare：对比视图，只有“移出对比”与复制图片 / 路径、在访达中显示（同样不出改文件的项）。 */
+export interface MenuCtx { view: "grid" | "single" | "compare"; count: number; recent: string[]; readOnly?: boolean }
 
 /** 命令表里的一条命令做成菜单项：标签与快捷键取自命令表，点击即命令的 run。命令未注册时没有这一项。 */
 function commandItem(id: string, enabled: boolean): MenuNode[] {
@@ -54,7 +55,8 @@ export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
   const single = ctx.count === 1;
   const groups: MenuNode[][] = [
     ctx.view === "grid" ? commandItem("grid.open", single) : [],
-    ctx.readOnly ? [] : [
+    ctx.view === "compare" ? commandItem("compare.remove", true) : [],
+    ctx.readOnly || ctx.view === "compare" ? [] : [
       ...commandItem("file.rename", single),
       transferSubmenu("move", ctx.recent),
       transferSubmenu("copy", ctx.recent),
@@ -78,7 +80,8 @@ export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
 /** 取最近目标后弹出菜单；弹出出错不向外抛。 */
 export async function showImageMenu(): Promise<void> {
   const count = opTargets().length;
-  const view = topView().kind === "single" ? "single" : "grid";
+  const kind = topView().kind;
+  const view = kind === "single" || kind === "compare" ? kind : "grid";
   const recent = await fsRecentTargets().catch(() => [] as string[]);
   const nodes = buildImageMenu({ view, count, recent, readOnly: singleSource() === "basket" });
   if (nodes.length === 0) return;

@@ -12,7 +12,9 @@ import { useSettings } from "../../stores/settings";
 import { showToast } from "../../stores/toast";
 import CompareCell from "./CompareCell";
 import CompareTopBar from "./CompareTopBar";
+import { removeFromCompare } from "./compareActions";
 import { useCompareImages } from "./useCompareImages";
+import { useCompareViewport, type CompareLayout } from "./useCompareViewport";
 import "./compare.css";
 
 const NO_BOX: Size = { w: 0, h: 0 };
@@ -50,7 +52,7 @@ function checkOnEnter(isLive: () => boolean): void {
       if (gone.length === 0) return;
       showToast({
         text: t("compare.missingToast", { n: gone.length }),
-        actions: [{ label: t("compare.removeAll"), run: () => void useBasket.getState().remove([...useBasket.getState().missing]) }],
+        actions: [{ label: t("compare.removeAll"), run: () => removeFromCompare([...useBasket.getState().missing]) }],
       });
     })
     .catch(() => {});
@@ -114,6 +116,23 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
     return out;
   }, [present, items, box, viewport, perCell]);
   const full = useCompareImages(scroller, present, longSides);
+
+  // 交互（滚轮缩放、拖动平移、单击 / 双击 / 右键）与键盘缩放用的布局
+  const layout = useMemo<CompareLayout>(() => {
+    const sizes = new Map<FileId, Size>();
+    for (const id of present) {
+      const it = items.get(id);
+      if (it?.width && it.height) sizes.set(id, { w: it.width, h: it.height });
+    }
+    return { box, sizes, missing };
+  }, [present, items, box, missing]);
+  useCompareViewport(scroller, layout);
+
+  // 焦点格（键盘移动、单击、移出后补位）滚进视口
+  useEffect(() => {
+    if (focus === null || !scroller) return;
+    scroller.querySelector<HTMLElement>(`.compare-cell[data-id="${focus}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [focus, scroller]);
 
   // 隐藏时焦点若还留在顶栏里（例如下拉框），按键会被当成在输入框里：移走焦点（与网格相同）
   const viewRef = useRef<HTMLDivElement>(null);

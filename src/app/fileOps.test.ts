@@ -85,6 +85,25 @@ describe("opTargets", () => {
   });
 });
 
+describe("opTargets（对比视图）", () => {
+  it("对比视图里取焦点格；焦点不在篮内或缺失时为空", async () => {
+    const { useCompareUi } = await import("../stores/compareUi");
+    useBasket.getState().clear();
+    useBasket.getState().toggle([2, 3]);
+    useNav.getState().openCompare();
+    useSelection.getState().set(selectOnly(1));
+    useCompareUi.setState({ focus: 3 });
+    expect(opTargets()).toEqual([3]);
+    useCompareUi.setState({ focus: 1 });
+    expect(opTargets()).toEqual([]);
+    useCompareUi.setState({ focus: 2 });
+    useBasket.setState({ missing: new Set([2]) });
+    expect(opTargets()).toEqual([]);
+    useCompareUi.setState({ focus: null });
+    expect(opTargets()).toEqual([]);
+  });
+});
+
 describe("trashTargets", () => {
   it("trashTargets：没有对象时不调用后端", async () => {
     await trashTargets();

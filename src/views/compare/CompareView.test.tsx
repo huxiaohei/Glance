@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { showImageMenu } from "../../app/contextMenu";
 import { setLanguage } from "../../i18n";
 import * as api from "../../ipc/api";
 import type { BasketEntry, FileId } from "../../ipc/types";
@@ -16,6 +17,7 @@ import { useToast } from "../../stores/toast";
 import CompareView from "./CompareView";
 
 vi.mock("../../ipc/api");
+vi.mock("../../app/contextMenu", () => ({ showImageMenu: vi.fn(async () => {}) }));
 
 const item = (id: FileId, name: string, width: number, height: number): BasketItem => ({
   id, name, dirName: "魏国", size: 100 + id, mtimeMs: 1, width, height,
@@ -47,6 +49,38 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 const cells = (c: HTMLElement) => c.querySelectorAll(".compare-cell");
+const cell = (c: HTMLElement, id: FileId) => c.querySelector<HTMLElement>(`.compare-cell[data-id="${id}"]`)!;
+
+/** 让 jsdom 量出 200×300 的图片区。返回还原函数。 */
+function fakeBox(): () => void {
+  const descs = (["clientWidth", "clientHeight"] as const).map((p) => [p, Object.getOwnPropertyDescriptor(Element.prototype, p)!] as const);
+  Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get: () => 200 });
+  Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get: () => 300 });
+  return () => {
+    for (const [p, d] of descs) Object.defineProperty(Element.prototype, p, d);
+  };
+}
+
+/** 手动驱动的 requestAnimationFrame。 */
+function fakeRaf(): { flush(): void; restore(): void } {
+  let frames: FrameRequestCallback[] = [];
+  const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+    frames.push(cb);
+    return frames.length;
+  });
+  const caf = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+  return {
+    flush() {
+      const run = frames;
+      frames = [];
+      run.forEach((cb) => cb(0));
+    },
+    restore() {
+      raf.mockRestore();
+      caf.mockRestore();
+    },
+  };
+}
 
 describe("CompareView", () => {
   it("篮内 3 张 → 3 格，标题“对比 · 3 张”", async () => {
@@ -86,6 +120,11 @@ describe("CompareView", () => {
     const action = useToast.getState().current!.actions!.find((a) => a.label === "全部移出")!;
     act(() => action.run());
     expect(useBasket.getState().order).toEqual([1, 3]);
+    // 全部移出同样可撤销
+    const removed = useToast.getState().current!;
+    expect(removed.text).toBe("已移出对比");
+    act(() => removed.actions!.find((a) => a.label === "撤销")!.run());
+    expect(useBasket.getState().order).toEqual([1, 2, 3]);
   });
 
   it("都在时不出提示条", async () => {
@@ -119,10 +158,15 @@ describe("CompareView", () => {
     expect(topView().kind).toBe("grid");
   });
 
-  it("清空：篮子清空并返回", () => {
+  it("清空：篮子清空并返回，提示条带撤销，撤销恢复篮子但不重新进入", () => {
     render(<CompareView />);
     fireEvent.click(screen.getByRole("button", { name: "清空" }));
     expect(useBasket.getState().order).toEqual([]);
+    expect(topView().kind).toBe("grid");
+    const toast = useToast.getState().current!;
+    expect(toast.text).toBe("已清空对比篮");
+    act(() => toast.actions!.find((a) => a.label === "撤销")!.run());
+    expect(useBasket.getState().order).toEqual([1, 2, 3]);
     expect(topView().kind).toBe("grid");
   });
 
@@ -167,5 +211,111 @@ describe("CompareView", () => {
     } finally {
       for (const [p, d] of descs) Object.defineProperty(Element.prototype, p, d);
     }
+  });
+
+  it("单击格子设焦点", () => {
+    const { container } = render(<CompareView />);
+    fireEvent.click(cell(container, 2).querySelector(".compare-img")!);
+    expect(useCompareUi.getState().focus).toBe(2);
+    expect(cell(container, 2).classList.contains("is-focus")).toBe(true);
+  });
+
+  it("双击格子进入单张视图，来源为对比篮", () => {
+    const { container } = render(<CompareView />);
+    fireEvent.doubleClick(cell(container, 2).querySelector(".compare-img")!);
+    expect(topView()).toEqual({ kind: "single", source: "basket", id: 2 });
+  });
+
+  it("双击缺失的格不进入单张视图", () => {
+    useBasket.setState({ missing: new Set([2]) });
+    vi.mocked(api.basketCheck).mockReturnValue(new Promise(() => {}));
+    const { container } = render(<CompareView />);
+    fireEvent.doubleClick(cell(container, 2).querySelector(".compare-img")!);
+    expect(topView().kind).toBe("compare");
+  });
+
+  it("右键格子：先把焦点设到该格再弹菜单", () => {
+    const { container } = render(<CompareView />);
+    fireEvent.contextMenu(cell(container, 3).querySelector(".compare-img")!);
+    expect(useCompareUi.getState().focus).toBe(3);
+    expect(showImageMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it("格子右上角的移出按钮（缺失的格也有）：移出并出现带撤销的提示条", () => {
+    useBasket.setState({ missing: new Set([2]) });
+    vi.mocked(api.basketCheck).mockReturnValue(new Promise(() => {}));
+    const { container } = render(<CompareView />);
+    const buttons = container.querySelectorAll(".compare-remove");
+    expect(buttons).toHaveLength(3);
+    fireEvent.click(cell(container, 2).querySelector(".compare-remove")!);
+    expect(useBasket.getState().order).toEqual([1, 3]);
+    const toast = useToast.getState().current!;
+    expect(toast.text).toBe("已移出对比");
+    act(() => toast.actions![0].run());
+    expect(useBasket.getState().order).toEqual([1, 2, 3]);
+  });
+
+  it("Ctrl+滚轮：rAF 后格子 transform 改变，store 在 rAF 前未变，停 150 ms 后写回", () => {
+    const restore = fakeBox();
+    const raf = fakeRaf();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      useThumbs.getState().markReady([{ id: 1, v: "1-101" }, { id: 2, v: "1-102" }], 640);
+      const { container } = render(<CompareView />);
+      const pic1 = cell(container, 1).querySelector<HTMLImageElement>(".compare-pic")!;
+      const pic2 = cell(container, 2).querySelector<HTMLImageElement>(".compare-pic")!;
+      const before1 = pic1.style.transform;
+      const before2 = pic2.style.transform;
+      const vp0 = useCompareUi.getState().viewport;
+      const notPrevented = fireEvent.wheel(pic1, { deltaY: -100, ctrlKey: true, clientX: 100, clientY: 150 });
+      expect(notPrevented).toBe(false);
+      expect(useCompareUi.getState().viewport).toBe(vp0);
+      expect(pic1.style.transform).toBe(before1);
+      raf.flush();
+      expect(pic1.style.transform).not.toBe(before1);
+      // 同步开：别的格子一起变
+      expect(pic2.style.transform).not.toBe(before2);
+      expect(useCompareUi.getState().viewport).toBe(vp0);
+      act(() => vi.advanceTimersByTime(150));
+      const vp = useCompareUi.getState().viewport;
+      expect(vp.scale.kind === "rel" && vp.scale.k > 1).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      raf.restore();
+      restore();
+    }
+  });
+
+  it("同步关时 Ctrl+滚轮只改鼠标所在的格", () => {
+    const restore = fakeBox();
+    const raf = fakeRaf();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      useSettings.setState({ settings: { ...DEFAULT_SETTINGS, compareSyncOnEnter: false } });
+      useThumbs.getState().markReady([{ id: 1, v: "1-101" }, { id: 2, v: "1-102" }], 640);
+      const { container } = render(<CompareView />);
+      const pic1 = cell(container, 1).querySelector<HTMLImageElement>(".compare-pic")!;
+      const pic2 = cell(container, 2).querySelector<HTMLImageElement>(".compare-pic")!;
+      const before2 = pic2.style.transform;
+      fireEvent.wheel(pic1, { deltaY: -100, metaKey: true, clientX: 100, clientY: 150 });
+      raf.flush();
+      expect(pic2.style.transform).toBe(before2);
+      act(() => vi.advanceTimersByTime(150));
+      const s = useCompareUi.getState();
+      expect(s.viewport).toEqual(FIT_VIEWPORT);
+      expect(s.perCell!.get(1)!.scale).not.toEqual(FIT_VIEWPORT.scale);
+      expect(s.perCell!.has(2)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      raf.restore();
+      restore();
+    }
+  });
+
+  it("无修饰键的滚轮不拦默认行为（让图片墙滚动），视口不变", () => {
+    const { container } = render(<CompareView />);
+    const vp0 = useCompareUi.getState().viewport;
+    expect(fireEvent.wheel(cell(container, 1).querySelector(".compare-img")!, { deltaY: 100 })).toBe(true);
+    expect(useCompareUi.getState().viewport).toBe(vp0);
   });
 });

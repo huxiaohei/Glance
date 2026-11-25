@@ -158,3 +158,31 @@
   text-overflow: ellipsis;
 }
 .compare-size.is-odd { color: var(--accent); }
+
+/* 移出按钮：右上角，悬停或焦点格时显示（缺失的格也有） */
+.compare-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.compare-remove:hover { border-color: var(--accent); }
+.compare-remove svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.compare-cell:hover .compare-remove,
+.compare-cell.is-focus .compare-remove { display: flex; }

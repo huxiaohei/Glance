@@ -1,10 +1,10 @@
 import type { MouseEvent } from "react";
 import { t, type MessageKey } from "../../i18n";
 import type { CompareBackground } from "../../ipc/types";
-import { useBasket } from "../../stores/basket";
 import { useCompareUi } from "../../stores/compareUi";
 import { useNav } from "../../stores/nav";
 import { updateSettings, useSettings } from "../../stores/settings";
+import { clearCompare, toggleSync } from "./compareActions";
 
 /** 按下按钮不拿焦点：焦点留在页面上，方向键、Esc 等仍走命令表。 */
 const keepFocus = (e: MouseEvent) => e.preventDefault();
@@ -15,12 +15,6 @@ const BACKGROUNDS: { value: CompareBackground; label: MessageKey }[] = [
   { value: "light", label: "compare.bg.light" },
   { value: "checker", label: "compare.bg.checker" },
 ];
-
-/** 清空并返回进入前的视图（撤销提示条由任务 8 补上）。 */
-function clearAndBack(): void {
-  useBasket.getState().clear();
-  useNav.getState().back();
-}
 
 /** 对比视图顶栏：返回、标题、每排张数、同步缩放、背景、说明开关、清空。 */
 export default function CompareTopBar({ count }: { count: number }) {
@@ -67,7 +61,7 @@ export default function CompareTopBar({ count }: { count: number }) {
           type="checkbox"
           role="switch"
           checked={sync}
-          onChange={() => useCompareUi.getState().toggleSync()}
+          onChange={toggleSync}
         />
       </label>
       <span className="compare-bg" role="group" aria-label={t("compare.bg")}>
@@ -94,7 +88,7 @@ export default function CompareTopBar({ count }: { count: number }) {
       >
         {t("compare.captions")}
       </button>
-      <button type="button" className="compare-clear" onMouseDown={keepFocus} onClick={clearAndBack}>
+      <button type="button" className="compare-clear" onMouseDown={keepFocus} onClick={clearCompare}>
         {t("compare.clear")}
       </button>
     </div>

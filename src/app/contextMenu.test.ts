@@ -18,6 +18,7 @@ import type { MessageKey } from "../i18n";
 import { fsRecentTargets } from "../ipc/api";
 import { useCatalog } from "../stores/catalog";
 import { useNav } from "../stores/nav";
+import { registerCompareCommands } from "../views/compare/compareCommands";
 import { registerGridCommands } from "../views/grid/gridCommands";
 import { buildImageMenu, showImageMenu, type MenuNode } from "./contextMenu";
 import { registerFileCommands } from "./fileCommands";
@@ -26,7 +27,7 @@ import { popup } from "./nativeMenu";
 
 let unregister: Array<() => void> = [];
 beforeEach(() => {
-  unregister = [registerFileCommands(true), registerGridCommands()];
+  unregister = [registerFileCommands(true), registerGridCommands(), registerCompareCommands()];
 });
 afterEach(() => {
   unregister.forEach((u) => u());
@@ -59,6 +60,13 @@ describe("buildImageMenu", () => {
     const enabled = (l: string) => (find(m, l) as Item).enabled;
     for (const l of [T("cmd.grid.open"), T("cmd.file.rename"), T("cmd.file.copyImage"), T("cmd.file.revealMac")]) expect(enabled(l)).toBe(false);
     for (const l of [T("menu.moveTo"), T("menu.copyTo"), T("cmd.file.trash"), T("cmd.file.copyPath")]) expect(enabled(l)).toBe(true);
+  });
+
+  it("对比视图：恰为四项——移出对比、复制图片、复制路径、在访达中显示，不含删除", () => {
+    const m = buildImageMenu({ view: "compare", count: 1, recent: ["/a/pics"] });
+    expect(labels(m)).toEqual([T("cmd.compare.remove"), "-", T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]);
+    expect(m.filter((n) => n.kind !== "separator")).toHaveLength(4);
+    expect((find(m, T("cmd.compare.remove")) as Item).accelerator).toBe("Delete");
   });
 
   it("没有操作对象时菜单为空", () => {
@@ -131,5 +139,12 @@ describe("showImageMenu", () => {
     await showImageMenu();
     const nodes = vi.mocked(popup).mock.calls[0][0];
     expect(labels(nodes)).toEqual([T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]);
+  });
+
+  it("对比视图里弹出的菜单恰为四项，不含删除", async () => {
+    useNav.getState().openCompare();
+    await showImageMenu();
+    const nodes = vi.mocked(popup).mock.calls[0][0];
+    expect(labels(nodes)).toEqual([T("cmd.compare.remove"), "-", T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]);
   });
 });
