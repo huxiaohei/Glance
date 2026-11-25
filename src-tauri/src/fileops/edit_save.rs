@@ -1,6 +1,7 @@
 //! 编辑结果落盘：保存副本、覆盖原图、另存到别处。都先写同目录临时文件再不覆盖地改名，
 //! 任何失败都不留下临时文件；覆盖原图先把原图移进废纸篓，改名失败就放回原处。
 
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::fsx::{self, FsError};
@@ -103,6 +104,10 @@ fn overwrite(src: &Path, bytes: &[u8], out_ext: &str) -> Result<SaveOutcome, FsE
         return Err(FsError::Exists);
     }
     let tmp = fsx::write_temp(dir_of(src), bytes)?;
+    // 新文件沿用原文件的权限（私有的 0600 图片不能因覆盖变成 0644）；读不到就保持默认。
+    if let Ok(meta) = fs::metadata(src) {
+        let _ = fs::set_permissions(&tmp, meta.permissions());
+    }
     let handle = match trash::move_to_trash(src) {
         Ok(h) => h,
         Err(e) => {
@@ -245,6 +250,19 @@ mod tests {
             undone.hints,
             vec![FsHint::Touched(src.clone()), FsHint::Touched(src.clone())]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "覆盖原图会把文件移进真实废纸篓（只动本测试临时目录里的文件）"]
+    fn overwrite_keeps_original_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = dir_with(&[("priv.png", b"orig")]);
+        let src = d.path().join("priv.png");
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o600)).unwrap();
+        save_bytes(&src, b"new", "png", "", &SaveTarget::Overwrite).unwrap();
+        let mode = fs::metadata(&src).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 
     #[test]
