@@ -12,6 +12,12 @@ export interface BasketEntry {
   w: number | null;
   h: number | null;
 }
+export interface RestoredItem {
+  id: FileId;
+  name: string;
+  dirName: string;
+  entry: BasketEntry | null;
+}
 export interface WireEntry { id: FileId; relPath: string; size: number; mtimeMs: number }
 
 export type CatalogEvent =

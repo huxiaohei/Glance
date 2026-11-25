@@ -124,21 +124,29 @@ pub struct BasketEntry {
 /// 按 ID 核对一个文件当前的状态；未登记、文件不在或不是普通文件返回 None。
 /// 宽高取 [`display_size`]（已按 EXIF 方向换算），读不出为 None。
 pub fn basket_entry(registry: &Registry, id: FileId) -> Option<BasketEntry> {
+    let mut e = basket_entry_meta(registry, id)?;
+    let dims = display_size(&registry.path(id)?);
+    e.w = dims.map(|d| d.0);
+    e.h = dims.map(|d| d.1);
+    Some(e)
+}
+
+/// 同 [`basket_entry`]，但不读图片头：`w` / `h` 恒为 None（启动恢复时省 IO）。
+pub fn basket_entry_meta(registry: &Registry, id: FileId) -> Option<BasketEntry> {
     let path = registry.path(id)?;
     if !std::fs::metadata(&path).ok()?.is_file() {
         return None;
     }
     let stamp = stamp_of(&path)?;
     let name_of = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned());
-    let dims = display_size(&path);
     Some(BasketEntry {
         id: id.0,
         name: name_of(&path)?,
         dir_name: path.parent().and_then(name_of).unwrap_or_default(),
         size: stamp.size,
         mtime_ms: stamp.mtime_ms as f64,
-        w: dims.map(|d| d.0),
-        h: dims.map(|d| d.1),
+        w: None,
+        h: None,
     })
 }
 
@@ -555,7 +563,7 @@ fn exif_items(exif: &Exif) -> Vec<ExifItem> {
 pub(crate) mod testimg {
     //! 测试用的图片构造：手工拼 EXIF（TIFF 结构）并塞进 JPEG / PNG / WebP 容器。
 
-    use glance_imaging::{RgbaView, encode_jpeg, encode_png_lossless, encode_webp};
+    use glance_imaging::{encode_jpeg, encode_png_lossless, encode_webp, RgbaView};
 
     #[derive(Clone, Copy)]
     pub enum V {
@@ -1021,6 +1029,17 @@ mod tests {
         assert_eq!(e.size, bytes.len() as u64);
         assert_eq!((e.w, e.h), (Some(30), Some(20)));
         assert_eq!(e.mtime_ms, stamp_of(&p).unwrap().mtime_ms as f64);
+    }
+
+    #[test]
+    fn basket_entry_meta_skips_dims() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = write(tmp.path(), "a.png", &png(30, 20));
+        let registry = crate::catalog::registry::Registry::default();
+        let id = registry.register(&p);
+        let e = basket_entry_meta(&registry, id).unwrap();
+        assert_eq!(e.name, "a.png");
+        assert_eq!((e.w, e.h), (None, None));
     }
 
     #[test]

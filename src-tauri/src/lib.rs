@@ -1,4 +1,5 @@
 pub mod catalog;
+mod basket;
 mod commands;
 mod dragout;
 pub mod fileops;
@@ -111,6 +112,8 @@ pub fn run() {
         commands::thumbs_want,
         commands::image_details,
         commands::basket_check,
+        basket::basket_save,
+        basket::basket_restore,
         commands::recents_list,
         commands::recents_pin,
         commands::recents_remove,
@@ -143,6 +146,8 @@ pub fn run() {
         commands::thumbs_want,
         commands::image_details,
         commands::basket_check,
+        basket::basket_save,
+        basket::basket_restore,
         commands::recents_list,
         commands::recents_pin,
         commands::recents_remove,
