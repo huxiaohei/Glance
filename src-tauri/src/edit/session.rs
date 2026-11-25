@@ -137,16 +137,17 @@ pub(crate) enum Computed {
     },
     Full {
         params: EditParams,
-        enc: Encoded,
+        enc: Arc<Encoded>,
     },
 }
 
+/// 结果字节用 `Arc` 共享：协议应答与保存都不复制整块编码结果。
 #[derive(Default)]
 struct Results {
-    /// 最近提交的版本号；`bytes` 只认它。
+    /// 最近提交的版本号，只进不退；`bytes` 只认它。
     latest: Option<u32>,
-    proxy: Option<(u32, Encoded)>,
-    full: Option<(u32, EditParams, Encoded)>,
+    proxy: Option<(u32, Arc<Encoded>)>,
+    full: Option<(u32, EditParams, Arc<Encoded>)>,
 }
 
 pub(crate) struct Session {
@@ -181,7 +182,7 @@ impl Session {
         Ok(d)
     }
 
-    fn cached_full(&self, params: &EditParams) -> Option<Encoded> {
+    fn cached_full(&self, params: &EditParams) -> Option<Arc<Encoded>> {
         let r = lock(&self.results);
         r.full
             .as_ref()
@@ -190,18 +191,18 @@ impl Session {
     }
 
     /// 全尺寸结果：参数与最近一份相同则复用，否则在原图上算（在调用方线程上）。
-    fn full(&self, params: &EditParams) -> Result<Encoded, EditError> {
+    fn full(&self, params: &EditParams) -> Result<Arc<Encoded>, EditError> {
         if let Some(e) = self.cached_full(params) {
             return Ok(e);
         }
         #[cfg(test)]
         self.full_computes.fetch_add(1, Ordering::Relaxed);
-        Ok(apply(
+        Ok(Arc::new(apply(
             view(&self.orig),
             self.src_format,
             self.icc(),
             params,
-        )?)
+        )?))
     }
 
     /// 在缩小的代理图上算，体积按像素比例换算到全尺寸输出。
@@ -240,9 +241,13 @@ impl Session {
         }
     }
 
+    /// 记下结果。工作线程已保证版本号不倒退；这里再兜一层：比已记的版本号小时只应答、不记。
     fn commit(&self, rev: u32, c: Computed) -> PreviewResult {
         let mut r = lock(&self.results);
-        r.latest = Some(rev);
+        let keep = r.latest.is_none_or(|l| rev >= l);
+        if keep {
+            r.latest = Some(rev);
+        }
         match c {
             Computed::Proxy {
                 enc,
@@ -258,7 +263,9 @@ impl Session {
                     width,
                     height,
                 };
-                r.proxy = Some((rev, enc));
+                if keep {
+                    r.proxy = Some((rev, Arc::new(enc)));
+                }
                 out
             }
             Computed::Full { params, enc } => {
@@ -270,13 +277,15 @@ impl Session {
                     width: enc.width,
                     height: enc.height,
                 };
-                r.full = Some((rev, params, enc));
+                if keep {
+                    r.full = Some((rev, params, enc));
+                }
                 out
             }
         }
     }
 
-    fn bytes(&self, rev: u32) -> Option<(Vec<u8>, &'static str)> {
+    fn bytes(&self, rev: u32) -> Option<(Arc<Encoded>, &'static str)> {
         let r = lock(&self.results);
         if r.latest != Some(rev) {
             return None;
@@ -286,7 +295,7 @@ impl Session {
             (_, Some((pr, e))) if *pr == rev => e,
             _ => return None,
         };
-        Some((enc.bytes.clone(), mime_of(enc.format)))
+        Some((enc.clone(), mime_of(enc.format)))
     }
 }
 
@@ -422,20 +431,24 @@ impl EditState {
         }
     }
 
-    /// 当前会话最近一次提交的结果的字节与 MIME；会话或版本不符为 None（协议 404）。
-    pub fn bytes(&self, session: u32, rev: u32) -> Option<(Vec<u8>, &'static str)> {
+    /// 当前会话最近一次提交的结果（共享，不复制）与 MIME；会话或版本不符为 None（协议 404）。
+    pub fn bytes(&self, session: u32, rev: u32) -> Option<(Arc<Encoded>, &'static str)> {
         self.session(session).ok()?.bytes(rev)
     }
 
     /// 最近一份全尺寸结果，参数相同才返回。
     #[allow(dead_code, reason = "保存命令使用")]
-    pub fn full_result_for(&self, session: u32, params: &EditParams) -> Option<Encoded> {
+    pub fn full_result_for(&self, session: u32, params: &EditParams) -> Option<Arc<Encoded>> {
         self.session(session).ok()?.cached_full(params)
     }
 
     /// 全尺寸结果：参数相同则复用，否则在调用方线程上算（不记入会话）。
     #[allow(dead_code, reason = "保存命令使用")]
-    pub fn compute_full(&self, session: u32, params: &EditParams) -> Result<Encoded, EditError> {
+    pub fn compute_full(
+        &self,
+        session: u32,
+        params: &EditParams,
+    ) -> Result<Arc<Encoded>, EditError> {
         self.session(session)?.full(params)
     }
 
@@ -623,7 +636,36 @@ mod tests {
         assert!(!last.approx);
         assert_eq!((last.width, last.height), (3000, 1000));
         assert_eq!(last.format, OutFormat::Jpeg);
-        assert_eq!(st.bytes(s, 5).unwrap().0.len() as u64, last.bytes);
+        assert_eq!(st.bytes(s, 5).unwrap().0.bytes.len() as u64, last.bytes);
+    }
+
+    #[test]
+    fn lower_rev_never_replaces_latest() {
+        let f = fx(3000, 1000);
+        let st = EditState::default();
+        let s = st.open(&f.reg, f.a).unwrap().session;
+        let rx5 = st.submit(s, 5, jpeg(80), true).unwrap();
+        let rx3 = st.submit(s, 3, jpeg(70), true).unwrap();
+        assert_eq!(rx3.recv().unwrap(), Ok(None));
+        assert_eq!(rx5.recv().unwrap().unwrap().unwrap().rev, 5);
+        assert!(st.bytes(s, 5).is_some());
+        // 已提交之后再来的旧版本号也不算，latest 仍是 5。
+        assert_eq!(st.preview(s, 4, jpeg(60), false), Ok(None));
+        assert!(st.bytes(s, 4).is_none());
+        assert!(st.bytes(s, 5).is_some());
+    }
+
+    #[test]
+    fn results_are_shared_not_copied() {
+        let f = fx(300, 100);
+        let st = EditState::default();
+        let s = st.open(&f.reg, f.a).unwrap().session;
+        let p = jpeg(77);
+        st.preview(s, 1, p.clone(), true).unwrap().unwrap();
+        let a = st.full_result_for(s, &p).unwrap();
+        let b = st.compute_full(s, &p).unwrap();
+        let (c, _) = st.bytes(s, 1).unwrap();
+        assert!(Arc::ptr_eq(&a, &b) && Arc::ptr_eq(&a, &c));
     }
 
     #[test]
@@ -652,7 +694,7 @@ mod tests {
         assert!(st.bytes(s, 1).is_none());
         let (b, mime) = st.bytes(s, 2).unwrap();
         assert_eq!(mime, "image/png");
-        assert!(b.starts_with(b"\x89PNG"));
+        assert!(b.bytes.starts_with(b"\x89PNG"));
         assert!(st.bytes(s + 1, 2).is_none());
         // 全尺寸结果也只认最新版本。
         st.preview(s, 3, jpeg(70), true).unwrap().unwrap();
@@ -699,10 +741,10 @@ mod tests {
         assert!(r.approx);
         assert_eq!((r.width, r.height), (3000, 1000));
         let (b, _) = st.bytes(s, 1).unwrap();
-        let d = decode_rgba(&b, u64::MAX).unwrap();
+        let d = decode_rgba(&b.bytes, u64::MAX).unwrap();
         // 由 2048×683 的代理再缩：1024×342。
         assert_eq!((d.width, d.height), (1024, 342));
-        let want = (b.len() as f64 * 3000.0 * 1000.0 / (1024.0 * 342.0)).round() as u64;
+        let want = (b.bytes.len() as f64 * 3000.0 * 1000.0 / (1024.0 * 342.0)).round() as u64;
         assert_eq!(r.bytes, want);
 
         // PNG：在长边 512 的代理上算；限制最长边按比例换算，尺寸报全尺寸下的输出。
@@ -713,10 +755,10 @@ mod tests {
         assert!(r.approx);
         assert_eq!((r.width, r.height), (1500, 500));
         let (b, _) = st.bytes(s, 2).unwrap();
-        let d = decode_rgba(&b, u64::MAX).unwrap();
+        let d = decode_rgba(&b.bytes, u64::MAX).unwrap();
         // 代理 512×171，限制最长边 1500 × 512 / 3000 = 256 → 256×86。
         assert_eq!((d.width, d.height), (256, 86));
-        let want = (b.len() as f64 * 1500.0 * 500.0 / (256.0 * 86.0)).round() as u64;
+        let want = (b.bytes.len() as f64 * 1500.0 * 500.0 / (256.0 * 86.0)).round() as u64;
         assert_eq!(r.bytes, want);
 
         // 全尺寸：精确值。
@@ -726,7 +768,7 @@ mod tests {
             .unwrap();
         assert!(!r.approx);
         assert_eq!((r.width, r.height), (1500, 500));
-        assert_eq!(r.bytes, st.bytes(s, 3).unwrap().0.len() as u64);
+        assert_eq!(r.bytes, st.bytes(s, 3).unwrap().0.bytes.len() as u64);
     }
 
     #[test]

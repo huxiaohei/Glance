@@ -1,4 +1,5 @@
 //! 预览工作线程的请求槽：只留最新一个请求，新请求覆盖旧的；被覆盖、算完已过时或会话已关的请求一律应答 `None`。
+//! 版本号只进不退：比槽里或已提交的版本号小的请求立即应答 `None`，不顶掉更新的请求。
 
 use std::panic::AssertUnwindSafe;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
@@ -41,7 +42,17 @@ impl Request {
 #[derive(Default)]
 struct Slot {
     pending: Option<Request>,
+    /// 最近提交的版本号。
+    committed: Option<u32>,
     closed: bool,
+}
+
+impl Slot {
+    /// 比槽里或已提交的版本号小：是迟到的旧请求。
+    fn is_stale(&self, rev: u32) -> bool {
+        self.pending.as_ref().is_some_and(|p| rev < p.rev)
+            || self.committed.is_some_and(|c| rev < c)
+    }
 }
 
 #[derive(Default)]
@@ -55,10 +66,10 @@ impl Worker {
         self.slot.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// 放入请求；槽里原有的请求应答 `None`。已关闭时这次请求直接应答 `None`。
+    /// 放入请求；槽里原有的请求应答 `None`。已关闭或版本号比槽里 / 已提交的小时，这次请求直接应答 `None`。
     pub fn submit(&self, req: Request) {
         let mut slot = self.lock();
-        if slot.closed {
+        if slot.closed || slot.is_stale(req.rev) {
             drop(slot);
             req.answer(Ok(None));
             return;
@@ -104,11 +115,14 @@ impl Worker {
             // 计算若 panic，线程不能就此退出：否则之后的请求永远等不到应答。
             let out = std::panic::catch_unwind(AssertUnwindSafe(|| compute(&req)))
                 .unwrap_or(Err(EditError::Encode));
-            let slot = self.lock();
-            if slot.pending.is_some() || slot.closed {
+            let mut slot = self.lock();
+            if slot.pending.is_some() || slot.closed || slot.is_stale(req.rev) {
                 drop(slot);
                 req.answer(Ok(None));
                 continue;
+            }
+            if out.is_ok() {
+                slot.committed = Some(req.rev);
             }
             let answer = out.map(|t| Some(commit(req.rev, t)));
             drop(slot);
@@ -129,6 +143,61 @@ mod tests {
             quality: 80,
             fill: [255; 3],
         }
+    }
+
+    fn result(rev: u32) -> PreviewResult {
+        PreviewResult {
+            rev,
+            bytes: 0,
+            approx: false,
+            format: OutFormat::Jpeg,
+            width: 1,
+            height: 1,
+        }
+    }
+
+    #[test]
+    fn lower_rev_is_refused_and_newer_kept() {
+        let w = Arc::new(Worker::default());
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let (started_tx, started) = std::sync::mpsc::channel();
+        let t = {
+            let (w, gate) = (w.clone(), gate.clone());
+            std::thread::spawn(move || {
+                w.run(
+                    |r: &Request| {
+                        if r.rev == 1 {
+                            started_tx.send(()).unwrap();
+                            gate.wait();
+                        }
+                        Ok(r.rev)
+                    },
+                    |rev, _| result(rev),
+                )
+            })
+        };
+        // rev 1 在算；槽里放 rev 5，再来的 rev 3 立即应答 None，rev 5 留着。
+        let (r1, rx1) = Request::new(1, params(), true);
+        w.submit(r1);
+        started.recv().unwrap();
+        let (r5, rx5) = Request::new(5, params(), true);
+        w.submit(r5);
+        let (r3, rx3) = Request::new(3, params(), true);
+        w.submit(r3);
+        assert_eq!(rx3.recv().unwrap(), Ok(None));
+        gate.wait();
+        assert_eq!(rx1.recv().unwrap(), Ok(None));
+        assert_eq!(rx5.recv().unwrap().unwrap().unwrap().rev, 5);
+        // 已提交 rev 5 之后，更小的版本号同样不算。
+        let (r4, rx4) = Request::new(4, params(), true);
+        w.submit(r4);
+        assert_eq!(rx4.recv().unwrap(), Ok(None));
+        // 相同版本号可以重算。
+        let (r5b, rx5b) = Request::new(5, params(), true);
+        w.submit(r5b);
+        assert_eq!(rx5b.recv().unwrap().unwrap().unwrap().rev, 5);
+        w.close();
+        t.join().unwrap();
     }
 
     #[test]

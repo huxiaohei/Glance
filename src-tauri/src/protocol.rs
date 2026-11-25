@@ -84,7 +84,9 @@ fn ok(mime: &str, body: Vec<u8>) -> http::Response<Vec<u8>> {
 
 /// 编辑预览：会话号在重启后会重复，不得让 WebView 缓存。
 fn serve_edit(ctx: &Ctx, session: u32, rev: u32) -> Option<http::Response<Vec<u8>>> {
-    let (body, mime) = ctx.edit.bytes(session, rev)?;
+    let (enc, mime) = ctx.edit.bytes(session, rev)?;
+    // 会话里的结果是共享的；协议应答体要一份自有的 Vec，只在这里复制一次。
+    let body = enc.bytes.clone();
     http::Response::builder()
         .status(200)
         .header("content-type", mime)
@@ -277,7 +279,7 @@ mod tests {
         // 会话号重启后会重复，不能让 WebView 长期缓存。
         assert_eq!(resp.headers()["cache-control"], "no-store");
         assert_eq!(resp.headers()["access-control-allow-origin"], "*");
-        assert_eq!(resp.body(), &edit.bytes(s, 1).unwrap().0);
+        assert_eq!(resp.body(), &edit.bytes(s, 1).unwrap().0.bytes);
         let jpeg = EditParams::Convert {
             format: OutFormat::Jpeg,
             quality: 80,
