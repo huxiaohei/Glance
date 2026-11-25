@@ -2,6 +2,7 @@ pub mod catalog;
 mod basket;
 mod commands;
 mod dragout;
+mod edit;
 pub mod fileops;
 #[cfg(debug_assertions)]
 mod lab;
@@ -48,6 +49,7 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     let builder = builder
         .manage(Arc::new(Registry::default()))
+        .manage(Arc::new(edit::EditState::default()))
         .manage(update::PendingUpdate::default())
         .manage(Sessions::default())
         .manage(UndoLog::default())
@@ -97,9 +99,11 @@ pub fn run() {
             tauri::async_runtime::spawn_blocking(move || {
                 let registry = app.state::<Arc<Registry>>();
                 let thumbs = app.state::<Arc<Thumbs>>();
+                let edit = app.state::<Arc<edit::EditState>>();
                 let ctx = protocol::Ctx {
                     registry: &registry,
                     thumbs: thumbs.cache(),
+                    edit: &edit,
                 };
                 responder.respond(protocol::respond(&ctx, &path));
             });
@@ -132,6 +136,9 @@ pub fn run() {
         system::clipboard_copy_paths,
         system::reveal,
         dragout::drag_out,
+        edit::commands::edit_open,
+        edit::commands::edit_preview,
+        edit::commands::edit_close,
         state::settings::settings_get,
         state::settings::settings_set,
         lab::lab_register_dir,
@@ -167,6 +174,9 @@ pub fn run() {
         system::clipboard_copy_paths,
         system::reveal,
         dragout::drag_out,
+        edit::commands::edit_open,
+        edit::commands::edit_preview,
+        edit::commands::edit_close,
         state::settings::settings_get,
         state::settings::settings_set
     ]);

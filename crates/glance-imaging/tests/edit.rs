@@ -1,5 +1,6 @@
 use glance_imaging::{
-    EditParams, ImagingError, OutFormat, PngMode, RgbaView, SrcFormat, apply, src_format_of,
+    EditParams, ImagingError, OutFormat, PngMode, RgbaView, SrcFormat, apply, downscale, out_dims,
+    src_format_of,
 };
 
 fn gradient(w: u32, h: u32) -> Vec<u8> {
@@ -185,4 +186,60 @@ fn serde_shape_is_stable() {
         serde_json::to_string(&SrcFormat::Webp).unwrap(),
         r#""webp""#
     );
+}
+
+#[test]
+fn downscale_fits_long_edge() {
+    let d = gradient(3000, 1000);
+    let r = downscale(view(3000, 1000, &d), 2048).unwrap();
+    assert_eq!((r.width, r.height), (2048, 683));
+    assert_eq!(r.rgba.len(), 2048 * 683 * 4);
+    let d = gradient(1000, 3000);
+    let r = downscale(view(1000, 3000, &d), 1024).unwrap();
+    assert_eq!((r.width, r.height), (341, 1024));
+}
+
+#[test]
+fn downscale_keeps_small_images() {
+    let d = gradient(100, 50);
+    let r = downscale(view(100, 50, &d), 2048).unwrap();
+    assert_eq!((r.width, r.height), (100, 50));
+    assert_eq!(r.rgba, d);
+    assert!(matches!(
+        downscale(view(100, 50, &d), 0),
+        Err(ImagingError::InvalidMaxEdge)
+    ));
+}
+
+#[test]
+fn downscale_keeps_transparent_edges_clean() {
+    // 左半全透明的红、右半不透明的白：预乘缩放后透明区不应把红色带进白边。
+    let (w, h) = (64u32, 16u32);
+    let d: Vec<u8> = (0..w * h)
+        .flat_map(|i| {
+            if i % w < w / 2 {
+                [255, 0, 0, 0]
+            } else {
+                [255, 255, 255, 255]
+            }
+        })
+        .collect();
+    let r = downscale(view(w, h, &d), 32).unwrap();
+    for p in r.rgba.chunks_exact(4).filter(|p| p[3] > 0) {
+        assert!(p[1] > 200 && p[2] > 200, "{p:?}");
+    }
+}
+
+#[test]
+fn out_dims_matches_apply() {
+    let d = gradient(300, 100);
+    for p in [
+        compress(80, None, PngMode::Lossy),
+        compress(80, Some(64), PngMode::Lossless),
+        compress(80, Some(1000), PngMode::Lossy),
+        convert(OutFormat::Webp, 80, [255; 3]),
+    ] {
+        let e = apply(view(300, 100, &d), SrcFormat::Png, None, &p).unwrap();
+        assert_eq!(out_dims(300, 100, &p), (e.width, e.height), "{p:?}");
+    }
 }

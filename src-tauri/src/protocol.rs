@@ -1,4 +1,5 @@
 use crate::catalog::registry::{FileId, Registry};
+use crate::edit::EditState;
 use crate::state::recents::is_cache_key;
 use crate::thumbs::{ThumbCache, Tier};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,12 +14,15 @@ pub enum Route {
     Thumb(FileId, Tier),
     /// 按缓存键直接读缩略图（最近目录用）。
     ThumbKey(String),
+    /// 编辑预览：会话号与版本号。
+    Edit(u32, u32),
 }
 
 /// 协议处理所需的共享状态。
 pub struct Ctx<'a> {
     pub registry: &'a Registry,
     pub thumbs: &'a ThumbCache,
+    pub edit: &'a EditState,
 }
 
 fn parse_u32(s: &str) -> Option<u32> {
@@ -28,8 +32,13 @@ fn parse_u32(s: &str) -> Option<u32> {
     s.parse().ok()
 }
 
-/// 输入是请求 URI 的 path 部分，如 "/image/42"、"/thumb/42/320"、"/thumb-key/<32 位小写十六进制>"。
+/// 输入是请求 URI 的 path 部分，如 "/image/42"、"/thumb/42/320"、"/thumb-key/<32 位小写十六进制>"、
+/// "/edit/3/7"。
 pub fn parse_route(path: &str) -> Option<Route> {
+    if let Some(rest) = path.strip_prefix("/edit/") {
+        let (session, rev) = rest.split_once('/')?;
+        return Some(Route::Edit(parse_u32(session)?, parse_u32(rev)?));
+    }
     if let Some(key) = path.strip_prefix("/thumb-key/") {
         return is_cache_key(key).then(|| Route::ThumbKey(key.to_string()));
     }
@@ -73,6 +82,18 @@ fn ok(mime: &str, body: Vec<u8>) -> http::Response<Vec<u8>> {
         .unwrap_or_else(|_| not_found())
 }
 
+/// 编辑预览：会话号在重启后会重复，不得让 WebView 缓存。
+fn serve_edit(ctx: &Ctx, session: u32, rev: u32) -> Option<http::Response<Vec<u8>>> {
+    let (body, mime) = ctx.edit.bytes(session, rev)?;
+    http::Response::builder()
+        .status(200)
+        .header("content-type", mime)
+        .header("cache-control", "no-store")
+        .header("access-control-allow-origin", "*")
+        .body(body)
+        .ok()
+}
+
 fn serve_image(ctx: &Ctx, id: FileId) -> Option<http::Response<Vec<u8>>> {
     let file = ctx.registry.path(id)?;
     let mime = content_type(&file)?;
@@ -94,6 +115,7 @@ pub fn respond(ctx: &Ctx, path: &str) -> http::Response<Vec<u8>> {
         Some(Route::Image(id)) => serve_image(ctx, id),
         Some(Route::Thumb(id, tier)) => serve_thumb(ctx, id, tier),
         Some(Route::ThumbKey(key)) => ctx.thumbs.get(&key).map(|b| ok("image/webp", b)),
+        Some(Route::Edit(session, rev)) => serve_edit(ctx, session, rev),
         None => None,
     };
     response.unwrap_or_else(not_found)
@@ -104,18 +126,21 @@ mod tests {
     use super::*;
     use crate::catalog::registry::{FileId, Registry};
     use crate::thumbs::worker::process;
-    use glance_imaging::{RgbaView, encode_png_lossless};
+    use glance_imaging::{EditParams, OutFormat, RgbaView, encode_png_lossless};
 
     fn real_png(path: &std::path::Path) {
         let (w, h) = (400u32, 200u32);
         let data: Vec<u8> = (0..w * h)
             .flat_map(|i| [(i % 251) as u8, 80, 160, 255])
             .collect();
-        let png = encode_png_lossless(RgbaView {
-            width: w,
-            height: h,
-            data: &data,
-        }, None)
+        let png = encode_png_lossless(
+            RgbaView {
+                width: w,
+                height: h,
+                data: &data,
+            },
+            None,
+        )
         .unwrap();
         std::fs::write(path, png).unwrap();
     }
@@ -147,9 +172,11 @@ mod tests {
         let r = Registry::default();
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let edit = EditState::default();
         let ctx = Ctx {
             registry: &r,
             thumbs: &cache,
+            edit: &edit,
         };
         let id = r.register(&file);
         let resp = respond(&ctx, &format!("/image/{}", id.0));
@@ -167,9 +194,11 @@ mod tests {
         let r = Registry::default();
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let edit = EditState::default();
         let ctx = Ctx {
             registry: &r,
             thumbs: &cache,
+            edit: &edit,
         };
         let missing = respond(&ctx, "/image/7");
         assert_eq!(missing.status(), 404);
@@ -206,6 +235,62 @@ mod tests {
     }
 
     #[test]
+    fn parses_edit_routes() {
+        assert_eq!(parse_route("/edit/3/7"), Some(Route::Edit(3, 7)));
+        for bad in [
+            "/edit/3",
+            "/edit/a/1",
+            "/edit/3/7/x",
+            "/edit/3/",
+            "/edit//7",
+            "/edit/-1/2",
+        ] {
+            assert_eq!(parse_route(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn edit_route_serves_latest_result_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.png");
+        real_png(&file);
+        let r = Registry::default();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let edit = EditState::default();
+        let ctx = Ctx {
+            registry: &r,
+            thumbs: &cache,
+            edit: &edit,
+        };
+        let s = edit.open(&r, r.register(&file)).unwrap().session;
+        assert_eq!(respond(&ctx, &format!("/edit/{s}/1")).status(), 404);
+        let webp = EditParams::Convert {
+            format: OutFormat::Webp,
+            quality: 80,
+            fill: [255; 3],
+        };
+        edit.preview(s, 1, webp, false).unwrap().unwrap();
+        let resp = respond(&ctx, &format!("/edit/{s}/1"));
+        assert_eq!(resp.status(), 200);
+        assert_eq!(resp.headers()["content-type"], "image/webp");
+        // 会话号重启后会重复，不能让 WebView 长期缓存。
+        assert_eq!(resp.headers()["cache-control"], "no-store");
+        assert_eq!(resp.headers()["access-control-allow-origin"], "*");
+        assert_eq!(resp.body(), &edit.bytes(s, 1).unwrap().0);
+        let jpeg = EditParams::Convert {
+            format: OutFormat::Jpeg,
+            quality: 80,
+            fill: [255; 3],
+        };
+        edit.preview(s, 2, jpeg, false).unwrap().unwrap();
+        assert_eq!(respond(&ctx, &format!("/edit/{s}/1")).status(), 404);
+        let resp = respond(&ctx, &format!("/edit/{s}/2"));
+        assert_eq!(resp.headers()["content-type"], "image/jpeg");
+        assert_eq!(respond(&ctx, &format!("/edit/{}/2", s + 1)).status(), 404);
+    }
+
+    #[test]
     fn parses_thumb_key_routes() {
         let key = "0123456789abcdef0123456789abcdef";
         assert_eq!(
@@ -234,9 +319,11 @@ mod tests {
         let r = Registry::default();
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let edit = EditState::default();
         let ctx = Ctx {
             registry: &r,
             thumbs: &cache,
+            edit: &edit,
         };
         let key = "0123456789abcdef0123456789abcdef";
         let url = format!("/thumb-key/{key}");
@@ -264,9 +351,11 @@ mod tests {
         let r = Registry::default();
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let edit = EditState::default();
         let ctx = Ctx {
             registry: &r,
             thumbs: &cache,
+            edit: &edit,
         };
         let id = r.register(&file);
         let url = format!("/thumb/{}/320", id.0);

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::encode::{RgbaView, encode_jpeg, encode_png_lossless, encode_png_lossy, encode_webp};
 use crate::error::ImagingError;
+use crate::thumb::Decoded;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,6 +114,37 @@ fn resize(img: &RgbaView, (tw, th): (u32, u32)) -> Result<Vec<u8>, ImagingError>
             .map_err(|e| err(&e))?;
     }
     Ok(dst.into_vec())
+}
+
+/// 长边缩到不超过 `max_edge`（Lanczos3，带透明时预乘）；本来就不大于它时原样复制。
+/// `max_edge` 为 0 返回 `InvalidMaxEdge`。
+pub fn downscale(src: RgbaView, max_edge: u32) -> Result<Decoded, ImagingError> {
+    if max_edge == 0 {
+        return Err(ImagingError::InvalidMaxEdge);
+    }
+    if src.width.max(src.height) <= max_edge {
+        return Ok(Decoded {
+            width: src.width,
+            height: src.height,
+            rgba: src.data.to_vec(),
+        });
+    }
+    let (w, h) = scaled(src.width, src.height, max_edge);
+    Ok(Decoded {
+        width: w,
+        height: h,
+        rgba: resize(&src, (w, h))?,
+    })
+}
+
+/// 对 `width`×`height` 的图执行 `p` 后的输出尺寸（与 [`apply`] 的结果一致），不做计算。
+pub fn out_dims(width: u32, height: u32, p: &EditParams) -> (u32, u32) {
+    match *p {
+        EditParams::Compress {
+            max_edge: Some(m), ..
+        } if m > 0 && width.max(height) > m => scaled(width, height, m),
+        _ => (width, height),
+    }
 }
 
 pub fn apply(

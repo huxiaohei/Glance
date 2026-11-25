@@ -7,7 +7,9 @@ mod quantize;
 mod thumb;
 
 pub use encode::{RgbaView, encode_jpeg, encode_png_lossless, encode_png_lossy, encode_webp};
-pub use edit::{EditParams, Encoded, OutFormat, PngMode, SrcFormat, apply, src_format_of};
+pub use edit::{
+    EditParams, Encoded, OutFormat, PngMode, SrcFormat, apply, downscale, out_dims, src_format_of,
+};
 pub use quantize::quantize;
 pub use error::ImagingError;
 pub use thumb::{Decoded, DecodedWithIcc, Thumbnail, decode_rgba, decode_rgba_icc, make_thumbnail};
