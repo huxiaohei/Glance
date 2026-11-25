@@ -24,13 +24,20 @@ export interface CompareUiState {
   /** 添加面板的来源；根目录换了或所选子目录已不在时回到 root */
   panelSource: PanelSource;
   otherDir: OtherDir | null;
+  /** 键盘焦点所在区域：图片墙或添加面板。对比命令按它分派；新的进入与收起面板时回到墙 */
+  focusArea: "wall" | "panel";
+  /** 添加面板里的焦点格：收起面板后仍记住，再打开时回到这里 */
+  panelFocus: FileId | null;
   /** 一次新的进入：视口回到适应，同步按 sync，焦点落在 first */
   enter(sync: boolean, first: FileId | null): void;
   setFocus(id: FileId | null): void;
   toggleCaptions(): void;
   /** 开 → 关：各格从当前共享视口出发；关 → 开：共享视口取焦点格自己的（没有则不变） */
   toggleSync(): void;
+  /** 开合添加面板；收起时焦点区域回到墙 */
   togglePanel(): void;
+  setFocusArea(area: "wall" | "panel"): void;
+  setPanelFocus(id: FileId | null): void;
   setPanelSource(s: PanelSource): void;
   setOtherDir(d: OtherDir | null): void;
   /** 交互结束时把热路径上的视口写回 */
@@ -47,10 +54,15 @@ export const useCompareUi: UseBoundStore<StoreApi<CompareUiState>> = create<Comp
   panelOpen: false,
   panelSource: { kind: "root" },
   otherDir: null,
-  enter: (sync, first) => set({ viewport: FIT_VIEWPORT, perCell: sync ? null : new Map(), focus: first }),
+  focusArea: "wall",
+  panelFocus: null,
+  enter: (sync, first) =>
+    set({ viewport: FIT_VIEWPORT, perCell: sync ? null : new Map(), focus: first, focusArea: "wall" }),
   setFocus: (id) => set((s) => (s.focus === id ? s : { focus: id })),
   toggleCaptions: () => set((s) => ({ captions: !s.captions })),
-  togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
+  togglePanel: () => set((s) => (s.panelOpen ? { panelOpen: false, focusArea: "wall" } : { panelOpen: true })),
+  setFocusArea: (focusArea) => set((s) => (s.focusArea === focusArea ? s : { focusArea })),
+  setPanelFocus: (panelFocus) => set((s) => (s.panelFocus === panelFocus ? s : { panelFocus })),
   setPanelSource: (panelSource) => set({ panelSource }),
   setOtherDir: (otherDir) => set({ otherDir }),
   toggleSync: () =>

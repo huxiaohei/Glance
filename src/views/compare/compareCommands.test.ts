@@ -206,3 +206,129 @@ describe("对比视图命令", () => {
     });
   });
 });
+
+describe("添加面板的键盘（按焦点区域分派）", () => {
+  // 面板来源：当前文件夹里的 7 张（id 101..107，按文件名排序）
+  function openRoot() {
+    useCatalog.getState().begin({ generation: 1, path: "/三国", name: "三国", recursive: true, focus: null });
+    useCatalog.getState().apply({
+      type: "batch",
+      generation: 1,
+      entries: Array.from({ length: 7 }, (_, i) => ({ id: 101 + i, relPath: `p${i + 1}.png`, size: 10, mtimeMs: 5 })),
+    });
+    useCatalog.getState().apply({ type: "done", generation: 1, total: 7 });
+  }
+  const tab = key("Tab");
+  const ui = () => useCompareUi.getState();
+
+  beforeEach(() => {
+    openRoot();
+    // 打开目录会把视图栈放回网格
+    useNav.getState().reset();
+    useNav.getState().openCompare();
+    useCompareUi.setState({ panelOpen: false, panelSource: { kind: "root" }, focusArea: "wall", panelFocus: null });
+  });
+
+  it("Tab 打开面板并把焦点放进面板（第一张）；再按 Tab 收起，焦点回墙", () => {
+    expect(press("Tab").id).toBe("compare.togglePanel");
+    expect(ui().panelOpen).toBe(true);
+    expect(ui().focusArea).toBe("panel");
+    expect(ui().panelFocus).toBe(101);
+    press("Tab");
+    expect(ui().panelOpen).toBe(false);
+    expect(ui().focusArea).toBe("wall");
+    expect(findCommand(tab, "grid", false, true)?.id).not.toBe("compare.togglePanel");
+  });
+
+  it("Tab 再打开时落在上次的位置；上次那张已不在面板里时落第一张", () => {
+    press("Tab");
+    press("ArrowRight");
+    press("ArrowRight");
+    press("Tab");
+    press("Tab");
+    expect(ui().panelFocus).toBe(103);
+    press("Tab");
+    useCompareUi.setState({ panelFocus: 999 });
+    press("Tab");
+    expect(ui().panelFocus).toBe(101);
+  });
+
+  it("面板区方向键移动面板焦点：左右 ±1、上下 ±3，到边不动；墙的焦点不变", () => {
+    press("Tab");
+    press("ArrowLeft");
+    expect(ui().panelFocus).toBe(101);
+    press("ArrowUp");
+    expect(ui().panelFocus).toBe(101);
+    press("ArrowDown");
+    expect(ui().panelFocus).toBe(104);
+    press("ArrowDown");
+    expect(ui().panelFocus).toBe(107);
+    press("ArrowDown");
+    press("ArrowRight");
+    expect(ui().panelFocus).toBe(107);
+    press("ArrowUp");
+    expect(ui().panelFocus).toBe(104);
+    press("ArrowLeft");
+    expect(ui().panelFocus).toBe(103);
+    expect(ui().focus).toBe(1);
+  });
+
+  it("空格只在面板区响应：切换面板焦点那张的加入状态", () => {
+    fill(2);
+    expect(findCommand(key(" ", "Space"), "compare", false, true)).toBeNull();
+    press("Tab");
+    press("ArrowRight");
+    expect(press(" ", "Space").id).toBe("compare.panelToggle");
+    expect(useBasket.getState().order).toEqual([1, 2, 102]);
+    press(" ", "Space");
+    expect(useBasket.getState().order).toEqual([1, 2]);
+  });
+
+  it("面板区 Enter 等同空格，不打开单张", () => {
+    fill(2);
+    press("Tab");
+    press("Enter");
+    expect(useBasket.getState().order).toEqual([1, 2, 101]);
+    expect(topView().kind).toBe("compare");
+  });
+
+  it("Esc 两段式：面板区只把焦点还给墙（面板仍开），墙上才返回", () => {
+    press("Tab");
+    press("Escape");
+    expect(ui().focusArea).toBe("wall");
+    expect(ui().panelOpen).toBe(true);
+    expect(topView().kind).toBe("compare");
+    press("Escape");
+    expect(topView().kind).toBe("grid");
+  });
+
+  it("面板区 Delete、缩放、0、1、S、Alt+方向键不响应", () => {
+    useCompareUi.setState({ focus: 2 });
+    press("Tab");
+    const before = useBasket.getState().order;
+    press("Delete");
+    press("Backspace");
+    press("+", "Equal");
+    press("-", "Minus");
+    press("1", "Digit1");
+    press("0", "Digit0");
+    press("s", "KeyS");
+    for (const k of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
+      findCommand({ ...key(k), altKey: true }, "compare", false, true)?.run({ shift: false, repeat: false });
+    }
+    expect(useBasket.getState().order).toBe(before);
+    expect(ui().viewport).toEqual(FIT_VIEWPORT);
+    expect(ui().perCell).toBeNull();
+    expect(useToast.getState().current).toBeNull();
+  });
+
+  it("新的进入把焦点区域放回墙；顶栏按钮收起面板也回墙", () => {
+    press("Tab");
+    ui().enter(true, 1);
+    expect(ui().focusArea).toBe("wall");
+    useCompareUi.setState({ focusArea: "panel" });
+    ui().togglePanel();
+    expect(ui().panelOpen).toBe(false);
+    expect(ui().focusArea).toBe("wall");
+  });
+});

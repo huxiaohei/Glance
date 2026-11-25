@@ -122,6 +122,14 @@ describe("CompareView", () => {
     expect(api.thumbsWant).toHaveBeenLastCalledWith("comparePanel", [], 320);
   });
 
+  it("在图片墙上按下把焦点区域还给墙", () => {
+    useCompareUi.setState({ panelOpen: true });
+    const { container } = render(<CompareView />);
+    act(() => useCompareUi.setState({ focusArea: "panel" }));
+    fireEvent.pointerDown(container.querySelector(".compare-scroller")!);
+    expect(useCompareUi.getState().focusArea).toBe("wall");
+  });
+
   it("列数取自设置 compareColumns", () => {
     useSettings.setState({ settings: { ...DEFAULT_SETTINGS, compareColumns: 3 } });
     const { container } = render(<CompareView />);

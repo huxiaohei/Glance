@@ -283,6 +283,10 @@
   cursor: pointer;
 }
 .compare-panel-item:hover { border-color: var(--accent); }
+.compare-panel-item.is-focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
 .compare-panel-item img {
   width: 100%;
   height: 100%;

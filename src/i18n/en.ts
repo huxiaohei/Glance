@@ -117,6 +117,8 @@ export const en: Record<MessageKey, string> = {
   "cmd.compare.fit": "Fit",
   "cmd.compare.actual": "Actual size",
   "cmd.compare.toggleSync": "Toggle sync zoom",
+  "cmd.compare.togglePanel": "Show / hide add panel",
+  "cmd.compare.panelToggle": "Add to / remove from compare (add panel)",
   "compare.removed": "Removed from compare",
   "compare.cleared": "Compare basket cleared",
   "compare.undo": "Undo",

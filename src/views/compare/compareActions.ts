@@ -1,8 +1,11 @@
 import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
 import { actualSizeViewport, fitAllViewport, zoomAtCell } from "../../lib/compareViewport";
+import { panelIds } from "../../lib/panelSource";
 import { useBasket } from "../../stores/basket";
+import { useCatalog } from "../../stores/catalog";
 import { useCompareUi } from "../../stores/compareUi";
+import { useListView } from "../../stores/listView";
 import { topView, useNav } from "../../stores/nav";
 import { useSettings } from "../../stores/settings";
 import { showToast } from "../../stores/toast";
@@ -153,4 +156,74 @@ export function actualFocused(): void {
 export function toggleSync(): void {
   flushCompareViewport();
   useCompareUi.getState().toggleSync();
+}
+
+// ---- 添加面板 ----
+
+/** 每排张数（面板固定 3 列）。 */
+export const PANEL_COLUMNS = 3;
+
+let panelCache: { key: readonly unknown[]; ids: FileId[] } | null = null;
+
+/**
+ * 添加面板当前列出的图（与面板显示一致）：没打开目录时只有“其他文件夹”来源有图。
+ * 按住方向键会连续调用：输入不变时取上次的结果。
+ */
+export function currentPanelIds(): FileId[] {
+  const { root, entries, listVersion } = useCatalog.getState();
+  const { sort, includeSubdirs } = useListView.getState();
+  const source = useCompareUi.getState().panelSource;
+  const key = [root, entries, listVersion, sort, includeSubdirs, source];
+  if (panelCache && panelCache.key.every((v, i) => v === key[i])) return panelCache.ids;
+  const ids = root === null && source.kind !== "other" ? [] : panelIds(entries, sort, includeSubdirs, source);
+  panelCache = { key, ids };
+  return ids;
+}
+
+/** 键盘焦点在添加面板里（面板开着）。 */
+export function inPanel(): boolean {
+  const ui = useCompareUi.getState();
+  return ui.panelOpen && ui.focusArea === "panel";
+}
+
+/** Tab：打开面板并把焦点放进去（上次的位置，已不在面板里时第一张）；已打开则收起，焦点回墙。 */
+export function togglePanelWithFocus(): void {
+  const ui = useCompareUi.getState();
+  if (ui.panelOpen) {
+    ui.togglePanel();
+    return;
+  }
+  ui.togglePanel();
+  const ids = currentPanelIds();
+  if (ui.panelFocus === null || !ids.includes(ui.panelFocus)) ui.setPanelFocus(ids[0] ?? null);
+  ui.setFocusArea("panel");
+}
+
+/** 面板焦点移动 delta 格（左右 ±1，上下 ±3）；越界不动。焦点不在当前列表里时落在第一张。 */
+export function movePanelFocus(delta: number): void {
+  const ids = currentPanelIds();
+  if (ids.length === 0) return;
+  const ui = useCompareUi.getState();
+  const i = ui.panelFocus === null ? -1 : ids.indexOf(ui.panelFocus);
+  if (i < 0) {
+    ui.setPanelFocus(ids[0]);
+    return;
+  }
+  const j = i + delta;
+  if (j < 0 || j >= ids.length) return;
+  ui.setPanelFocus(ids[j]);
+}
+
+/** 把面板里的一张加入 / 移出对比篮：其他文件夹的条目不在 catalog 里，用扫描时的快照。 */
+export function togglePanelItem(id: FileId): void {
+  const source = useCompareUi.getState().panelSource;
+  const it = source.kind === "other" ? source.items.find((x) => x.id === id) : undefined;
+  if (it) useBasket.getState().toggleItems([it]);
+  else useBasket.getState().toggle([id]);
+}
+
+/** 空格 / Enter（面板区）：切换面板焦点那张的加入状态。 */
+export function togglePanelFocused(): void {
+  const { panelFocus } = useCompareUi.getState();
+  if (panelFocus !== null && currentPanelIds().includes(panelFocus)) togglePanelItem(panelFocus);
 }

@@ -176,7 +176,12 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
       <CompareTopBar count={order.length} />
       {/* 添加面板在图片墙右侧：墙变窄、列数不变 */}
       <div className="compare-body">
-        <div ref={setScroller} className="compare-scroller">
+        {/* 在图片墙上按下：键盘焦点回到墙 */}
+        <div
+          ref={setScroller}
+          className="compare-scroller"
+          onPointerDown={() => useCompareUi.getState().setFocusArea("wall")}
+        >
           <div className="compare-grid" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
             {order.map((id) => {
               const it = items.get(id);

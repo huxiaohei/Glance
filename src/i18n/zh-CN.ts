@@ -115,6 +115,8 @@ export const zhCN = {
   "cmd.compare.fit": "适应格子",
   "cmd.compare.actual": "原始大小",
   "cmd.compare.toggleSync": "同步缩放开关",
+  "cmd.compare.togglePanel": "显示 / 隐藏添加面板",
+  "cmd.compare.panelToggle": "加入 / 移出对比（添加面板）",
   "compare.removed": "已移出对比",
   "compare.cleared": "已清空对比篮",
   "compare.undo": "撤销",

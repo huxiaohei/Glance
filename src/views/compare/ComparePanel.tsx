@@ -13,9 +13,10 @@ import { useCompareUi } from "../../stores/compareUi";
 import { useListView } from "../../stores/listView";
 import { useThumbs } from "../../stores/thumbs";
 import { showToast } from "../../stores/toast";
+import { currentPanelIds, PANEL_COLUMNS, togglePanelItem } from "./compareActions";
 
 const TIER = 320;
-const COLUMNS = 3;
+const COLUMNS = PANEL_COLUMNS;
 /** 格子边长与间距（px）：面板宽 280，左右各留 12 */
 const CELL = 80;
 const GAP = 8;
@@ -26,7 +27,7 @@ const OVERSCAN = 2;
 /** 按下不拿焦点：焦点留在页面上，命令表照常响应。 */
 const keepFocus = (e: MouseEvent) => e.preventDefault();
 
-// 只认最近一次扫描的结果：连续选两次其他文件夹时，先发的晚到也不覆盖
+// 只认最近一次扫描的结果：连续选两次其他文件夹、或扫描未回来时改选了别的来源，先发的晚到也不覆盖
 let scanSeq = 0;
 
 /** 扫描其他文件夹：成功则把它记为“其他文件夹”并设为来源；失败提示，来源不变。 */
@@ -54,15 +55,17 @@ async function pickOther(): Promise<void> {
 
 function onSourceChange(key: string): void {
   const ui = useCompareUi.getState();
+  // 改选当前文件夹或子目录：作废还没回来的扫描
+  if (key === "root" || key.startsWith("dir:")) scanSeq++;
   if (key === "pick") void pickOther().catch(() => {});
   else if (key === "other") { if (ui.otherDir) scanOther(ui.otherDir.path); }
   else if (key === "root") ui.setPanelSource({ kind: "root" });
   else if (key.startsWith("dir:")) ui.setPanelSource({ kind: "dir", dir: key.slice(4) });
 }
 
-/** 一格：方形缩略图（完整显示），已在篮中的右上角琥珀点；悬停显示文件名。 */
+/** 一格：方形缩略图（完整显示），已在篮中的右上角琥珀点；悬停显示文件名；键盘焦点在此时带焦点框。 */
 const PanelCell = memo(function PanelCell(
-  { id, name, top, left }: { id: FileId; name: string; top: number; left: number },
+  { id, name, top, left, focused }: { id: FileId; name: string; top: number; left: number; focused: boolean },
 ) {
   const ready = useThumbs((s) => s.ready.get(id));
   const broken = useThumbs((s) => s.broken.has(id));
@@ -72,7 +75,7 @@ const PanelCell = memo(function PanelCell(
   return (
     <button
       type="button"
-      className="compare-panel-item"
+      className={focused ? "compare-panel-item is-focus" : "compare-panel-item"}
       data-id={id}
       title={name}
       aria-pressed={inBasket}
@@ -98,12 +101,14 @@ export default function ComparePanel() {
   const includeSubdirs = useListView((s) => s.includeSubdirs);
   const source = useCompareUi((s) => s.panelSource);
   const otherDir = useCompareUi((s) => s.otherDir);
+  const panelFocus = useCompareUi((s) => s.panelFocus);
+  const focusInPanel = useCompareUi((s) => s.focusArea === "panel");
   const generation = root?.generation;
 
   // 条目集合（listVersion）变了才重算；尺寸补全不影响面板
   const { ids, options } = useMemo(() => {
     const entries = useCatalog.getState().entries;
-    const ids = root === null && source.kind !== "other" ? [] : panelIds(entries, sort, includeSubdirs, source);
+    const ids = currentPanelIds();
     const other = otherDir && { name: otherDir.name, count: otherDir.count };
     let options;
     if (root === null) {
@@ -142,6 +147,22 @@ export default function ComparePanel() {
     setScrollTop(0);
   }, [source]);
 
+  // 面板焦点（键盘移动、Tab 打开时）滚进可视区：目标行可能还没渲染，按行号直接设 scrollTop。
+  // 只跟着焦点变，不跟着列表变（列表刷新时不把手动滚开的位置拉回来）
+  useLayoutEffect(() => {
+    const i = panelFocus === null ? -1 : ids.indexOf(panelFocus);
+    if (i < 0) return;
+    const el = ref.current!;
+    const top = Math.floor(i / COLUMNS) * ROW;
+    const h = el.clientHeight;
+    let next = el.scrollTop;
+    if (top < next) next = top;
+    else if (top + CELL > next + h) next = top + CELL - h;
+    if (next === el.scrollTop) return;
+    el.scrollTop = next;
+    setScrollTop(next);
+  }, [panelFocus]);
+
   const rows = Math.ceil(ids.length / COLUMNS);
   const first = Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN);
   const last = Math.min(rows, Math.ceil((scrollTop + height) / ROW) + OVERSCAN);
@@ -178,9 +199,10 @@ export default function ComparePanel() {
     const el = (e.target as HTMLElement).closest<HTMLElement>(".compare-panel-item");
     if (!el) return;
     const id = Number(el.dataset.id);
-    const it = byId.get(id);
-    if (it) useBasket.getState().toggleItems([it]);
-    else useBasket.getState().toggle([id]);
+    const ui = useCompareUi.getState();
+    ui.setPanelFocus(id);
+    ui.setFocusArea("panel");
+    togglePanelItem(id);
   };
 
   const key = panelKey(source);
@@ -226,6 +248,7 @@ export default function ComparePanel() {
                 name={nameOf(id)}
                 top={Math.floor(n / COLUMNS) * ROW}
                 left={(n % COLUMNS) * ROW}
+                focused={focusInPanel && panelFocus === id}
               />
             );
           })}

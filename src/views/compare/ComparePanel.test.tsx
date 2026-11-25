@@ -34,7 +34,7 @@ beforeEach(() => {
   useCatalog.getState().reset();
   useListView.setState({ sort: "name", includeSubdirs: true, dirFilter: null, collapsed: new Set() });
   useBasket.setState({ order: [], items: new Map(), missing: new Set() });
-  useCompareUi.setState({ panelOpen: true, panelSource: { kind: "root" }, otherDir: null });
+  useCompareUi.setState({ panelOpen: true, panelSource: { kind: "root" }, otherDir: null, focusArea: "wall", panelFocus: null });
   useToast.setState({ current: null });
   vi.mocked(api.thumbsWant).mockResolvedValue([]);
 });
@@ -150,5 +150,53 @@ describe("ComparePanel", () => {
     await waitFor(() => expect(api.thumbsWant).toHaveBeenCalledWith("comparePanel", [1, 2], 320));
     unmount();
     expect(api.thumbsWant).toHaveBeenLastCalledWith("comparePanel", [], 320);
+  });
+  it("点缩略图：焦点区域到面板，面板焦点为它，带焦点框", () => {
+    openRoot(["a.png", "b.png"]);
+    const { container } = render(<ComparePanel />);
+    expect(container.querySelector(".compare-panel-item.is-focus")).toBeNull();
+    fireEvent.click(itemOf(container, 2));
+    expect(useCompareUi.getState().focusArea).toBe("panel");
+    expect(useCompareUi.getState().panelFocus).toBe(2);
+    expect(itemOf(container, 2).classList.contains("is-focus")).toBe(true);
+    // 焦点回墙时不显示面板焦点框
+    act(() => useCompareUi.setState({ focusArea: "wall" }));
+    expect(container.querySelector(".compare-panel-item.is-focus")).toBeNull();
+  });
+
+  it("面板焦点变化时滚进可视区（目标行尚未渲染也行）", () => {
+    openRoot(Array.from({ length: 2000 }, (_, i) => `img${String(i).padStart(4, "0")}.png`));
+    // 面板可视区高 300
+    const desc = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
+    Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get: () => 300 });
+    try {
+      const { container } = render(<ComparePanel />);
+      const scroller = container.querySelector<HTMLElement>(".compare-panel-scroller")!;
+      act(() => useCompareUi.setState({ focusArea: "panel", panelFocus: 1000 }));
+      // 第 1000 张在第 333 行（每行 88，格高 80）：底边对齐可视区底边，且已渲染
+      expect(scroller.scrollTop).toBe(333 * 88 + 80 - 300);
+      expect(itemOf(container, 1000)).toBeTruthy();
+      // 已在可视区内：不滚
+      act(() => useCompareUi.setState({ panelFocus: 999 }));
+      expect(scroller.scrollTop).toBe(333 * 88 + 80 - 300);
+      // 在上方：顶边对齐
+      act(() => useCompareUi.setState({ panelFocus: 1 }));
+      expect(scroller.scrollTop).toBe(0);
+    } finally {
+      Object.defineProperty(Element.prototype, "clientHeight", desc);
+    }
+  });
+
+  it("扫描未回来时改选当前文件夹：迟到的扫描结果不覆盖", async () => {
+    openRoot(["a.png"]);
+    vi.mocked(openDialog).mockResolvedValue("/吴国");
+    let resolve!: (r: Awaited<ReturnType<typeof api.browseDir>>) => void;
+    vi.mocked(api.browseDir).mockReturnValue(new Promise((r) => { resolve = r; }));
+    render(<ComparePanel />);
+    fireEvent.change(select(), { target: { value: "pick" } });
+    await waitFor(() => expect(api.browseDir).toHaveBeenCalled());
+    fireEvent.change(select(), { target: { value: "root" } });
+    await act(async () => resolve({ name: "吴国", entries: [{ id: 90, name: "孙权.png", size: 7, mtimeMs: 3 }] }));
+    expect(useCompareUi.getState().panelSource).toEqual({ kind: "root" });
   });
 });
