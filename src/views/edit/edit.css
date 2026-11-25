@@ -126,6 +126,11 @@
 }
 .edit-custom.is-active input[type="color"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .edit-note { margin: 0; color: var(--text-dim); line-height: 1.5; }
+.edit-loading {
+  margin: 24px 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
 .edit-error {
   flex: none;
   margin: 0 12px 8px;

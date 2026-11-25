@@ -54,6 +54,25 @@ afterEach(() => {
 });
 
 describe("编辑面板", () => {
+  it("opening_shows_loading", async () => {
+    let resolve: (o: EditOpened) => void = () => {};
+    vi.mocked(editOpen).mockReturnValue(new Promise<EditOpened>((r) => (resolve = r)));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = useEditUi.getState().open(2);
+    });
+    render(<EditPanel />);
+    await settle();
+    expect(useEditUi.getState().status).toBe("opening");
+    expect(screen.getByRole("status").textContent).toBe(t("edit.loading"));
+    await act(async () => {
+      resolve(opened());
+      await pending;
+    });
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("tablist")).toBeTruthy();
+  });
+
   it("slider_change_triggers_preview", async () => {
     await editing();
     vi.mocked(editPreview).mockClear();

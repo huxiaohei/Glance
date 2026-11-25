@@ -56,6 +56,7 @@ function HoldOriginal() {
 export default function EditPanel() {
   const opened = useEditUi((s) => s.opened !== null);
   const tab = useEditUi((s) => s.tab);
+  const loading = useEditUi((s) => s.status === "opening");
 
   // 面板收起（退出编辑）时一并关掉覆盖确认，松开“按住查看原图”
   useEffect(
@@ -66,7 +67,17 @@ export default function EditPanel() {
     [],
   );
 
-  if (!opened) return null;
+  if (!opened) {
+    // 正在读取、解码：先给出面板与提示，免得右侧空着
+    if (!loading) return null;
+    return (
+      <aside className="edit-panel" aria-label={t("edit.panel")}>
+        <p className="edit-loading" role="status">
+          {t("edit.loading")}
+        </p>
+      </aside>
+    );
+  }
   return (
     <aside className="edit-panel" aria-label={t("edit.panel")}>
       <div className="edit-tabs" role="tablist">

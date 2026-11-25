@@ -107,6 +107,7 @@ export const en: Record<MessageKey, string> = {
   "edit.err.decode": "Couldn't read this image for editing",
   "edit.toast.sourceChanged": "The original changed; editing was cancelled",
   "edit.panel": "Edit panel",
+  "edit.loading": "Loading…",
   "edit.tab.compress": "Compress",
   "edit.tab.crop": "Crop",
   "edit.tab.removeBg": "Remove Background",

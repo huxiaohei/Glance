@@ -105,6 +105,7 @@ export const zhCN = {
   "edit.err.decode": "无法读取这张图片，不能编辑",
   "edit.toast.sourceChanged": "原图已变化，编辑已取消",
   "edit.panel": "编辑面板",
+  "edit.loading": "正在读取…",
   "edit.tab.compress": "压缩",
   "edit.tab.crop": "裁剪",
   "edit.tab.removeBg": "去背景",
