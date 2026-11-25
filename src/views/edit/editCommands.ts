@@ -35,6 +35,28 @@ export function exitEdit(): void {
   if (useEditUi.getState().status !== "idle") useEditUi.getState().close();
 }
 
+/** 面板与覆盖确认之内的元素：只有这些输入控件里回车 / Esc 仍算编辑命令。 */
+const PANEL = ".edit-panel, .edit-confirm";
+
+function focusedInPanel(): HTMLElement | null {
+  const el = document.activeElement;
+  return el instanceof HTMLElement && el.closest(PANEL) !== null ? el : null;
+}
+
+/** 焦点是否在面板外的输入控件上（编辑中不应有，保险起见不抢它的按键）。 */
+function inForeignInput(): boolean {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement) || el.closest(PANEL) !== null) return false;
+  return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
+}
+
+/** 回车是否当作“保存”：焦点在面板里的按钮上（页签、取消、下拉、菜单项）时交给按钮自己。 */
+function enterSaves(): boolean {
+  if (inForeignInput()) return false;
+  const el = focusedInPanel();
+  return !(el && (el.tagName === "BUTTON" || el.getAttribute("role") === "menuitem"));
+}
+
 const editCommands: Command[] = [
   {
     id: "edit.open",
@@ -54,8 +76,15 @@ const editCommands: Command[] = [
     category: "cmd.cat.edit",
     keys: ["Enter"],
     views: ["edit"],
+    // 滑块、单选、勾选等面板控件聚焦时也保存（点过控件后焦点常停在上面）
+    allowInInput: true,
+    when: enterSaves,
     run: ({ repeat }) => {
-      if (!repeat && useEditUi.getState().status === "ready") void saveEdit();
+      if (repeat || useEditUi.getState().status !== "ready") return;
+      // 最长边输入框：先失焦，把输入定下来（只有有效值会写进参数，失焦后显示回有效值）再保存
+      const el = focusedInPanel();
+      if (el instanceof HTMLInputElement && el.type === "number") el.blur();
+      void saveEdit();
     },
   },
   {
@@ -64,6 +93,8 @@ const editCommands: Command[] = [
     category: "cmd.cat.edit",
     keys: ["Escape"],
     views: ["edit"],
+    allowInInput: true,
+    when: () => !inForeignInput(),
     run: ({ repeat }) => {
       // 保存进行中不取消：结果由保存流程收尾
       if (!repeat && useEditUi.getState().status !== "saving") exitEdit();

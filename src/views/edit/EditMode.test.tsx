@@ -338,6 +338,108 @@ describe("编辑模式", () => {
   });
 });
 
+describe("面板控件聚焦时的回车与 Esc", () => {
+  /** 在元素上按键（冒泡到 window）；返回是否被拦下默认行为。 */
+  const press = (el: Element, k: string) => {
+    let prevented = false;
+    act(() => {
+      prevented = !fireEvent.keyDown(el, { key: k });
+    });
+    return prevented;
+  };
+  const panel = () => document.querySelector(".edit-panel") as HTMLElement;
+  const byLabel = (label: string) => panel().querySelector(`[aria-label="${label}"]`) as HTMLElement;
+  const labelled = (text: string) =>
+    [...panel().querySelectorAll("label")].find((l) => l.textContent === text)!.querySelector("input") as HTMLInputElement;
+
+  it("enter_saves_and_esc_cancels_from_slider", async () => {
+    await enterEditing();
+    const slider = panel().querySelector("#edit-quality") as HTMLInputElement;
+    slider.focus();
+    expect(press(slider, "Enter")).toBe(true);
+    expect(saveEdit).toHaveBeenCalledTimes(1);
+    press(slider, "Escape");
+    expect(useEditUi.getState().status).toBe("idle");
+  });
+
+  it("enter_saves_and_esc_cancels_from_checkbox_and_radio", async () => {
+    vi.mocked(editOpen).mockResolvedValue({ ...opened(1), srcFormat: "png" });
+    await enterEditing();
+    const box = labelled(t("edit.maxEdge"));
+    box.focus();
+    press(box, "Enter");
+    expect(saveEdit).toHaveBeenCalledTimes(1);
+    const radio = labelled(t("edit.pngMode.lossless"));
+    radio.focus();
+    press(radio, "Enter");
+    expect(saveEdit).toHaveBeenCalledTimes(2);
+    press(radio, "Escape");
+    expect(useEditUi.getState().status).toBe("idle");
+  });
+
+  it("enter_in_max_edge_commits_then_saves", async () => {
+    await enterEditing();
+    act(() => {
+      fireEvent.click(labelled(t("edit.maxEdge")));
+    });
+    const edge = byLabel(t("edit.maxEdge.value")) as HTMLInputElement;
+    edge.focus();
+    act(() => {
+      fireEvent.change(edge, { target: { value: "1200" } });
+    });
+    press(edge, "Enter");
+    expect(useEditUi.getState().compress.maxEdge).toBe(1200);
+    expect(document.activeElement).not.toBe(edge);
+    expect(saveEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("enter_on_cancel_button_cancels_without_saving", async () => {
+    await enterEditing();
+    const cancel = [...panel().querySelectorAll("button")].find((b) => b.textContent === t("edit.cancel"))!;
+    cancel.focus();
+    expect(press(cancel, "Enter")).toBe(false);
+    expect(saveEdit).not.toHaveBeenCalled();
+    // 浏览器随后按下该按钮
+    act(() => {
+      fireEvent.click(cancel);
+    });
+    expect(useEditUi.getState().status).toBe("idle");
+    expect(saveEdit).not.toHaveBeenCalled();
+  });
+
+  it("enter_on_more_button_opens_menu_without_saving", async () => {
+    await enterEditing();
+    const more = byLabel(t("edit.save.more"));
+    more.focus();
+    expect(press(more, "Enter")).toBe(false);
+    act(() => {
+      fireEvent.click(more);
+    });
+    expect(panel().querySelector('[role="menu"]')).toBeTruthy();
+    expect(saveEdit).not.toHaveBeenCalled();
+  });
+
+  it("enter_on_tab_button_switches_tab_without_saving", async () => {
+    await enterEditing();
+    const tab = [...panel().querySelectorAll('[role="tab"]')].find((b) => b.textContent === t("edit.tab.convert")) as HTMLElement;
+    tab.focus();
+    expect(press(tab, "Enter")).toBe(false);
+    act(() => {
+      fireEvent.click(tab);
+    });
+    expect(useEditUi.getState().tab).toBe("convert");
+    expect(saveEdit).not.toHaveBeenCalled();
+  });
+
+  it("esc_on_panel_button_still_cancels", async () => {
+    await enterEditing();
+    const more = byLabel(t("edit.save.more"));
+    more.focus();
+    press(more, "Escape");
+    expect(useEditUi.getState().status).toBe("idle");
+  });
+});
+
 describe("顶栏编辑按钮", () => {
   it("button_disabled_after_known_animated", async () => {
     vi.mocked(editOpen).mockRejectedValue("animated");
