@@ -226,6 +226,7 @@ export const en: Record<MessageKey, string> = {
   "settings.compareColumns": "Images per row",
   "settings.compareSyncOnEnter": "Sync zoom when entering compare",
   "settings.checkUpdates": "Check for updates on launch",
+  "settings.showKeyHints": "Show shortcut hints",
   "update.available": "Version {v} is available",
   "update.install": "Update and restart",
   "update.installing": "Updating…",

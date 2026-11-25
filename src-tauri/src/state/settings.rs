@@ -80,6 +80,8 @@ pub struct Settings {
     /// 进入对比时是否开启同步缩放。
     pub compare_sync_on_enter: bool,
     pub compare_background: CompareBackground,
+    /// 在底部给出按当前状态预测的快捷键提示。
+    pub show_key_hints: bool,
 }
 
 impl Default for Settings {
@@ -95,6 +97,7 @@ impl Default for Settings {
             compare_columns: 4,
             compare_sync_on_enter: true,
             compare_background: CompareBackground::Dark,
+            show_key_hints: true,
         }
     }
 }
@@ -210,7 +213,8 @@ mod tests {
             serde_json::to_value(Settings::default()).unwrap(),
             json!({"theme":"dark","language":"system","includeSubdirs":true,
                    "defaultSort":"name","loopAtEnd":false,"wheel":"zoom","checkUpdates":true,
-                   "compareColumns":4,"compareSyncOnEnter":true,"compareBackground":"dark"})
+                   "compareColumns":4,"compareSyncOnEnter":true,"compareBackground":"dark",
+                   "showKeyHints":true})
         );
     }
 
@@ -318,6 +322,31 @@ mod tests {
         assert_eq!(s.compare_columns, 4);
         assert!(s.compare_sync_on_enter);
         assert_eq!(s.compare_background, CompareBackground::Dark);
+    }
+
+    #[test]
+    fn old_settings_file_without_show_key_hints_reads_as_true() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            r#"{"theme":"light","compareColumns":3,"compareSyncOnEnter":false}"#,
+        )
+        .unwrap();
+        let s = SettingsState::load(dir.path()).get();
+        assert!(s.show_key_hints);
+        assert_eq!(s.compare_columns, 3);
+    }
+
+    #[test]
+    fn show_key_hints_false_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let st = SettingsState::load(dir.path());
+        let next = Settings {
+            show_key_hints: false,
+            ..Settings::default()
+        };
+        st.set(next.clone()).unwrap();
+        assert_eq!(SettingsState::load(dir.path()).get(), next);
     }
 
     #[test]

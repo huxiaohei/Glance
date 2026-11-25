@@ -225,6 +225,7 @@ export const zhCN = {
   "settings.compareColumns": "每排张数",
   "settings.compareSyncOnEnter": "进入对比时开启同步缩放",
   "settings.checkUpdates": "启动时检查更新",
+  "settings.showKeyHints": "显示快捷键提示",
   "update.available": "发现新版本 {v}",
   "update.install": "更新并重启",
   "update.installing": "正在更新…",

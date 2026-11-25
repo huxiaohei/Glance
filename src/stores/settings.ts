@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
   compareColumns: 4,
   compareSyncOnEnter: true,
   compareBackground: "dark",
+  showKeyHints: true,
 };
 
 export const useSettings = create<{ settings: Settings; open: boolean }>(() => ({

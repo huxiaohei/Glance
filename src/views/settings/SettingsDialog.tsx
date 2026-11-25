@@ -18,7 +18,7 @@ function Row({ id, label, children }: { id: string; label: MessageKey; children:
   );
 }
 
-function Check({ id, label, field }: { id: string; label: MessageKey; field: "includeSubdirs" | "loopAtEnd" | "checkUpdates" | "compareSyncOnEnter" }) {
+function Check({ id, label, field }: { id: string; label: MessageKey; field: "includeSubdirs" | "loopAtEnd" | "checkUpdates" | "compareSyncOnEnter" | "showKeyHints" }) {
   const checked = useSettings((s) => s.settings[field]);
   return (
     <div className="settings-row settings-check">
@@ -120,6 +120,7 @@ export default function SettingsDialog() {
           <h3 className="settings-cat">{t("settings.group.appearance")}</h3>
           <Select id="settings-theme" label="settings.theme" field="theme" options={themes} />
           <Select id="settings-language" label="settings.language" field="language" options={languages} />
+          <Check id="settings-key-hints" label="settings.showKeyHints" field="showKeyHints" />
         </section>
         <section className="settings-group">
           <h3 className="settings-cat">{t("settings.group.browse")}</h3>

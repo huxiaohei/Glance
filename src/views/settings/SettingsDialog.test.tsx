@@ -61,7 +61,7 @@ describe("SettingsDialog", () => {
 
   it("各控件显示当前设置的值", () => {
     useSettings.setState({
-      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch", checkUpdates: true, compareColumns: 3, compareSyncOnEnter: false, compareBackground: "dark" },
+      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch", checkUpdates: true, compareColumns: 3, compareSyncOnEnter: false, compareBackground: "dark", showKeyHints: false },
     });
     render(<SettingsDialog />);
     expect(control("settings.theme").value).toBe("light");
@@ -72,6 +72,7 @@ describe("SettingsDialog", () => {
     expect(control("settings.wheel").value).toBe("switch");
     expect(control("settings.compareColumns").value).toBe("3");
     expect(control("settings.compareSyncOnEnter").checked).toBe(false);
+    expect(control("settings.showKeyHints").checked).toBe(false);
   });
 
   it("改主题下拉框调用 updateSettings({ theme: 'light' })", () => {
@@ -135,5 +136,14 @@ describe("SettingsDialog", () => {
     render(<SettingsDialog />);
     fireEvent.click(control("settings.compareSyncOnEnter"));
     expect(updateSettings).toHaveBeenCalledWith({ compareSyncOnEnter: false });
+  });
+
+  it("勾掉“显示快捷键提示”保存 showKeyHints: false", () => {
+    render(<SettingsDialog />);
+    const box = control("settings.showKeyHints");
+    expect(box.type).toBe("checkbox");
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect(updateSettings).toHaveBeenCalledWith({ showKeyHints: false });
   });
 });

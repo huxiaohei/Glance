@@ -60,6 +60,7 @@ describe("settings store", () => {
       compareColumns: 4,
       compareSyncOnEnter: true,
       compareBackground: "dark",
+      showKeyHints: true,
     });
   });
 
