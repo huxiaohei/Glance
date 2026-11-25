@@ -133,6 +133,25 @@ describe("zoomAtCell", () => {
     expect(zoomAtCell(vp, 2, { img: small, box, px: 100, py: 150 }, [{ img: small, box }])).toEqual(vp);
   });
 
+  it("锚点格在某方向居中时，该方向的共享坐标不被拉回 0.5", () => {
+    const vp = rel(2, 0.5, 0.2);
+    const r = zoomAtCell(vp, 1.05, { img: wide, box, px: 100, py: 150 }, cells);
+    expect(r.scale.kind).toBe("rel");
+    expect(r.u).toBeCloseTo(0.5);
+    expect(r.v).toBeCloseTo(0.2);
+  });
+
+  it("结果的 u,v 夹在 [0,1]", () => {
+    const r = zoomAtCell(px(1), 0.1, { img: tall, box: { w: 1000, h: 1500 }, px: 20, py: 30 }, [
+      { img: tall, box: { w: 1000, h: 1500 } },
+    ]);
+    expect(r.scale).toEqual({ kind: "rel", k: 1 });
+    for (const n of [r.u, r.v]) {
+      expect(n).toBeGreaterThanOrEqual(0);
+      expect(n).toBeLessThanOrEqual(1);
+    }
+  });
+
   it("cells 为空时只以锚点格为准", () => {
     const r = zoomAtCell(rel(70), 2, { img: tall, box, px: 100, py: 150 }, []);
     expect(r.scale).toEqual({ kind: "rel", k: 80 });

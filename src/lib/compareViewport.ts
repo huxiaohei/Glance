@@ -50,6 +50,8 @@ function nextScale(scale: CompareScale, f: number, cells: { img: Size; box: Size
   return { kind: "px", s };
 }
 
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+
 function sameScale(a: CompareScale, b: CompareScale): boolean {
   if (a.kind === "rel" && b.kind === "rel") return Math.abs(a.k - b.k) < EPS;
   if (a.kind === "px" && b.kind === "px") return Math.abs(a.s - b.s) < EPS;
@@ -60,6 +62,7 @@ function sameScale(a: CompareScale, b: CompareScale): boolean {
  *  上限：所有格 cellScale 都不超过 MAX_SCALE（以最先触顶的格为准）。
  *  下限：rel 下 k 不小于 1；px 下若所有格都已不大于各自 fit，转成 rel k=1。
  *  转成 rel k=1 时保留的是按锚点换算后的 (u,v)（以转换前的 px 倍率算）。
+ *  结果的 u,v 夹到 [0,1]。
  *  cells 应包含锚点格；为空时只以锚点格为准。倍率没有变化时原样返回 vp。 */
 export function zoomAtCell(
   vp: CompareViewport,
@@ -74,9 +77,14 @@ export function zoomAtCell(
   if (sameScale(next, vp.scale)) return vp;
   if (!(img.w > 0) || !(img.h > 0)) return withScale(vp, next);
 
+  // 求锚点下的图点：图大于格的方向用夹取后的位置（所见即所得）；图不大于格的方向
+  // 用未夹的位置（由 vp 的 u,v 求），否则居中会把共享的 u/v 拉回 0.5，其他格跟着跳。
   const before = cellTransform(vp, img, box);
-  const ix = (px - before.x) / before.scale;
-  const iy = (py - before.y) / before.scale;
+  const s0 = before.scale;
+  const bx = img.w * s0 > box.w + EPS ? before.x : box.w / 2 - vp.u * img.w * s0;
+  const by = img.h * s0 > box.h + EPS ? before.y : box.h / 2 - vp.v * img.h * s0;
+  const ix = (px - bx) / s0;
+  const iy = (py - by) / s0;
   // px → rel k=1 时用转换前的 px 倍率求锚点，保证 (u,v) 是“缩放后”的值。
   const s =
     next.kind === "rel" && vp.scale.kind === "px"
@@ -84,12 +92,10 @@ export function zoomAtCell(
       : cellScale(withScale(vp, next), img, box);
   return {
     scale: next,
-    u: ix / img.w - (px - box.w / 2) / (s * img.w),
-    v: iy / img.h - (py - box.h / 2) / (s * img.h),
+    u: clamp01(ix / img.w - (px - box.w / 2) / (s * img.w)),
+    v: clamp01(iy / img.h - (py - box.h / 2) / (s * img.h)),
   };
 }
-
-const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
 /** 在某格里拖动 (dx,dy) 屏幕像素：按该格实际倍率换成 Δu、Δv；u,v 夹到 [0,1]。 */
 export function panInCell(vp: CompareViewport, dx: number, dy: number, img: Size, box: Size): CompareViewport {
