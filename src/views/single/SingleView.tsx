@@ -11,6 +11,7 @@ import { useEditUi } from "../../stores/editUi";
 import { useNav } from "../../stores/nav";
 import { useRename } from "../../stores/rename";
 import { useSingleUi } from "../../stores/singleUi";
+import EditPanel from "../edit/EditPanel";
 import DetailsPanel from "./DetailsPanel";
 import Filmstrip from "./Filmstrip";
 import StageBasketButton from "./StageBasketButton";
@@ -156,6 +157,7 @@ export default function SingleView() {
       {id !== null && <Filmstrip list={list} current={id} />}
         </div>
         {id !== null && infoOpen && <DetailsPanel id={id} />}
+        {id !== null && editing && <EditPanel />}
       </div>
       {id !== null && <InfoBar id={id} />}
       <Hint />

@@ -4,6 +4,8 @@ export interface PreviewSchedulerOpts {
   /** 发一次预览请求；被取代或会话已关时为 null。 */
   run(rev: number, full: boolean): Promise<PreviewResult | null>;
   onResult(r: PreviewResult): void;
+  /** 最新一次请求失败（错误码原样交出）；被更新的请求取代的失败不报。 */
+  onError?(err: unknown): void;
   delayMs?: number;
 }
 
@@ -20,13 +22,17 @@ export function createPreviewScheduler(opts: PreviewSchedulerOpts): { change(): 
 
   const send = (full: boolean) => {
     rev += 1;
-    opts.run(rev, full).then(
+    const mine = rev;
+    opts.run(mine, full).then(
       (r) => {
         if (disposed || r === null || r.rev < shown) return;
         shown = r.rev;
         opts.onResult(r);
       },
-      () => {},
+      (err) => {
+        if (disposed || mine !== rev) return;
+        opts.onError?.(err);
+      },
     );
   };
 

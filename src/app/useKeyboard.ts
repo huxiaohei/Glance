@@ -4,6 +4,7 @@ import { activeView, findCommand } from "./commands";
 import { useSettings } from "../stores/settings";
 import { useTip } from "../stores/tip";
 import { isPromptOpen } from "../views/common/NamePrompt";
+import { closeConfirmOverwrite, isConfirmOverwriteOpen } from "../stores/confirmOverwrite";
 import { IS_MAC } from "./keys";
 
 export const useHelp = create<{ open: boolean }>(() => ({ open: false }));
@@ -15,7 +16,7 @@ function isInInput(target: EventTarget | null): boolean {
 }
 
 /**
- * window 上的 keydown 处理。优先级：名字对话框 > 打赏面板 > 设置对话框 > 快捷键一览。
+ * window 上的 keydown 处理。优先级：名字对话框 > 覆盖确认 > 打赏面板 > 设置对话框 > 快捷键一览。
  * 设置对话框打开时只响应 Esc 与 app.settings（都是关闭它），其余按键不执行命令、原样放过
  * （下拉框里的方向键、空格、Tab 照常可用）。
  * 快捷键一览打开时只响应 help.shortcuts 与 Esc，其余全部拦下。
@@ -26,6 +27,12 @@ export function handleKeyDown(e: KeyboardEvent): void {
   if (e.isComposing || e.key === "Process") return;
   // 名称输入框打开时不执行任何命令，也不拦默认行为（输入框里照常打字、复制粘贴）
   if (isPromptOpen()) return;
+  // 覆盖确认打开时只响应 Esc（关闭它）；回车、空格留给聚焦的按钮，Tab 留给焦点陷阱，其余拦下
+  if (isConfirmOverwriteOpen()) {
+    if (e.key === "Escape") closeConfirmOverwrite();
+    if (e.key !== "Tab" && e.key !== "Enter" && e.key !== " ") e.preventDefault();
+    return;
+  }
   const inInput = isInInput(e.target);
   const view = activeView();
   // 打赏面板打开时只响应 Esc，其余按键全部拦下（Tab 留给焦点陷阱）

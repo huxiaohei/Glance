@@ -10,6 +10,7 @@
   /* 对比篮的琥珀色角标与按钮（两种主题同值；on-basket 是琥珀底上的字色） */
   --basket: #F5A623;
   --on-basket: #1E1E1E;
+  --on-accent: #FFFFFF;
   /* 对比视图图片区的三种背景（与主题无关，三组同值） */
   --compare-dark: #141414;
   --compare-light: #F2F2F2;
@@ -38,6 +39,7 @@
   --danger: #D1242F;
   --basket: #F5A623;
   --on-basket: #1E1E1E;
+  --on-accent: #FFFFFF;
   --compare-dark: #141414;
   --compare-light: #F2F2F2;
   --checker-a: #C8C8C8;
@@ -61,6 +63,7 @@
     --danger: #D1242F;
     --basket: #F5A623;
     --on-basket: #1E1E1E;
+    --on-accent: #FFFFFF;
     --compare-dark: #141414;
     --compare-light: #F2F2F2;
     --checker-a: #C8C8C8;

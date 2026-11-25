@@ -55,3 +55,6 @@
   padding: 0 calc(1.5 * var(--gap));
   background: transparent;
 }
+.settings-radios { display: flex; gap: var(--gap); }
+.settings-radio { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.settings-radio input { margin: 0; accent-color: var(--accent); }

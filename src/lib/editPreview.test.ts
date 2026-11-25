@@ -71,4 +71,20 @@ describe("createPreviewScheduler", () => {
     expect(run).toHaveBeenCalledTimes(1);
     expect(onResult).not.toHaveBeenCalled();
   });
+
+  it("reports_error_of_latest_request_only", async () => {
+    const run = vi.fn(async (rev: number) => {
+      throw rev === 1 ? "old" : "encode";
+    });
+    const onResult = vi.fn();
+    const onError = vi.fn();
+    const s = createPreviewScheduler({ run, onResult, onError });
+    s.change(); // rev 1（代理）
+    s.change(); // rev 2（代理），rev 1 的失败已被取代
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onError.mock.calls).toEqual([["encode"]]);
+    s.dispose();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
 });

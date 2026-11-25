@@ -16,6 +16,10 @@ export interface EditUiState {
   resultUrl: string | null;
   showOriginal: boolean;
   error: string | null;
+  /** 最新一次预览失败的错误码；下一次成功的预览清掉 */
+  previewError: string | null;
+  /** 保存失败的原因（已翻译）；改参数、换页或再次保存时清掉 */
+  saveError: string | null;
   open(id: FileId): Promise<void>;
   close(): void;
   setTab(t: EditTab): void;
@@ -33,14 +37,23 @@ export function editActive(): boolean {
   return useEditUi.getState().status !== "idle";
 }
 
+/** 源格式不支持压缩（GIF / BMP）且当前在压缩页：不能保存。 */
+export function compressUnsupported(s: Pick<EditUiState, "tab" | "opened">): boolean {
+  const f = s.opened?.srcFormat;
+  return s.tab === "compress" && (f === "gif" || f === "bmp");
+}
+
+/** 质量夹到后端接受的 1..=100（PNG 目标时滑块禁用，仍须带一个有效值）。 */
+const clampQuality = (q: number) => (Number.isFinite(q) ? Math.min(100, Math.max(1, Math.round(q))) : 85);
+
 /** 由当前页与记忆参数拼出发给后端的参数。 */
 export function currentParams(s: Pick<EditUiState, "tab" | "compress" | "convert">): EditParams {
   if (s.tab === "compress") {
     const c = s.compress;
-    return { op: "compress", quality: c.quality, maxEdge: c.maxEdgeOn ? c.maxEdge : null, pngMode: c.pngMode };
+    return { op: "compress", quality: clampQuality(c.quality), maxEdge: c.maxEdgeOn ? c.maxEdge : null, pngMode: c.pngMode };
   }
   const v = s.convert;
-  return { op: "convert", format: v.format, quality: v.quality, fill: v.fill };
+  return { op: "convert", format: v.format, quality: clampQuality(v.quality), fill: v.fill };
 }
 
 const idle = {
@@ -50,6 +63,8 @@ const idle = {
   result: null,
   resultUrl: null,
   showOriginal: false,
+  previewError: null,
+  saveError: null,
 };
 
 let scheduler: ReturnType<typeof createPreviewScheduler> | null = null;
@@ -105,7 +120,11 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
       run: (rev, full) => editPreview(session, rev, currentParams(get()), full),
       onResult: (r) => {
         if (get().opened?.session !== session) return;
-        set({ result: r, resultUrl: editResultUrl(session, r.rev) });
+        set({ result: r, resultUrl: editResultUrl(session, r.rev), previewError: null });
+      },
+      onError: (err) => {
+        if (get().opened?.session !== session) return;
+        set({ previewError: typeof err === "string" ? err : "encode" });
       },
     });
     scheduler.change();
@@ -125,13 +144,13 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
 
   setTab(tab) {
     if (get().tab === tab) return;
-    set({ tab });
+    set({ tab, saveError: null });
     scheduler?.change();
   },
 
   patch(tab, partial) {
-    if (tab === "compress") set((s) => ({ compress: { ...s.compress, ...partial } }));
-    else set((s) => ({ convert: { ...s.convert, ...partial } }));
+    if (tab === "compress") set((s) => ({ compress: { ...s.compress, ...partial }, saveError: null }));
+    else set((s) => ({ convert: { ...s.convert, ...partial }, saveError: null }));
     if (get().tab === tab) scheduler?.change();
   },
 

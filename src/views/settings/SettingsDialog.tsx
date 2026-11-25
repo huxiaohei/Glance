@@ -57,6 +57,33 @@ function Select<K extends "theme" | "language" | "defaultSort" | "wheel">({
   );
 }
 
+/** 编辑面板的默认保存方式：保存副本 / 覆盖原图（文字与面板按钮共用）。 */
+function EditSaveMode() {
+  const value = useSettings((s) => s.settings.editSaveMode);
+  const options: ["copy" | "overwrite", MessageKey][] = [
+    ["copy", "edit.save.copy"],
+    ["overwrite", "edit.save.overwrite"],
+  ];
+  return (
+    <div className="settings-row">
+      <span id="settings-edit-save-mode">{t("settings.editSaveMode")}</span>
+      <div className="settings-radios" role="radiogroup" aria-labelledby="settings-edit-save-mode">
+        {options.map(([v, label]) => (
+          <label key={v} className="settings-radio">
+            <input
+              type="radio"
+              name="settings-edit-save-mode"
+              checked={value === v}
+              onChange={() => updateSettings({ editSaveMode: v })}
+            />
+            {t(label)}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ColumnsSelect() {
   const value = useSettings((s) => s.settings.compareColumns);
   return (
@@ -133,6 +160,10 @@ export default function SettingsDialog() {
           <h3 className="settings-cat">{t("settings.group.compare")}</h3>
           <ColumnsSelect />
           <Check id="settings-compare-sync" label="settings.compareSyncOnEnter" field="compareSyncOnEnter" />
+        </section>
+        <section className="settings-group">
+          <h3 className="settings-cat">{t("settings.group.edit")}</h3>
+          <EditSaveMode />
         </section>
         <section className="settings-group">
           <h3 className="settings-cat">{t("settings.group.update")}</h3>

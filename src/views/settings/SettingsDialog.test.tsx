@@ -146,4 +146,18 @@ describe("SettingsDialog", () => {
     fireEvent.click(box);
     expect(updateSettings).toHaveBeenCalledWith({ showKeyHints: false });
   });
+
+  it("edit_save_mode_option_persists", () => {
+    render(<SettingsDialog />);
+    const group = screen.getByRole("radiogroup", { name: t("settings.editSaveMode") });
+    const copy = screen.getByRole("radio", { name: t("edit.save.copy") }) as HTMLInputElement;
+    const over = screen.getByRole("radio", { name: t("edit.save.overwrite") }) as HTMLInputElement;
+    expect(group.contains(copy)).toBe(true);
+    expect(copy.checked).toBe(true);
+    expect(over.checked).toBe(false);
+    fireEvent.click(over);
+    expect(updateSettings).toHaveBeenCalledWith({ editSaveMode: "overwrite" });
+    act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS, editSaveMode: "overwrite" } }));
+    expect(over.checked).toBe(true);
+  });
 });

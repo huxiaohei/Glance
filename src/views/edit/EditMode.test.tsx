@@ -129,6 +129,8 @@ describe("编辑模式", () => {
     expect(activeView()).toBe("edit");
     // 结果图层出现在画面里
     expect(container.querySelector(".stage .edit-layer")).toBeTruthy();
+    // 右侧出现编辑面板
+    expect(container.querySelector(".single-middle .edit-panel")).toBeTruthy();
     // 顶栏有“编辑”按钮
     expect(container.querySelector(".topbar-edit")).toBeTruthy();
   });
@@ -199,6 +201,7 @@ describe("编辑模式", () => {
     key("Escape");
     expect(saveEdit).not.toHaveBeenCalled();
     expect(editClose).toHaveBeenCalledWith(1);
+    expect(document.querySelector(".edit-panel")).toBeNull();
     expect(useEditUi.getState().status).toBe("idle");
     // 只退出编辑，仍在单张视图
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
