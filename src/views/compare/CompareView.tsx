@@ -12,7 +12,7 @@ import { useSettings } from "../../stores/settings";
 import { showToast } from "../../stores/toast";
 import CompareCell from "./CompareCell";
 import CompareTopBar from "./CompareTopBar";
-import { removeFromCompare } from "./compareActions";
+import { backIfEmpty, refocusAfterRemoval, removeFromCompare } from "./compareActions";
 import { useCompareImages } from "./useCompareImages";
 import { useCompareViewport, type CompareLayout } from "./useCompareViewport";
 import "./compare.css";
@@ -127,6 +127,17 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
     return { box, sizes, missing };
   }, [present, items, box, missing]);
   useCompareViewport(scroller, layout);
+
+  // 篮子在别处变了（对比篮来源的单张视图里按空格移出）：焦点那张不在了就按移出规则补位
+  const prevOrder = useRef(order);
+  useEffect(() => {
+    refocusAfterRemoval(prevOrder.current, order);
+    prevOrder.current = order;
+  }, [order]);
+  // 单张视图里把篮子移空后它会退回到这里：对比视图随之退回进入前的视图
+  useEffect(() => {
+    if (!hidden) backIfEmpty();
+  }, [hidden, order.length]);
 
   // 焦点格（键盘移动、单击、移出后补位）滚进视口
   useEffect(() => {

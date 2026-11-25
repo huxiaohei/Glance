@@ -118,6 +118,29 @@ describe("basket store", () => {
     useBasket.getState().restore(snap2);
     expect(useBasket.getState().missing.has(1)).toBe(true);
   });
+  it("撤销清空不吞掉清空后新加的图：放回原位置，新加的保留", () => {
+    load([1, 2, 3, 4]);
+    useBasket.getState().toggle([1, 2, 3]);
+    const snap = useBasket.getState().clear();
+    useBasket.getState().toggle([4]);
+    useBasket.getState().restore(snap);
+    const s = useBasket.getState();
+    expect(s.order).toEqual([1, 2, 3, 4]);
+    expect([...s.items.keys()].sort()).toEqual([1, 2, 3, 4]);
+  });
+  it("撤销移出只放回被移出的，按旧位置插进当前顺序", () => {
+    load([1, 2, 3, 4, 5]);
+    useBasket.getState().toggle([1, 2, 3]);
+    const snap = useBasket.getState().remove([2]);
+    useBasket.getState().toggle([3]);
+    useBasket.getState().toggle([5]);
+    useBasket.getState().restore(snap);
+    const s = useBasket.getState();
+    // 3 是撤销前另外移出的（不是这次移出的），不放回；2 回到旧下标 1，5 保留
+    expect(s.order).toEqual([1, 2, 5]);
+    expect(s.items.has(3)).toBe(false);
+    expect(s.items.has(2)).toBe(true);
+  });
   it("刷新同一目录：消失的条目在 done 时才标缺失", () => {
     load([1, 2]);
     useBasket.getState().toggle([1, 2]);

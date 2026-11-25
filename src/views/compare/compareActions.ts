@@ -9,7 +9,7 @@ import { showToast } from "../../stores/toast";
 import { compareLayout, flushCompareViewport, layoutCells } from "./useCompareViewport";
 
 /** 篮子被移空 / 清空时退回进入前的视图（只在对比视图在栈顶时）。 */
-function backIfEmpty(): void {
+export function backIfEmpty(): void {
   if (useBasket.getState().order.length === 0 && topView().kind === "compare") useNav.getState().back();
 }
 
@@ -24,16 +24,8 @@ export function removeFromCompare(ids: readonly FileId[]): void {
   const after = useBasket.getState().order;
   if (after === before) return;
 
-  const ui = useCompareUi.getState();
-  const oldFocus = ui.focus;
-  if (oldFocus !== null && gone.has(oldFocus)) {
-    // 原位置之后第一张没被移出的，没有则之前最后一张
-    const i = before.indexOf(oldFocus);
-    const next = before.slice(i + 1).find((id) => !gone.has(id))
-      ?? before.slice(0, i).reverse().find((id) => !gone.has(id))
-      ?? null;
-    ui.setFocus(next);
-  }
+  const oldFocus = useCompareUi.getState().focus;
+  if (oldFocus !== null && gone.has(oldFocus)) refocusAfterRemoval(before, after);
   backIfEmpty();
   showToast({
     text: t("compare.removed"),
@@ -52,7 +44,24 @@ export function removeFromCompare(ids: readonly FileId[]): void {
   });
 }
 
-/** 清空对比篮并退回进入前的视图；提示条带撤销，撤销恢复整个篮子（不重新进入对比）。 */
+/**
+ * 篮子从 before 变成 after 后，焦点若已不在 after 里：落到它在 before 里之后第一张还在的，
+ * 没有则之前最后一张还在的（不在 before 里时落第一张）。对比视图里移出与在单张视图里移出共用。
+ */
+export function refocusAfterRemoval(before: readonly FileId[], after: readonly FileId[]): void {
+  const ui = useCompareUi.getState();
+  const focus = ui.focus;
+  if (focus === null) return;
+  const keep = new Set(after);
+  if (keep.has(focus)) return;
+  const i = before.indexOf(focus);
+  const next = i < 0
+    ? after[0]
+    : before.slice(i + 1).find((id) => keep.has(id)) ?? before.slice(0, i).reverse().find((id) => keep.has(id));
+  ui.setFocus(next ?? null);
+}
+
+/** 清空对比篮并退回进入前的视图；提示条带撤销，撤销把清掉的图放回原位置（其后新加的保留，不重新进入对比）。 */
 export function clearCompare(): void {
   const snap = useBasket.getState().clear();
   if (snap.order.length === 0) return;

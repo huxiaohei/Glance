@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findCommand } from "../../app/commands";
 import { setLanguage } from "../../i18n";
@@ -142,6 +143,19 @@ describe("对比视图命令", () => {
     useCompareUi.setState({ focus: 5 });
     expect(press("Enter").id).toBe("compare.open");
     expect(topView()).toEqual({ kind: "single", source: "basket", id: 5 });
+  });
+
+  it("键盘焦点在按钮（顶栏按钮、格上的移出按钮）上时 Enter 不当打开，留给按钮自己", () => {
+    const btn = document.createElement("button");
+    document.body.appendChild(btn);
+    try {
+      btn.focus();
+      expect(findCommand(key("Enter"), "compare", false, true)).toBeNull();
+      btn.blur();
+      expect(findCommand(key("Enter"), "compare", false, true)?.id).toBe("compare.open");
+    } finally {
+      btn.remove();
+    }
   });
 
   it("缺失的焦点格按 Enter 不打开", () => {

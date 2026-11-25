@@ -114,4 +114,11 @@ describe("ThumbCell 对比篮", () => {
     expect(useSelection.getState().ids.size).toBe(0);
     expect(btn.textContent).toBe(t("basket.remove"));
   });
+
+  it("按下悬停按钮不抢键盘焦点（否则之后的空格会再次点它）", () => {
+    const { container } = render(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);
+    const btn = container.querySelector<HTMLButtonElement>(".thumb-basket-btn")!;
+    // fireEvent 返回 false 表示默认行为被拦下
+    expect(fireEvent.mouseDown(btn, { button: 0 })).toBe(false);
+  });
 });

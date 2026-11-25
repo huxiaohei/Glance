@@ -7,6 +7,7 @@ import { appVersion, basketCheck, onOpenRequest, takeOpenRequest, thumbsSubscrib
 import { switchStats } from "../../lib/perfMarks";
 import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
+import { useCompareUi } from "../../stores/compareUi";
 import { useListView } from "../../stores/listView";
 import { topView, useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
@@ -446,7 +447,7 @@ describe("对比篮来源的单张视图", () => {
     expect(c.querySelector(".info-index")?.textContent).toBe("3 / 3");
   });
 
-  it("移出当前图后跳到下一张，最后一张移出后跳上一张，全空后栈顶不再是 single", () => {
+  it("移出当前图后跳到下一张，最后一张移出后跳上一张，全空后单张与对比都退回网格", () => {
     setupBasket();
     act(() => void useBasket.getState().remove([2]));
     expect(current()).toBe(4);
@@ -455,7 +456,20 @@ describe("对比篮来源的单张视图", () => {
     expect(current()).toBe(4);
     act(() => void useBasket.getState().remove([4]));
     expect(topView().kind).not.toBe("single");
+    // 篮子空了：单张退回对比，对比随即也退回进入前的网格
+    expect(topView()).toEqual({ kind: "grid" });
+  });
+
+  it("空格移出对比焦点那张，Esc 回到对比后焦点落到后一张", () => {
+    const c = setupBasket();
+    act(() => useCompareUi.getState().setFocus(2));
+    key(" ");
+    expect(useBasket.getState().order).toEqual([4, 5]);
+    expect(current()).toBe(4);
+    key("Escape");
     expect(topView()).toEqual({ kind: "compare" });
+    expect(useCompareUi.getState().focus).toBe(4);
+    expect(c.querySelector('.compare-cell[data-id="4"]')?.classList.contains("is-focus")).toBe(true);
   });
 
   it("当前图在篮里被标为缺失时同样跳走", () => {

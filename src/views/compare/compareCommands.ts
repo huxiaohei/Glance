@@ -13,6 +13,13 @@ import {
 
 const ZOOM_STEP = 1.25;
 
+/** 键盘焦点不在按钮 / 输入控件上。 */
+function noControlFocused(): boolean {
+  if (typeof document === "undefined") return true;
+  const el = document.activeElement;
+  return !(el instanceof HTMLElement && /^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
+}
+
 /** 忽略按住不放的自动重复（Esc、移出、打开、切换类命令）。 */
 const once = (fn: () => void): Command["run"] => ({ repeat }) => {
   if (!repeat) fn();
@@ -25,7 +32,8 @@ const compareCommands: Command[] = [
   { id: "compare.focusRight", title: "cmd.compare.focusRight", category: "cmd.cat.compare", keys: ["ArrowRight"], views: ["compare"], run: () => moveFocus(1) },
   { id: "compare.focusUp", title: "cmd.compare.focusUp", category: "cmd.cat.compare", keys: ["ArrowUp"], views: ["compare"], run: () => moveFocus(-compareColumns()) },
   { id: "compare.focusDown", title: "cmd.compare.focusDown", category: "cmd.cat.compare", keys: ["ArrowDown"], views: ["compare"], run: () => moveFocus(compareColumns()) },
-  { id: "compare.open", title: "cmd.compare.open", category: "cmd.cat.compare", keys: ["Enter"], views: ["compare"], run: once(openFocused) },
+  // 键盘焦点在按钮、开关、下拉框上时 Enter 归那个控件（不拦默认行为）
+  { id: "compare.open", title: "cmd.compare.open", category: "cmd.cat.compare", keys: ["Enter"], views: ["compare"], when: noControlFocused, run: once(openFocused) },
   // Delete 在对比视图里只表示移出，不删文件
   { id: "compare.remove", title: "cmd.compare.remove", category: "cmd.cat.compare", keys: ["Delete", "Backspace"], views: ["compare"], run: once(removeFocused) },
   { id: "compare.zoomIn", title: "cmd.compare.zoomIn", category: "cmd.cat.compare", keys: ["+", "="], views: ["compare"], run: () => zoomFocused(ZOOM_STEP) },

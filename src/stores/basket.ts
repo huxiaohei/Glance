@@ -8,7 +8,8 @@ import { showToast } from "./toast";
 
 export const BASKET_SOFT_LIMIT = 100;
 
-export interface BasketSnapshot { order: FileId[]; items: Map<FileId, BasketItem>; missing: Set<FileId> }
+/** 移出 / 清空前的篮子，removed 是这一次真正移出的 id（撤销只放回它们）。 */
+export interface BasketSnapshot { order: FileId[]; items: Map<FileId, BasketItem>; missing: Set<FileId>; removed: FileId[] }
 
 export interface BasketState {
   order: FileId[];
@@ -60,9 +61,10 @@ export const useBasket: UseBoundStore<StoreApi<BasketState>> = create<BasketStat
     }),
 
   remove: (ids) => {
-    const before: BasketSnapshot = { order: get().order, items: get().items, missing: get().missing };
+    const { order, items, missing } = get();
+    const gone = new Set(ids);
+    const before: BasketSnapshot = { order, items, missing, removed: order.filter((id) => gone.has(id)) };
     set((s) => {
-      const gone = new Set(ids);
       if (!s.order.some((id) => gone.has(id))) return s;
       const items = new Map(s.items);
       const missing = new Set(s.missing);
@@ -72,15 +74,27 @@ export const useBasket: UseBoundStore<StoreApi<BasketState>> = create<BasketStat
     return before;
   },
 
+  // 撤销：把这次移出的放回各自原来的下标（按当前长度夹取），其后新加入的保留不动
   restore: (snap) =>
     set((s) => {
+      const back = snap.removed.filter((id) => !s.order.includes(id));
+      if (back.length === 0) return s;
+      const order = [...s.order];
+      const items = new Map(s.items);
       const missing = new Set(s.missing);
-      for (const id of snap.missing) missing.add(id);
-      return { order: [...snap.order], items: new Map(snap.items), missing };
+      for (const id of snap.order) {
+        if (!back.includes(id)) continue;
+        order.splice(Math.min(snap.order.indexOf(id), order.length), 0, id);
+        const it = snap.items.get(id);
+        if (it) items.set(id, it);
+        if (snap.missing.has(id)) missing.add(id);
+      }
+      return { order, items, missing };
     }),
 
   clear: () => {
-    const before: BasketSnapshot = { order: get().order, items: get().items, missing: get().missing };
+    const { order, items, missing } = get();
+    const before: BasketSnapshot = { order, items, missing, removed: order };
     set((s) => (s.order.length === 0 ? s : { order: [], items: new Map(), missing: new Set() }));
     return before;
   },

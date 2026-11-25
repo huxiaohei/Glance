@@ -61,6 +61,8 @@ function onNameDoubleClick(e: MouseEvent<HTMLDivElement>): void {
 
 /** 悬停按钮：加入 / 移出对比。按下与点击都不外传：不开始拖拽或框选，也不改选中。 */
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+/** 指针按下不把焦点移到按钮上（否则空格会再次激活它）；点击照常触发。与 CompareButton 相同。 */
+const keepFocus = (e: { preventDefault(): void }) => e.preventDefault();
 
 /** 12px 字体下窄字符约 6.5px、全角约 13px：按窄字符单位估算每格预算。 */
 const nameBudget = (cell: number) => Math.max(8, Math.floor(cell / 6.5));
@@ -111,6 +113,7 @@ function ThumbCell({ entry, cell, selected, focused }: Props) {
           type="button"
           className="thumb-basket-btn"
           onPointerDown={stop}
+          onMouseDown={keepFocus}
           onDoubleClick={stop}
           onClick={(e) => {
             e.stopPropagation();

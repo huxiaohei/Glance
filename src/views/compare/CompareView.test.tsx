@@ -197,6 +197,47 @@ describe("CompareView", () => {
     expect(cells(container)).toHaveLength(3);
   });
 
+  describe("对比篮来源的单张视图里移出（模拟 SingleView：篮内移出后列表变化，空了就 back）", () => {
+    /** 与 App 相同：对比在栈里就挂着，其上有单张视图时隐藏。 */
+    function Host() {
+      const top = useNav((s) => s.stack[s.stack.length - 1].kind);
+      return <CompareView hidden={top !== "compare"} />;
+    }
+
+    it("移空篮子后单张视图退回，对比视图也随之退回进入前的视图", () => {
+      fill([ITEMS[0]]);
+      render(<Host />);
+      act(() => useNav.getState().openSingle(1, "basket"));
+      act(() => {
+        useBasket.getState().toggle([1]);
+        useNav.getState().back();
+      });
+      expect(useBasket.getState().order).toEqual([]);
+      expect(topView().kind).toBe("grid");
+    });
+
+    it("焦点那张被移出后回到对比：焦点落到后一张（没有则前一张）", () => {
+      const { container } = render(<Host />);
+      act(() => useCompareUi.getState().setFocus(2));
+      act(() => useNav.getState().openSingle(2, "basket"));
+      act(() => {
+        useBasket.getState().toggle([2]);
+        useNav.getState().setCurrent(3);
+      });
+      act(() => useNav.getState().back());
+      expect(useCompareUi.getState().focus).toBe(3);
+      expect(cell(container, 3).classList.contains("is-focus")).toBe(true);
+
+      act(() => useNav.getState().openSingle(3, "basket"));
+      act(() => {
+        useBasket.getState().toggle([3]);
+        useNav.getState().setCurrent(1);
+      });
+      act(() => useNav.getState().back());
+      expect(useCompareUi.getState().focus).toBe(1);
+    });
+  });
+
   it("量出图片区后每格按视口换算 transform（适应：整张放进 2:3 的格子）", () => {
     const descs = (["clientWidth", "clientHeight"] as const).map((p) => [p, Object.getOwnPropertyDescriptor(Element.prototype, p)!] as const);
     Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get: () => 200 });
