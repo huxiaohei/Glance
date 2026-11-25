@@ -35,6 +35,28 @@ describe("createPreviewScheduler", () => {
     s.dispose();
   });
 
+  it("delivers_intermediate_results_during_continuous_change", async () => {
+    // 拖动中：请求不断发出，回包按序到达但都比最新的请求旧，只要比已显示的新就交出去。
+    const pending = new Map<number, (r: PreviewResult | null) => void>();
+    const run = vi.fn((rev: number) => new Promise<PreviewResult | null>((r) => pending.set(rev, r)));
+    const shown: number[] = [];
+    const s = createPreviewScheduler({ run, onResult: (r) => shown.push(r.rev) });
+    s.change(); // rev 1
+    s.change(); // rev 2
+    pending.get(1)!(res(1));
+    await vi.advanceTimersByTimeAsync(0);
+    s.change(); // rev 3
+    s.change(); // rev 4
+    pending.get(2)!(null); // 未开始即被顶掉
+    pending.get(3)!(res(3));
+    await vi.advanceTimersByTimeAsync(0);
+    s.change(); // rev 5
+    pending.get(4)!(res(4));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(shown).toEqual([1, 3, 4]);
+    s.dispose();
+  });
+
   it("drops_stale_preview", async () => {
     const pending = new Map<number, (r: PreviewResult | null) => void>();
     const run = vi.fn((rev: number) => new Promise<PreviewResult | null>((r) => pending.set(rev, r)));

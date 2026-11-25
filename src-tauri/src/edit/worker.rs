@@ -1,5 +1,7 @@
-//! 预览工作线程的请求槽：只留最新一个请求，新请求覆盖旧的；被覆盖、算完已过时或会话已关的请求一律应答 `None`。
+//! 预览工作线程的请求槽：只留最新一个请求，新请求覆盖旧的；被覆盖而未开始、算完已过时或会话已关的请求应答 `None`。
 //! 版本号只进不退：比槽里或已提交的版本号小的请求立即应答 `None`，不顶掉更新的请求。
+//! 算完时即使槽里已有更新的请求，只要比已提交的新就照样提交并应答：拖动中画面能跟着动，
+//! 串行线程随后接着算槽里最新的那个。
 
 use std::panic::AssertUnwindSafe;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
@@ -92,12 +94,13 @@ impl Worker {
         }
     }
 
-    /// 线程主体：取请求、在锁外计算；算完时若槽里已有更新请求或已关闭，结果丢弃并应答 `None`，
-    /// 否则在锁内调用 `commit` 记下结果（与新请求的放入互斥）后应答。
+    /// 线程主体：取请求、在锁外计算；算完时若已关闭或比已提交的旧，结果丢弃并应答 `None`，
+    /// 否则在锁内调用 `commit` 记下结果（与新请求的放入互斥）后应答；槽里有更新的请求不妨碍提交。
+    /// `commit` 返回 `None` 表示这次结果在别处已过时（如另一条通道提交了更新的版本），不算已提交。
     pub fn run<T>(
         &self,
         compute: impl Fn(&Request) -> Result<T, EditError>,
-        commit: impl Fn(u32, T) -> PreviewResult,
+        commit: impl Fn(u32, T) -> Option<PreviewResult>,
     ) {
         loop {
             let req = {
@@ -116,15 +119,15 @@ impl Worker {
             let out = std::panic::catch_unwind(AssertUnwindSafe(|| compute(&req)))
                 .unwrap_or(Err(EditError::Encode));
             let mut slot = self.lock();
-            if slot.pending.is_some() || slot.closed || slot.is_stale(req.rev) {
+            if slot.closed || slot.committed.is_some_and(|c| req.rev < c) {
                 drop(slot);
                 req.answer(Ok(None));
                 continue;
             }
-            if out.is_ok() {
+            let answer = out.map(|t| commit(req.rev, t));
+            if let Ok(Some(_)) = answer {
                 slot.committed = Some(req.rev);
             }
-            let answer = out.map(|t| Some(commit(req.rev, t)));
             drop(slot);
             req.answer(answer);
         }
@@ -172,7 +175,7 @@ mod tests {
                         }
                         Ok(r.rev)
                     },
-                    |rev, _| result(rev),
+                    |rev, _| Some(result(rev)),
                 )
             })
         };
@@ -186,7 +189,8 @@ mod tests {
         w.submit(r3);
         assert_eq!(rx3.recv().unwrap(), Ok(None));
         gate.wait();
-        assert_eq!(rx1.recv().unwrap(), Ok(None));
+        // rev 1 比已提交的新：算完照样交出去（槽里的 rev 5 随后再算）。
+        assert_eq!(rx1.recv().unwrap().unwrap().unwrap().rev, 1);
         assert_eq!(rx5.recv().unwrap().unwrap().unwrap().rev, 5);
         // 已提交 rev 5 之后，更小的版本号同样不算。
         let (r4, rx4) = Request::new(4, params(), true);
@@ -196,6 +200,49 @@ mod tests {
         let (r5b, rx5b) = Request::new(5, params(), true);
         w.submit(r5b);
         assert_eq!(rx5b.recv().unwrap().unwrap().unwrap().rev, 5);
+        w.close();
+        t.join().unwrap();
+    }
+
+    /// 拖动中新请求不断到来：手头算完的结果只要比已提交的新，就提交并应答，画面能跟着动。
+    #[test]
+    fn intermediate_result_delivered_while_newer_pending() {
+        let w = Arc::new(Worker::default());
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let (started_tx, started) = std::sync::mpsc::channel();
+        let t = {
+            let (w, gate) = (w.clone(), gate.clone());
+            std::thread::spawn(move || {
+                w.run(
+                    |r: &Request| {
+                        if r.rev <= 2 {
+                            started_tx.send(r.rev).unwrap();
+                            gate.wait();
+                        }
+                        Ok(r.rev)
+                    },
+                    |rev, _| Some(result(rev)),
+                )
+            })
+        };
+        let (r1, rx1) = Request::new(1, params(), false);
+        w.submit(r1);
+        assert_eq!(started.recv().unwrap(), 1);
+        // rev 1 在算时 rev 2 到来；rev 1 算完仍交出去。
+        let (r2, rx2) = Request::new(2, params(), false);
+        w.submit(r2);
+        gate.wait();
+        assert_eq!(rx1.recv().unwrap().unwrap().unwrap().rev, 1);
+        // rev 2 在算时 rev 3、4 先后到来：3 未开始即被 4 顶掉，2 与 4 都交出去。
+        assert_eq!(started.recv().unwrap(), 2);
+        let (r3, rx3) = Request::new(3, params(), false);
+        w.submit(r3);
+        let (r4, rx4) = Request::new(4, params(), false);
+        w.submit(r4);
+        assert_eq!(rx3.recv().unwrap(), Ok(None));
+        gate.wait();
+        assert_eq!(rx2.recv().unwrap().unwrap().unwrap().rev, 2);
+        assert_eq!(rx4.recv().unwrap().unwrap().unwrap().rev, 4);
         w.close();
         t.join().unwrap();
     }
@@ -213,14 +260,7 @@ mod tests {
                         }
                         Ok(r.rev)
                     },
-                    |rev, _| PreviewResult {
-                        rev,
-                        bytes: 0,
-                        approx: false,
-                        format: OutFormat::Jpeg,
-                        width: 1,
-                        height: 1,
-                    },
+                    |rev, _| Some(result(rev)),
                 )
             })
         };

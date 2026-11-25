@@ -1,8 +1,9 @@
 //! 编辑会话：至多一个；持有原图与代理图的 RGBA、ICC、源格式，以及最近一份代理结果与全尺寸结果。
 
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use glance_imaging::{
     Decoded, EditParams, Encoded, ImagingError, OutFormat, RgbaView, SrcFormat, apply,
@@ -136,7 +137,6 @@ pub(crate) enum Computed {
         height: u32,
     },
     Full {
-        params: EditParams,
         enc: Arc<Encoded>,
     },
 }
@@ -147,7 +147,16 @@ struct Results {
     /// 最近提交的版本号，只进不退；`bytes` 只认它。
     latest: Option<u32>,
     proxy: Option<(u32, Arc<Encoded>)>,
-    full: Option<(u32, EditParams, Arc<Encoded>)>,
+    full: Option<(u32, Arc<Encoded>)>,
+}
+
+/// 全尺寸结果的缓存与进行中的计算：同参数的计算只做一次，后来者等它。
+#[derive(Default)]
+struct FullCache {
+    /// 最近算好的一份（不论是否提交），保存与同参数的请求复用。
+    last: Option<(EditParams, Arc<Encoded>)>,
+    /// 正在算的参数。
+    inflight: Vec<EditParams>,
 }
 
 pub(crate) struct Session {
@@ -161,9 +170,16 @@ pub(crate) struct Session {
     /// 拖动预览用的更小代理图，按长边上限各算一次。
     drag: Mutex<Vec<(u32, Arc<Decoded>)>>,
     results: Mutex<Results>,
-    worker: Worker,
+    full_cache: Mutex<FullCache>,
+    full_done: Condvar,
+    /// 两条通道各一条线程、各自只留最新请求：代理请求不排在耗时的全尺寸计算后面。
+    proxy_lane: Worker,
+    full_lane: Worker,
     #[cfg(test)]
     full_computes: AtomicU32,
+    /// 测试用：下一次全尺寸计算开始时调用一次（拦住计算）。
+    #[cfg(test)]
+    full_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Session {
@@ -184,27 +200,60 @@ impl Session {
         Ok(d)
     }
 
+    #[cfg(test)]
     fn cached_full(&self, params: &EditParams) -> Option<Arc<Encoded>> {
-        let r = lock(&self.results);
-        r.full
+        lock(&self.full_cache)
+            .last
             .as_ref()
-            .filter(|(_, p, _)| p == params)
-            .map(|(_, _, e)| e.clone())
+            .filter(|(p, _)| p == params)
+            .map(|(_, e)| e.clone())
     }
 
-    /// 全尺寸结果：参数与最近一份相同则复用，否则在原图上算（在调用方线程上）。
+    /// 全尺寸结果：参数与最近一份相同则复用；同参数正在算（全尺寸通道或另一次保存）则等它算完；
+    /// 否则在调用方线程上算。
     fn full(&self, params: &EditParams) -> Result<Arc<Encoded>, EditError> {
-        if let Some(e) = self.cached_full(params) {
-            return Ok(e);
+        let mut cache = lock(&self.full_cache);
+        loop {
+            if let Some((_, e)) = cache.last.as_ref().filter(|(p, _)| p == params) {
+                return Ok(e.clone());
+            }
+            if !cache.inflight.contains(params) {
+                break;
+            }
+            cache = self
+                .full_done
+                .wait(cache)
+                .unwrap_or_else(|e| e.into_inner());
         }
+        cache.inflight.push(params.clone());
+        drop(cache);
         #[cfg(test)]
-        self.full_computes.fetch_add(1, Ordering::Relaxed);
-        Ok(Arc::new(apply(
-            view(&self.orig),
-            self.src_format,
-            self.icc(),
-            params,
-        )?))
+        {
+            self.full_computes.fetch_add(1, Ordering::Relaxed);
+            let hook = lock(&self.full_hook).take();
+            if let Some(h) = hook {
+                h();
+            }
+        }
+        let out = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            apply(view(&self.orig), self.src_format, self.icc(), params)
+        }));
+        let mut cache = lock(&self.full_cache);
+        if let Some(i) = cache.inflight.iter().position(|p| p == params) {
+            cache.inflight.swap_remove(i);
+        }
+        let out = match out {
+            Ok(Ok(enc)) => {
+                let enc = Arc::new(enc);
+                cache.last = Some((params.clone(), enc.clone()));
+                Ok(enc)
+            }
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => Err(EditError::Encode),
+        };
+        // 失败时等待方醒来后找不到结果、也不在算，会自己再算一次。
+        self.full_done.notify_all();
+        out
     }
 
     /// 在缩小的代理图上算，体积按像素比例换算到全尺寸输出。
@@ -235,7 +284,6 @@ impl Session {
     fn compute(&self, req: &Request) -> Result<Computed, EditError> {
         if req.full {
             Ok(Computed::Full {
-                params: req.params.clone(),
                 enc: self.full(&req.params)?,
             })
         } else {
@@ -243,14 +291,15 @@ impl Session {
         }
     }
 
-    /// 记下结果。工作线程已保证版本号不倒退；这里再兜一层：比已记的版本号小时只应答、不记。
-    fn commit(&self, rev: u32, c: Computed) -> PreviewResult {
+    /// 记下结果。两条通道共用 `latest`，只进不退：比已提交的版本号小（另一条通道已提交了更新的）时
+    /// 不记、返回 `None`；相同版本号可以记（同一版本的全尺寸结果替下代理结果）。
+    fn commit(&self, rev: u32, c: Computed) -> Option<PreviewResult> {
         let mut r = lock(&self.results);
-        let keep = r.latest.is_none_or(|l| rev >= l);
-        if keep {
-            r.latest = Some(rev);
+        if r.latest.is_some_and(|l| rev < l) {
+            return None;
         }
-        match c {
+        r.latest = Some(rev);
+        Some(match c {
             Computed::Proxy {
                 enc,
                 bytes,
@@ -265,12 +314,10 @@ impl Session {
                     width,
                     height,
                 };
-                if keep {
-                    r.proxy = Some((rev, Arc::new(enc)));
-                }
+                r.proxy = Some((rev, Arc::new(enc)));
                 out
             }
-            Computed::Full { params, enc } => {
+            Computed::Full { enc } => {
                 let out = PreviewResult {
                     rev,
                     bytes: enc.bytes.len() as u64,
@@ -279,12 +326,23 @@ impl Session {
                     width: enc.width,
                     height: enc.height,
                 };
-                if keep {
-                    r.full = Some((rev, params, enc));
-                }
+                r.full = Some((rev, enc));
                 out
             }
+        })
+    }
+
+    fn lane(&self, full: bool) -> &Worker {
+        if full {
+            &self.full_lane
+        } else {
+            &self.proxy_lane
         }
+    }
+
+    fn close_lanes(&self) {
+        self.proxy_lane.close();
+        self.full_lane.close();
     }
 
     fn bytes(&self, rev: u32) -> Option<(Arc<Encoded>, &'static str)> {
@@ -293,7 +351,7 @@ impl Session {
             return None;
         }
         let enc = match (&r.full, &r.proxy) {
-            (Some((fr, _, e)), _) if *fr == rev => e,
+            (Some((fr, e)), _) if *fr == rev => e,
             (_, Some((pr, e))) if *pr == rev => e,
             _ => return None,
         };
@@ -355,7 +413,7 @@ impl EditState {
 
     fn take_current(&self) {
         if let Some(old) = lock(&self.current).take() {
-            old.worker.close();
+            old.close_lanes();
         }
     }
 
@@ -374,18 +432,31 @@ impl EditState {
             proxy: l.proxy,
             drag: Mutex::default(),
             results: Mutex::default(),
-            worker: Worker::default(),
+            full_cache: Mutex::default(),
+            full_done: Condvar::new(),
+            proxy_lane: Worker::default(),
+            full_lane: Worker::default(),
             #[cfg(test)]
             full_computes: AtomicU32::new(0),
+            #[cfg(test)]
+            full_hook: Mutex::default(),
         });
-        let s = session.clone();
-        std::thread::Builder::new()
-            .name(format!("glance-edit-{sid}"))
-            .spawn(move || {
-                s.worker
-                    .run(|req| s.compute(req), |rev, c| s.commit(rev, c))
-            })
-            .map_err(|_| EditError::Encode)?;
+        for full in [false, true] {
+            let s = session.clone();
+            let spawned = std::thread::Builder::new()
+                .name(format!(
+                    "glance-edit-{sid}-{}",
+                    if full { "full" } else { "proxy" }
+                ))
+                .spawn(move || {
+                    s.lane(full)
+                        .run(|req| s.compute(req), |rev, c| s.commit(rev, c))
+                });
+            if spawned.is_err() {
+                session.close_lanes();
+                return Err(EditError::Encode);
+            }
+        }
         let opened = EditOpened {
             session: sid,
             width: session.orig.width,
@@ -398,7 +469,7 @@ impl EditState {
         };
         // 并发打开时后到的为准，被替下的会话关闭。
         if let Some(old) = lock(&self.current).replace(session) {
-            old.worker.close();
+            old.close_lanes();
         }
         Ok(opened)
     }
@@ -413,7 +484,7 @@ impl EditState {
     ) -> Result<Receiver<Answer>, EditError> {
         let s = self.session(session)?;
         let (req, rx) = Request::new(rev, params, full);
-        s.worker.submit(req);
+        s.lane(full).submit(req);
         Ok(rx)
     }
 
@@ -430,7 +501,7 @@ impl EditState {
         if cur.as_ref().is_some_and(|s| s.id == session)
             && let Some(old) = cur.take()
         {
-            old.worker.close();
+            old.close_lanes();
         }
     }
 
@@ -446,11 +517,13 @@ impl EditState {
     }
 
     /// 最近一份全尺寸结果，参数相同才返回。
-    pub fn full_result_for(&self, session: u32, params: &EditParams) -> Option<Arc<Encoded>> {
+    #[cfg(test)]
+    fn full_result_for(&self, session: u32, params: &EditParams) -> Option<Arc<Encoded>> {
         self.session(session).ok()?.cached_full(params)
     }
 
-    /// 全尺寸结果：参数相同则复用，否则在调用方线程上算（不记入会话）。
+    /// 全尺寸结果：参数相同则复用；同参数正在算（如停手后的全尺寸预览）则等它；否则在调用方线程上算
+    /// （记作最近一份全尺寸结果，不提交版本）。调用方不得是主线程。
     pub fn compute_full(
         &self,
         session: u32,
@@ -468,6 +541,12 @@ impl EditState {
         lock(&self.current)
             .as_ref()
             .map_or(0, |s| s.full_computes.load(Ordering::Relaxed))
+    }
+    #[cfg(test)]
+    fn set_full_hook(&self, h: impl FnOnce() + Send + 'static) {
+        if let Some(s) = lock(&self.current).as_ref() {
+            *lock(&s.full_hook) = Some(Box::new(h));
+        }
     }
     #[cfg(test)]
     fn drag_proxy_count(&self) -> usize {
@@ -633,14 +712,20 @@ mod tests {
         let f = fx(3000, 1000);
         let st = EditState::default();
         let s = st.open(&f.reg, f.a).unwrap().session;
-        let rxs: Vec<_> = (1..=5u32)
+        let (started, gate) = block_full(&st);
+        let rx1 = st.submit(s, 1, jpeg(51), true).unwrap();
+        started.recv().unwrap();
+        let rxs: Vec<_> = (2..=5u32)
             .map(|rev| st.submit(s, rev, jpeg(50 + rev as u8), true).unwrap())
             .collect();
+        gate.wait();
+        // rev 1 已开始算：算完照样交出；2–4 未开始即被顶掉。
+        assert_eq!(rx1.recv().unwrap().unwrap().unwrap().rev, 1);
         let answers: Vec<_> = rxs.into_iter().map(|rx| rx.recv().unwrap()).collect();
-        for (i, a) in answers.iter().enumerate().take(4) {
-            assert_eq!(a, &Ok(None), "rev {}", i + 1);
+        for (i, a) in answers.iter().enumerate().take(3) {
+            assert_eq!(a, &Ok(None), "rev {}", i + 2);
         }
-        let last = answers[4].clone().unwrap().unwrap();
+        let last = answers[3].clone().unwrap().unwrap();
         assert_eq!(last.rev, 5);
         assert!(!last.approx);
         assert_eq!((last.width, last.height), (3000, 1000));
@@ -737,6 +822,62 @@ mod tests {
         let other = st.compute_full(s, &jpeg(20)).unwrap();
         assert_eq!(other.format, OutFormat::Jpeg);
         assert_eq!(st.full_computes(), 2);
+    }
+
+    /// 拦住下一次全尺寸计算：返回“已开始”信号与放行闸门。
+    fn block_full(st: &EditState) -> (Receiver<()>, Arc<std::sync::Barrier>) {
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let (tx, started) = std::sync::mpsc::channel();
+        let g = gate.clone();
+        st.set_full_hook(move || {
+            tx.send(()).unwrap();
+            g.wait();
+        });
+        (started, gate)
+    }
+
+    #[test]
+    fn proxy_answered_while_full_running() {
+        let f = fx(300, 100);
+        let st = Arc::new(EditState::default());
+        let s = st.open(&f.reg, f.a).unwrap().session;
+        let (started, gate) = block_full(&st);
+        let rx1 = st.submit(s, 1, jpeg(80), true).unwrap();
+        started.recv().unwrap();
+        // 全尺寸还在算：代理请求照样有应答。
+        let rx2 = st.submit(s, 2, jpeg(60), false).unwrap();
+        let r2 = rx2.recv_timeout(std::time::Duration::from_secs(5));
+        gate.wait();
+        let r2 = r2.expect("代理请求排在全尺寸后面").unwrap().unwrap();
+        assert_eq!(r2.rev, 2);
+        assert!(r2.approx);
+        // 全尺寸 rev 1 比已提交的代理 rev 2 旧：不提交，地址只认 rev 2。
+        assert_eq!(rx1.recv().unwrap(), Ok(None));
+        assert!(st.bytes(s, 1).is_none());
+        assert!(st.bytes(s, 2).is_some());
+    }
+
+    #[test]
+    fn save_waits_for_inflight_full() {
+        let f = fx(300, 100);
+        let st = Arc::new(EditState::default());
+        let s = st.open(&f.reg, f.a).unwrap().session;
+        let p = jpeg(77);
+        let (started, gate) = block_full(&st);
+        let rx1 = st.submit(s, 1, p.clone(), true).unwrap();
+        started.recv().unwrap();
+        // 同参数的保存：等进行中的那次，不另算。
+        let saver = {
+            let (st, p) = (st.clone(), p.clone());
+            std::thread::spawn(move || st.compute_full(s, &p).unwrap())
+        };
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        gate.wait();
+        let saved = saver.join().unwrap();
+        let r1 = rx1.recv().unwrap().unwrap().unwrap();
+        assert_eq!(saved.bytes.len() as u64, r1.bytes);
+        assert_eq!(st.full_computes(), 1);
+        assert!(Arc::ptr_eq(&saved, &st.bytes(s, 1).unwrap().0));
     }
 
     #[test]

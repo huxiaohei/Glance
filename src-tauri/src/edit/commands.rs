@@ -152,7 +152,7 @@ fn canonical_dir(dir: &Path) -> Result<PathBuf, FsError> {
     Ok(dir.to_path_buf())
 }
 
-/// 保存的主体：取全尺寸结果（参数相同则复用会话里的，否则现算）、按方式落盘、记撤销、投提示、登记新文件。
+/// 保存的主体：取全尺寸结果（参数相同则复用或等进行中的那次，否则现算）、按方式落盘、记撤销、投提示、登记新文件。
 /// 在调用方线程上编码与写文件，调用方不得是主线程。
 pub fn run_save(
     edit: &EditState,
@@ -170,10 +170,8 @@ pub fn run_save(
         SaveMode::Overwrite => SaveTarget::Overwrite,
         SaveMode::SaveAs { path } => SaveTarget::SaveAs(save_as_path(path)?),
     };
-    let enc = match edit.full_result_for(session, params) {
-        Some(enc) => enc,
-        None => edit.compute_full(session, params).map_err(fs_error)?,
-    };
+    // 参数相同的结果已有则复用，正在算则等它，都没有才现算。
+    let enc = edit.compute_full(session, params).map_err(fs_error)?;
     let (ext, suffix) = naming(&src, src_format, params, enc.format);
     let out = save_bytes(&src, &enc.bytes, &ext, suffix, &target)?;
     let token = undo.record(OpKind::Edit, out.steps);
