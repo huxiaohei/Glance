@@ -2,7 +2,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
-import { appVersion, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
+import { appVersion, basketRestore, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
 import { topView, useNav } from "../../stores/nav";
@@ -25,6 +25,7 @@ let restore: (() => void)[] = [];
 beforeEach(() => {
   vi.mocked(thumbsSubscribe).mockResolvedValue();
   vi.mocked(takeOpenRequest).mockResolvedValue(null);
+  vi.mocked(basketRestore).mockResolvedValue([]);
   vi.mocked(updateCheck).mockResolvedValue(null);
   vi.mocked(appVersion).mockResolvedValue("0.1.0");
   vi.mocked(onOpenRequest).mockResolvedValue(() => {});

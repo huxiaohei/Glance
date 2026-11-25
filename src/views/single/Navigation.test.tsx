@@ -3,7 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { t } from "../../i18n";
-import { appVersion, basketCheck, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
+import { appVersion, basketRestore, basketCheck, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
 import { switchStats } from "../../lib/perfMarks";
 import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
@@ -38,6 +38,7 @@ beforeEach(() => {
   decodes = [];
   vi.mocked(thumbsSubscribe).mockResolvedValue();
   vi.mocked(takeOpenRequest).mockResolvedValue(null);
+  vi.mocked(basketRestore).mockResolvedValue([]);
   vi.mocked(updateCheck).mockResolvedValue(null);
   vi.mocked(appVersion).mockResolvedValue("0.1.0");
   vi.mocked(onOpenRequest).mockResolvedValue(() => {});

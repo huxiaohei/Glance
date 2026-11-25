@@ -1,6 +1,6 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { t } from "../i18n";
-import type { BasketEntry, FileId } from "../ipc/types";
+import type { BasketEntry, FileId, RestoredItem } from "../ipc/types";
 import { fromBasketEntry, fromImageEntry, toggleMany, type BasketItem } from "../lib/basket";
 import type { ImageEntry } from "../lib/deriveList";
 import { useCatalog } from "./catalog";
@@ -16,6 +16,12 @@ export interface BasketState {
   items: Map<FileId, BasketItem>;
   missing: Set<FileId>;
   toggle(targets: FileId[]): void;
+  /** 与 toggle 同一规则，但快照取自参数（别的目录的图也能加入）；不记入 seen。 */
+  toggleItems(items: BasketItem[]): void;
+  move(id: FileId, to: number): void;
+  swap(a: FileId, b: FileId): void;
+  /** 启动恢复：恢复的按顺序排最前，已有的（去重后）接在后面。 */
+  hydrate(items: RestoredItem[]): void;
   remove(ids: FileId[]): BasketSnapshot;
   restore(snap: BasketSnapshot): void;
   clear(): BasketSnapshot;
@@ -35,6 +41,27 @@ function sameItem(a: BasketItem, b: BasketItem): boolean {
     && a.width === b.width && a.height === b.height;
 }
 
+function applyToggle(
+  s: BasketState,
+  targets: FileId[],
+  snapshot: (id: FileId) => BasketItem,
+): Partial<BasketState> | BasketState {
+  const r = toggleMany(s.order, targets);
+  if (r.added.length === 0 && r.removed.length === 0) return s;
+  const items = new Map(s.items);
+  for (const id of r.removed) items.delete(id);
+  for (const id of r.added) items.set(id, snapshot(id));
+  let missing = s.missing;
+  if (r.removed.some((id) => missing.has(id))) {
+    missing = new Set(missing);
+    for (const id of r.removed) missing.delete(id);
+  }
+  if (s.order.length <= BASKET_SOFT_LIMIT && r.order.length > BASKET_SOFT_LIMIT) {
+    showToast({ text: t("basket.tooMany") });
+  }
+  return { order: r.order, items, missing };
+}
+
 export const useBasket: UseBoundStore<StoreApi<BasketState>> = create<BasketState>((set, get) => ({
   order: [],
   items: new Map(),
@@ -44,20 +71,54 @@ export const useBasket: UseBoundStore<StoreApi<BasketState>> = create<BasketStat
     set((s) => {
       const entries = useCatalog.getState().entries;
       const known = targets.filter((id) => s.items.has(id) || entries.has(id));
-      const r = toggleMany(s.order, known);
-      if (r.added.length === 0 && r.removed.length === 0) return s;
+      return applyToggle(s, known, (id) => {
+        seen.add(id);
+        return snapshotOf(entries.get(id)!);
+      });
+    }),
+
+  toggleItems: (list) =>
+    set((s) => {
+      const given = new Map(list.map((it) => [it.id, it]));
+      return applyToggle(s, list.map((it) => it.id), (id) => given.get(id)!);
+    }),
+
+  move: (id, to) =>
+    set((s) => {
+      const from = s.order.indexOf(id);
+      if (from < 0) return s;
+      const rest = s.order.filter((x) => x !== id);
+      const at = Math.max(0, Math.min(to, rest.length));
+      if (at === from) return s;
+      rest.splice(at, 0, id);
+      return { order: rest };
+    }),
+
+  swap: (a, b) =>
+    set((s) => {
+      const i = s.order.indexOf(a);
+      const j = s.order.indexOf(b);
+      if (i < 0 || j < 0 || i === j) return s;
+      const order = [...s.order];
+      order[i] = b;
+      order[j] = a;
+      return { order };
+    }),
+
+  hydrate: (list) =>
+    set((s) => {
+      const got = new Set<FileId>();
       const items = new Map(s.items);
-      for (const id of r.removed) items.delete(id);
-      for (const id of r.added) { items.set(id, snapshotOf(entries.get(id)!)); seen.add(id); }
-      let missing = s.missing;
-      if (r.removed.some((id) => missing.has(id))) {
-        missing = new Set(missing);
-        for (const id of r.removed) missing.delete(id);
+      const missing = new Set(s.missing);
+      const head: FileId[] = [];
+      for (const r of list) {
+        if (got.has(r.id)) continue;
+        got.add(r.id);
+        head.push(r.id);
+        if (r.entry) { items.set(r.id, fromBasketEntry(r.entry)); missing.delete(r.id); }
+        else { items.set(r.id, { id: r.id, name: r.name, dirName: r.dirName, size: 0, mtimeMs: 0 }); missing.add(r.id); }
       }
-      if (s.order.length <= BASKET_SOFT_LIMIT && r.order.length > BASKET_SOFT_LIMIT) {
-        showToast({ text: t("basket.tooMany") });
-      }
-      return { order: r.order, items, missing };
+      return { order: [...head, ...s.order.filter((id) => !got.has(id))], items, missing };
     }),
 
   remove: (ids) => {

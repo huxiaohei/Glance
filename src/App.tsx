@@ -22,6 +22,7 @@ import SettingsDialog from "./views/settings/SettingsDialog";
 import TipDialog from "./views/tip/TipDialog";
 import SingleView from "./views/single/SingleView";
 import { registerSingleCommands } from "./views/single/singleCommands";
+import { startBasketPersist } from "./app/basketPersist";
 import StartView from "./views/start/StartView";
 import Toast from "./views/toast/Toast";
 import "./app/app.css";
@@ -50,7 +51,10 @@ export default function App() {
     const stopOpenRequests = startOpenRequests();
     // 更新检查：启动 3 秒后一次，是否真的检查由后端按设置与构建类型决定
     const stopUpdateCheck = startUpdateCheck();
+    // 对比篮：启动时恢复上次的，之后变化去抖保存
+    const stopBasketPersist = startBasketPersist();
     return () => {
+      stopBasketPersist();
       stopUpdateCheck();
       stopOpenRequests();
       stopRecents();
