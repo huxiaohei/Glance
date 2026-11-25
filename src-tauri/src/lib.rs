@@ -76,7 +76,11 @@ pub fn run() {
             let settings = state::settings::SettingsState::load(&app.path().app_config_dir()?);
             let theme = settings.get().theme;
             app.manage(settings);
-            app.manage(RecentTargets::load(&app.path().app_config_dir()?));
+            let session_store = Arc::new(state::session::SessionStore::load(
+                &app.path().app_config_dir()?,
+            ));
+            app.manage(RecentTargets::new(session_store.clone()));
+            app.manage(session_store);
             app.manage(state::recents::RecentsState::load(
                 &app.path().app_config_dir()?,
             ));

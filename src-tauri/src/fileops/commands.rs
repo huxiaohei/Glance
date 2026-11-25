@@ -12,8 +12,7 @@ use super::ops::{self, Conflict};
 use super::undo::{OpKind, Step, UndoLog};
 use crate::catalog::registry::{FileId, Registry};
 use crate::catalog::session::Sessions;
-use crate::state::session::SessionFile;
-use crate::state::store;
+use crate::state::session::SessionStore;
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,27 +58,24 @@ pub struct UndoFailure {
 
 const RECENT_LIMIT: usize = 5;
 
-/// 最近用过的目标目录，最新的在前，最多 5 个；有落盘路径时写进 `session.json`。
-#[derive(Default)]
+/// 最近用过的目标目录，最新的在前，最多 5 个；持久化交给 `SessionStore`。
 pub struct RecentTargets {
     list: Mutex<Vec<String>>,
-    path: Option<PathBuf>,
+    store: Arc<SessionStore>,
 }
 
 impl RecentTargets {
-    /// 读 `<config_dir>/session.json`；读不出就是空列表。
-    pub fn load(config_dir: &Path) -> Self {
-        let path = config_dir.join("session.json");
-        let file: SessionFile = store::load(&path);
-        let mut list: Vec<String> = file
-            .recent_targets
+    /// 取 `store` 里已有的最近目标；丢掉空串，最多留 5 个。
+    pub fn new(store: Arc<SessionStore>) -> Self {
+        let mut list: Vec<String> = store
+            .recent_targets()
             .into_iter()
             .filter(|d| !d.is_empty())
             .collect();
         list.truncate(RECENT_LIMIT);
         Self {
             list: Mutex::new(list),
-            path: Some(path),
+            store,
         }
     }
 
@@ -88,12 +84,7 @@ impl RecentTargets {
         list.retain(|d| *d != dir);
         list.insert(0, dir);
         list.truncate(RECENT_LIMIT);
-        if let Some(path) = &self.path {
-            let file = SessionFile {
-                recent_targets: list.clone(),
-            };
-            let _ = store::save(path, &file);
-        }
+        self.store.set_recent_targets(list.clone());
     }
 
     pub fn list(&self) -> Vec<String> {
@@ -494,7 +485,7 @@ mod tests {
                 registry: Registry::default(),
                 sessions: Sessions::default(),
                 undo: UndoLog::default(),
-                recents: RecentTargets::default(),
+                recents: RecentTargets::new(Arc::new(SessionStore::memory())),
                 rx: None,
             }
         }
@@ -1116,13 +1107,28 @@ mod tests {
         assert_eq!(conflict, Conflict::KeepBoth);
     }
 
+    fn load_recents(dir: &Path) -> RecentTargets {
+        RecentTargets::new(Arc::new(SessionStore::load(dir)))
+    }
+
+    #[test]
+    fn remember_keeps_basket() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SessionStore::load(dir.path()));
+        store.set_basket(vec!["/x.png".into()]);
+        RecentTargets::new(store).remember("/d".into());
+        let again = SessionStore::load(dir.path());
+        assert_eq!(again.basket(), vec!["/x.png".to_string()]);
+        assert_eq!(again.recent_targets(), vec!["/d".to_string()]);
+    }
+
     #[test]
     fn recent_targets_survive_a_reload() {
         let dir = tempfile::tempdir().unwrap();
-        let r = RecentTargets::load(dir.path());
+        let r = load_recents(dir.path());
         r.remember("/a".into());
         r.remember("/b".into());
-        let again = RecentTargets::load(dir.path());
+        let again = load_recents(dir.path());
         assert_eq!(again.list(), vec!["/b".to_string(), "/a".to_string()]);
     }
 
@@ -1134,7 +1140,7 @@ mod tests {
             r#"{"recentTargets":["1","","2","3","4","5","6","7"]}"#,
         )
         .unwrap();
-        let r = RecentTargets::load(dir.path());
+        let r = load_recents(dir.path());
         assert_eq!(r.list(), vec!["1", "2", "3", "4", "5"]);
     }
 
@@ -1142,18 +1148,17 @@ mod tests {
     fn recent_targets_tolerate_a_garbage_session_file() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("session.json"), "{not json").unwrap();
-        let r = RecentTargets::load(dir.path());
+        let r = load_recents(dir.path());
         assert!(r.list().is_empty());
         r.remember("/x".into());
-        let again = RecentTargets::load(dir.path());
+        let again = load_recents(dir.path());
         assert_eq!(again.list(), vec!["/x".to_string()]);
     }
 
     #[test]
-    fn default_recent_targets_do_not_touch_the_disk() {
-        let r = RecentTargets::default();
+    fn memory_recent_targets_keep_the_list() {
+        let r = RecentTargets::new(Arc::new(SessionStore::memory()));
         r.remember("/x".into());
         assert_eq!(r.list(), vec!["/x".to_string()]);
-        assert!(r.path.is_none());
     }
 }
