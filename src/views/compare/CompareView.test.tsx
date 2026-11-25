@@ -39,7 +39,7 @@ beforeEach(() => {
   useNav.getState().openCompare();
   useSettings.setState({ settings: { ...DEFAULT_SETTINGS }, open: false });
   useToast.setState({ current: null });
-  useCompareUi.setState({ viewport: FIT_VIEWPORT, perCell: null, focus: null, captions: true });
+  useCompareUi.setState({ viewport: FIT_VIEWPORT, perCell: null, focus: null, captions: true, panelOpen: false });
   fill(ITEMS);
   vi.mocked(api.thumbsWant).mockResolvedValue([]);
   vi.mocked(api.settingsSet).mockResolvedValue();
@@ -105,6 +105,21 @@ describe("CompareView", () => {
     } finally {
       HTMLElement.prototype.scrollIntoView = orig;
     }
+  });
+
+  it("顶栏“添加”切换右侧添加面板，面板与图片墙并排", () => {
+    const { container } = render(<CompareView />);
+    const add = screen.getByRole("button", { name: "添加" });
+    expect(add.getAttribute("aria-pressed")).toBe("false");
+    expect(container.querySelector(".compare-panel")).toBeNull();
+    fireEvent.click(add);
+    expect(useCompareUi.getState().panelOpen).toBe(true);
+    expect(add.getAttribute("aria-pressed")).toBe("true");
+    const panel = container.querySelector(".compare-panel")!;
+    expect(panel.parentElement).toBe(container.querySelector(".compare-scroller")!.parentElement);
+    fireEvent.click(add);
+    expect(container.querySelector(".compare-panel")).toBeNull();
+    expect(api.thumbsWant).toHaveBeenLastCalledWith("comparePanel", [], 320);
   });
 
   it("列数取自设置 compareColumns", () => {

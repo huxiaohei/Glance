@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { FIT_VIEWPORT, type CompareViewport } from "../lib/compareViewport";
+import type { RootInfo } from "../ipc/types";
+import { useCatalog } from "./catalog";
 import { useCompareUi, viewportOf } from "./compareUi";
 
 const ZOOMED: CompareViewport = { scale: { kind: "rel", k: 2 }, u: 0.3, v: 0.7 };
 
 beforeEach(() => {
   useCompareUi.setState({ viewport: FIT_VIEWPORT, perCell: null, focus: null, captions: true });
+  useCompareUi.setState({ panelOpen: false, panelSource: { kind: "root" }, otherDir: null });
+  useCatalog.getState().reset();
 });
 
 describe("compareUi", () => {
@@ -48,5 +52,53 @@ describe("compareUi", () => {
     useCompareUi.getState().toggleSync();
     expect(useCompareUi.getState().perCell).toBeNull();
     expect(useCompareUi.getState().viewport).toBe(own);
+  });
+});
+
+describe("compareUi 添加面板", () => {
+  const root = (path: string, generation: number): RootInfo => ({ generation, path, name: path, recursive: true, focus: null });
+  const open = (path: string, generation: number, relPaths: string[]) => {
+    useCatalog.getState().begin(root(path, generation));
+    useCatalog.getState().apply({
+      type: "batch", generation, entries: relPaths.map((relPath, i) => ({ id: generation * 100 + i, relPath, size: 1, mtimeMs: 1 })),
+    });
+    useCatalog.getState().apply({ type: "done", generation, total: relPaths.length });
+  };
+
+  it("togglePanel 开合；默认关", () => {
+    expect(useCompareUi.getState().panelOpen).toBe(false);
+    useCompareUi.getState().togglePanel();
+    expect(useCompareUi.getState().panelOpen).toBe(true);
+    useCompareUi.getState().togglePanel();
+    expect(useCompareUi.getState().panelOpen).toBe(false);
+  });
+
+  it("enter 不改面板开合与来源", () => {
+    useCompareUi.getState().togglePanel();
+    useCompareUi.getState().setPanelSource({ kind: "dir", dir: "a" });
+    useCompareUi.getState().enter(true, 1);
+    expect(useCompareUi.getState().panelOpen).toBe(true);
+    expect(useCompareUi.getState().panelSource).toEqual({ kind: "dir", dir: "a" });
+  });
+
+  it("根目录换了：子目录来源回到当前文件夹", () => {
+    open("/x", 1, ["a/1.png", "b/2.png"]);
+    useCompareUi.getState().setPanelSource({ kind: "dir", dir: "a" });
+    open("/y", 2, ["a/1.png"]);
+    expect(useCompareUi.getState().panelSource).toEqual({ kind: "root" });
+  });
+
+  it("同一目录里所选子目录没了才回到当前文件夹；其他文件夹来源不受影响", () => {
+    open("/x", 1, ["a/1.png", "b/2.png"]);
+    useCompareUi.getState().setPanelSource({ kind: "dir", dir: "a" });
+    useCatalog.getState().apply({ type: "removed", generation: 1, ids: [101] });
+    expect(useCompareUi.getState().panelSource).toEqual({ kind: "dir", dir: "a" });
+    useCatalog.getState().apply({ type: "removed", generation: 1, ids: [100] });
+    expect(useCompareUi.getState().panelSource).toEqual({ kind: "root" });
+
+    const other = { kind: "other" as const, name: "吴国", items: [] };
+    useCompareUi.getState().setPanelSource(other);
+    open("/z", 3, []);
+    expect(useCompareUi.getState().panelSource).toBe(other);
   });
 });

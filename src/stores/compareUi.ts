@@ -1,6 +1,11 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type { FileId } from "../ipc/types";
 import { FIT_VIEWPORT, type CompareViewport } from "../lib/compareViewport";
+import { dirExists, type PanelSource } from "../lib/panelSource";
+import { useCatalog } from "./catalog";
+
+/** 最近一次用对话框选的其他文件夹：留在来源下拉里，再选回时按 path 重新扫描。path 只用于传回 browse_dir。 */
+export interface OtherDir { path: string; name: string; count: number }
 
 /**
  * 对比视图的界面状态（不存设置）。perCell 为 null 表示同步缩放开：所有格共用 viewport；
@@ -14,12 +19,20 @@ export interface CompareUiState {
   focus: FileId | null;
   /** 说明文字是否显示：本次运行内记住，进入时不重置 */
   captions: boolean;
+  /** 添加面板是否打开：本次运行内记住，进入时不重置 */
+  panelOpen: boolean;
+  /** 添加面板的来源；根目录换了或所选子目录已不在时回到 root */
+  panelSource: PanelSource;
+  otherDir: OtherDir | null;
   /** 一次新的进入：视口回到适应，同步按 sync，焦点落在 first */
   enter(sync: boolean, first: FileId | null): void;
   setFocus(id: FileId | null): void;
   toggleCaptions(): void;
   /** 开 → 关：各格从当前共享视口出发；关 → 开：共享视口取焦点格自己的（没有则不变） */
   toggleSync(): void;
+  togglePanel(): void;
+  setPanelSource(s: PanelSource): void;
+  setOtherDir(d: OtherDir | null): void;
   /** 交互结束时把热路径上的视口写回 */
   commit(viewport: CompareViewport, perCell: Map<FileId, CompareViewport> | null): void;
   /** 改一格的视口：同步开时改共享视口，否则只改 id 这一格（没有自己的则从共享视口出发） */
@@ -31,9 +44,15 @@ export const useCompareUi: UseBoundStore<StoreApi<CompareUiState>> = create<Comp
   perCell: null,
   focus: null,
   captions: true,
+  panelOpen: false,
+  panelSource: { kind: "root" },
+  otherDir: null,
   enter: (sync, first) => set({ viewport: FIT_VIEWPORT, perCell: sync ? null : new Map(), focus: first }),
   setFocus: (id) => set((s) => (s.focus === id ? s : { focus: id })),
   toggleCaptions: () => set((s) => ({ captions: !s.captions })),
+  togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
+  setPanelSource: (panelSource) => set({ panelSource }),
+  setOtherDir: (otherDir) => set({ otherDir }),
   toggleSync: () =>
     set((s) => {
       if (s.perCell === null) return { perCell: new Map() };
@@ -58,3 +77,12 @@ export const useCompareUi: UseBoundStore<StoreApi<CompareUiState>> = create<Comp
 export function viewportOf(s: Pick<CompareUiState, "viewport" | "perCell">, id: FileId): CompareViewport {
   return s.perCell?.get(id) ?? s.viewport;
 }
+
+// 子目录来源是相对根目录的：换了根目录就回到“当前文件夹”；同一根目录里那个目录的图都没了（扫描中不判）也回去
+useCatalog.subscribe((state, prev) => {
+  const src = useCompareUi.getState().panelSource;
+  if (src.kind !== "dir") return;
+  const rootChanged = state.root?.path !== prev.root?.path;
+  if (!rootChanged && (state.scanning || (state.listVersion === prev.listVersion && !prev.scanning))) return;
+  if (rootChanged || !dirExists(state.entries, src.dir)) useCompareUi.getState().setPanelSource({ kind: "root" });
+});

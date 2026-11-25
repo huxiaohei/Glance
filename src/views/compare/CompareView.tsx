@@ -13,6 +13,7 @@ import { useSettings } from "../../stores/settings";
 import { showToast } from "../../stores/toast";
 import KeyHints from "../common/KeyHints";
 import CompareCell from "./CompareCell";
+import ComparePanel from "./ComparePanel";
 import CompareTopBar from "./CompareTopBar";
 import { backIfEmpty, refocusAfterRemoval, removeFromCompare } from "./compareActions";
 import { useCompareImages } from "./useCompareImages";
@@ -83,6 +84,7 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
   const perCell = useCompareUi((s) => s.perCell);
   const focus = useCompareUi((s) => s.focus);
   const captions = useCompareUi((s) => s.captions);
+  const panelOpen = useCompareUi((s) => s.panelOpen);
   const showHints = useSettings((s) => s.settings.showKeyHints);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const box = useCellBox(scroller, columns, order.length);
@@ -172,29 +174,33 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
       inert={hidden}
     >
       <CompareTopBar count={order.length} />
-      <div ref={setScroller} className="compare-scroller">
-        <div className="compare-grid" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
-          {order.map((id) => {
-            const it = items.get(id);
-            const odd =
-              majority !== null && it?.width !== undefined && it.height !== undefined
-              && (it.width !== majority.w || it.height !== majority.h);
-            return (
-              <CompareCell
-                key={id}
-                id={id}
-                item={it}
-                missing={missing.has(id)}
-                odd={odd}
-                captions={captions}
-                focused={focus === id}
-                box={box}
-                vp={viewportOf({ viewport, perCell }, id)}
-                full={full.has(id)}
-              />
-            );
-          })}
+      {/* 添加面板在图片墙右侧：墙变窄、列数不变 */}
+      <div className="compare-body">
+        <div ref={setScroller} className="compare-scroller">
+          <div className="compare-grid" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+            {order.map((id) => {
+              const it = items.get(id);
+              const odd =
+                majority !== null && it?.width !== undefined && it.height !== undefined
+                && (it.width !== majority.w || it.height !== majority.h);
+              return (
+                <CompareCell
+                  key={id}
+                  id={id}
+                  item={it}
+                  missing={missing.has(id)}
+                  odd={odd}
+                  captions={captions}
+                  focused={focus === id}
+                  box={box}
+                  vp={viewportOf({ viewport, perCell }, id)}
+                  full={full.has(id)}
+                />
+              );
+            })}
+          </div>
         </div>
+        {panelOpen && <ComparePanel />}
       </div>
       {showHints && (
         <div className="compare-hintbar">

@@ -16,12 +16,13 @@ const BACKGROUNDS: { value: CompareBackground; label: MessageKey }[] = [
   { value: "checker", label: "compare.bg.checker" },
 ];
 
-/** 对比视图顶栏：返回、标题、每排张数、同步缩放、背景、说明开关、清空。 */
+/** 对比视图顶栏：返回、标题、每排张数、同步缩放、背景、说明开关、添加面板开关、清空。 */
 export default function CompareTopBar({ count }: { count: number }) {
   const columns = useSettings((s) => s.settings.compareColumns);
   const bg = useSettings((s) => s.settings.compareBackground);
   const sync = useCompareUi((s) => s.perCell === null);
   const captions = useCompareUi((s) => s.captions);
+  const panelOpen = useCompareUi((s) => s.panelOpen);
 
   return (
     <div className="compare-topbar">
@@ -87,6 +88,15 @@ export default function CompareTopBar({ count }: { count: number }) {
         onClick={() => useCompareUi.getState().toggleCaptions()}
       >
         {t("compare.captions")}
+      </button>
+      <button
+        type="button"
+        className="compare-add"
+        aria-pressed={panelOpen}
+        onMouseDown={keepFocus}
+        onClick={() => useCompareUi.getState().togglePanel()}
+      >
+        {t("compare.add")}
       </button>
       <button type="button" className="compare-clear" onMouseDown={keepFocus} onClick={clearCompare}>
         {t("compare.clear")}
