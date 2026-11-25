@@ -3,11 +3,13 @@ import { IS_MAC, formatKey } from "../../app/keys";
 import { useSingleEntry } from "../../app/singleSource";
 import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
+import { useEditUi } from "../../stores/editUi";
 import { useNav } from "../../stores/nav";
 import { startRename, useRename } from "../../stores/rename";
 import { useSingleUi } from "../../stores/singleUi";
 import CompareButton from "../common/CompareButton";
 import RenameInput from "../common/RenameInput";
+import EditButton from "../edit/EditButton";
 import { backToGrid, singleCommand } from "./singleCommands";
 
 /** 切到另一个子目录时目录名高亮这么久。 */
@@ -20,10 +22,13 @@ const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 export default function TopBar({ id }: { id: FileId }) {
   const entry = useSingleEntry(id);
   // 对比篮来源不提供改名（与 F2 一致）
-  const canRename = useNav((s) => {
+  const notBasket = useNav((s) => {
     const top = s.stack[s.stack.length - 1];
     return !(top.kind === "single" && top.source === "basket");
   });
+  // 编辑中也不改名（与 F2 在编辑中不响应一致）
+  const editing = useEditUi((s) => s.status !== "idle");
+  const canRename = notBasket && !editing;
   const renaming = useRename((s) => s.id === id);
   const dir = entry?.dir;
 
@@ -73,6 +78,7 @@ export default function TopBar({ id }: { id: FileId }) {
           )}
         </div>
       )}
+      <EditButton id={id} />
       <CompareButton />
       <button
         type="button"

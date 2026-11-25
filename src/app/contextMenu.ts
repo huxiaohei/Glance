@@ -58,7 +58,8 @@ export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
   if (ctx.count === 0 && !(compare && ctx.removable)) return [];
   const single = ctx.count === 1;
   const groups: MenuNode[][] = [
-    ctx.view === "grid" ? commandItem("grid.open", single) : [],
+    ctx.view === "grid" ? [...commandItem("grid.open", single), ...commandItem("grid.edit", single)] : [],
+    ctx.view === "single" ? commandItem("edit.open", single) : [],
     compare ? commandItem("compare.remove", true) : [],
     ctx.readOnly || ctx.view === "compare" ? [] : [
       ...commandItem("file.rename", single),

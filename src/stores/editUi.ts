@@ -28,6 +28,11 @@ export interface EditUiState {
 const DEFAULT_COMPRESS: CompressMemory = { quality: 80, maxEdgeOn: false, maxEdge: 2048, pngMode: "lossy" };
 const DEFAULT_CONVERT: ConvertMemory = { format: "jpeg", quality: 85, fill: [255, 255, 255] };
 
+/** 是否处在编辑模式（含正在打开、正在保存）：命令表据此把单张视图当作 "edit"。 */
+export function editActive(): boolean {
+  return useEditUi.getState().status !== "idle";
+}
+
 /** 由当前页与记忆参数拼出发给后端的参数。 */
 export function currentParams(s: Pick<EditUiState, "tab" | "compress" | "convert">): EditParams {
   if (s.tab === "compress") {

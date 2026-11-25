@@ -44,9 +44,11 @@ describe("buildImageMenu", () => {
   it("网格单选：四组齐全，顺序与表一致，快捷键取自命令表", () => {
     const m = buildImageMenu({ view: "grid", count: 1, recent: [] });
     expect(labels(m)).toEqual([
-      T("cmd.grid.open"), "-", T("cmd.file.rename"), T("menu.moveTo"), T("menu.copyTo"), T("cmd.file.trash"), "-", T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac"),
+      T("cmd.grid.open"), T("cmd.grid.edit"), "-", T("cmd.file.rename"), T("menu.moveTo"), T("menu.copyTo"), T("cmd.file.trash"), "-", T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac"),
     ]);
     expect((find(m, T("cmd.grid.open")) as Item).accelerator).toBe("Enter");
+    // “编辑”只供右键菜单，没有快捷键
+    expect((find(m, T("cmd.grid.edit")) as Item).accelerator).toBeUndefined();
     expect((find(m, T("cmd.file.rename")) as Item).accelerator).toBe("F2");
     expect((find(m, T("cmd.file.trash")) as Item).accelerator).toBe("Mod+Backspace");
     expect((find(m, T("cmd.file.copyImage")) as Item).accelerator).toBe("Mod+C");

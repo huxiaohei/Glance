@@ -1,9 +1,11 @@
 import { registerCommands, type Command, type CommandCtx } from "../../app/commands";
+import { opTargets } from "../../app/fileOps";
 import { moveInLayout, type Move } from "../../lib/gridLayout";
 import { moveTo, selectAll } from "../../lib/selection";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
+import { enterEdit } from "../edit/editCommands";
 
 /** 没有焦点（或焦点不在当前布局里）时落到第一张；否则按布局移动。extend 时从锚点扩展选中。 */
 function navigate(move: Move, ctx: CommandCtx): void {
@@ -64,6 +66,20 @@ const gridCommands: Command[] = [
       const { focus } = useSelection.getState();
       if (focus === null || !useGridCtx.getState().list.ids.includes(focus)) return;
       useNav.getState().openSingle(focus);
+    },
+  },
+  {
+    // 只供右键菜单：先切到单张视图并定位这张图，再进入编辑
+    id: "grid.edit",
+    title: "cmd.grid.edit",
+    category: "cmd.cat.edit",
+    keys: [],
+    views: ["grid"],
+    run: () => {
+      const targets = opTargets();
+      if (targets.length !== 1) return;
+      useNav.getState().openSingle(targets[0], "folder");
+      void enterEdit(targets[0]);
     },
   },
 ];

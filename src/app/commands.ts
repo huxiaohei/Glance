@@ -1,5 +1,6 @@
 import type { MessageKey } from "../i18n";
 import { useCatalog } from "../stores/catalog";
+import { editActive } from "../stores/editUi";
 import { topView } from "../stores/nav";
 import { matchKey, type KeyLike } from "./keys";
 
@@ -73,7 +74,9 @@ export function findCommand(e: KeyLike, view: ViewId, inInput: boolean, isMac: b
   return null;
 }
 
-/** 当前视图：没有根目录为 "start"；否则按视图栈栈顶。 */
+/** 当前视图：没有根目录为 "start"；否则按视图栈栈顶，单张视图处在编辑模式时为 "edit"。 */
 export function activeView(): ViewId {
-  return useCatalog.getState().root ? topView().kind : "start";
+  if (!useCatalog.getState().root) return "start";
+  const kind = topView().kind;
+  return kind === "single" && editActive() ? "edit" : kind;
 }

@@ -22,6 +22,7 @@ import SettingsDialog from "./views/settings/SettingsDialog";
 import TipDialog from "./views/tip/TipDialog";
 import SingleView from "./views/single/SingleView";
 import { registerSingleCommands } from "./views/single/singleCommands";
+import { registerEditCommands } from "./views/edit/editCommands";
 import { startBasketPersist } from "./app/basketPersist";
 import StartView from "./views/start/StartView";
 import Toast from "./views/toast/Toast";
@@ -44,6 +45,7 @@ export default function App() {
     const offSingle = registerSingleCommands();
     const offBasket = registerBasketCommands();
     const offCompare = registerCompareCommands();
+    const offEdit = registerEditCommands();
     // 最近目录：启动时读取一次，并开始汇报浏览状态
     const stopRecents = startRecentsSync();
     void loadRecents();
@@ -58,6 +60,7 @@ export default function App() {
       stopUpdateCheck();
       stopOpenRequests();
       stopRecents();
+      offEdit();
       offCompare();
       offBasket();
       offSingle();

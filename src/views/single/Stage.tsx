@@ -8,7 +8,9 @@ import { glanceUrl } from "../../lib/glanceUrl";
 import { markSwitchPainted } from "../../lib/perfMarks";
 import type { Size } from "../../lib/viewport";
 import { useSingleEntry } from "../../app/singleSource";
+import { useEditUi } from "../../stores/editUi";
 import { useThumbs } from "../../stores/thumbs";
+import EditLayer from "../edit/EditLayer";
 import type { Loaded, Preloader } from "./preloader";
 import { useStageViewport, type StageApi } from "./useStageViewport";
 
@@ -44,7 +46,7 @@ function useLoaded(preloader: Preloader, id: FileId, url: string | null): Loaded
 /**
  * 单张视图的画面。显示规则：当前图已解码 → 直接把预加载器解码好的元素放进画面；否则先铺它已就绪、
  * 且与条目当前版本一致的缩略图（按原图像素尺寸、与原图同一变换，换上原图时不跳），没有这样的缩略图或
- * 尺寸未知时画面留空；解码失败 → “无法读取”占位。换了一张图时旧图不会留在画面上；同一张图被改写时，
+ * 尺寸未知时画面留空；解码失败 → “无法读取”占位。编辑模式中结果图层（EditLayer）叠在原图上、跟随同一视口。换了一张图时旧图不会留在画面上；同一张图被改写时，
  * 新版本解码完成（或失败）前保留旧图，按旧尺寸与旧视口显示。左下角显示当前比例；children 叠在画面之上。
  */
 export default function Stage({ id, preloader, children }: { id: FileId; preloader: Preloader; children?: ReactNode }) {
@@ -53,6 +55,9 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
   const [box, setBox] = useState<HTMLDivElement | null>(null);
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const [under, setUnder] = useState<HTMLImageElement | null>(null);
+  // 编辑模式中：结果图层叠在原图之上，跟随同一个视口
+  const editing = useEditUi((s) => s.status !== "idle" && s.id === id);
+  const [overlay, setOverlay] = useState<HTMLDivElement | null>(null);
 
   const w = entry?.width;
   const h = entry?.height;
@@ -103,6 +108,7 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
     img: shown,
     size: natural ?? (hold ? hold.size : size),
     imageKey: hold ? hold.url : (url ?? ""),
+    overlay: editing ? overlay : null,
   });
 
   useEffect(() => {
@@ -143,6 +149,7 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
         void showImageMenu();
       }}
     >
+      {editing && <EditLayer onEl={setOverlay} />}
       <div className="stage-layer" ref={setSlot} />
       {thumbUrl && (
         <img key={thumbUrl} ref={setUnder} className="stage-img stage-underlay" src={thumbUrl} alt="" draggable={false} />

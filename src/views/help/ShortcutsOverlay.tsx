@@ -6,10 +6,10 @@ import { t, type MessageKey } from "../../i18n";
 import { useModalFocus } from "../common/useModalFocus";
 import "./help.css";
 
-/** 适用视图的标签：全部视图，或所列视图（目前只有网格与单张）。 */
+/** 适用视图的标签：全部视图，或所列视图（网格、单张与编辑中）。 */
 function viewLabel(c: Command): string {
   if (c.views === "all") return t("help.view.all");
-  const names: Partial<Record<string, MessageKey>> = { grid: "help.view.grid", single: "help.view.single" };
+  const names: Partial<Record<string, MessageKey>> = { grid: "help.view.grid", single: "help.view.single", edit: "help.view.edit" };
   return c.views.flatMap((v) => (names[v] ? [t(names[v])] : [])).join(" / ");
 }
 

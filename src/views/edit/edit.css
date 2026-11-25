@@ -1,0 +1,45 @@
+/* 编辑结果层：宽高与 transform 由单张视图的视口直接写入，与原图重合 */
+.edit-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+.edit-layer.shown {
+  visibility: visible;
+}
+.edit-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+/* 还在加载的新结果：不显示，加载完成后换成当前结果 */
+.edit-pending {
+  visibility: hidden;
+}
+/* 有结果显示时藏起原图与垫底的缩略图（结果的透明区域不透出原图） */
+.edit-layer.shown ~ .stage-layer,
+.edit-layer.shown ~ .stage-underlay {
+  visibility: hidden;
+}
+
+/* 单张视图顶栏的“编辑”按钮 */
+.topbar-edit {
+  flex: none;
+}
+.topbar-edit.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.topbar-edit[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+.topbar-edit[aria-disabled="true"]:hover {
+  border-color: var(--line);
+}

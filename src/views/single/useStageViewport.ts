@@ -11,6 +11,7 @@ import {
   type Viewport,
 } from "../../lib/viewport";
 import { createWheelStepper } from "../../lib/wheelStep";
+import { editActive } from "../../stores/editUi";
 import { useSettings } from "../../stores/settings";
 import { go } from "./go";
 
@@ -45,14 +46,18 @@ export function useStageViewport(args: {
   img: HTMLImageElement | null;
   size: Size | null;                // 条目的宽高；为 null 时等图片 load 后用 naturalWidth / naturalHeight
   imageKey: string;                 // 换图时变化 → 回到适应窗口
+  /** 跟随图片的叠层（编辑结果）：写上与图片相同的宽高与 transform，结果图因此按原图尺寸铺放。 */
+  overlay?: HTMLElement | null;
 }): { api: StageApi; percent: number } {
   const { box, img, size, imageKey } = args;
+  const overlay = args.overlay ?? null;
   const [percent, setPercent] = useState(0);
 
   // 全部可变状态放在一个 ref 里，监听器与 api 读到的总是最新值
   const st = useRef({
     box: null as HTMLElement | null,
     img: null as HTMLImageElement | null,
+    overlay: null as HTMLElement | null,
     size: null as Size | null,
     natural: null as Size | null,
     key: null as string | null,
@@ -86,15 +91,26 @@ export function useStageViewport(args: {
     const paint = () => {
       const i = imgSize();
       const el = st.img;
+      const transform = st.vp ? `translate(${st.vp.x}px, ${st.vp.y}px) scale(${st.vp.scale})` : "";
       if (el) {
         if (st.vp && i) {
           el.style.width = `${i.w}px`;
           el.style.height = `${i.h}px`;
-          el.style.transform = `translate(${st.vp.x}px, ${st.vp.y}px) scale(${st.vp.scale})`;
+          el.style.transform = transform;
           el.style.visibility = "";
         } else {
           el.style.transform = "";
           el.style.visibility = "hidden";
+        }
+      }
+      const ov = st.overlay;
+      if (ov) {
+        if (st.vp && i) {
+          ov.style.width = `${i.w}px`;
+          ov.style.height = `${i.h}px`;
+          ov.style.transform = transform;
+        } else {
+          ov.style.transform = "";
         }
       }
       if (st.box) st.box.style.cursor = st.dragging ? "grabbing" : canPan() ? "grab" : "";
@@ -178,6 +194,12 @@ export function useStageViewport(args: {
     return () => img.removeEventListener("load", onLoad);
   }, [img, st, ctl]);
 
+  // 叠层：挂上后写上当前视口
+  useLayoutEffect(() => {
+    st.overlay = overlay;
+    if (overlay) ctl.paint();
+  }, [overlay, st, ctl]);
+
   // 容器：尺寸监听与全部手势
   useLayoutEffect(() => {
     st.box = box;
@@ -200,7 +222,8 @@ export function useStageViewport(args: {
       e.preventDefault();
       const dy = e.deltaMode === 1 ? e.deltaY * LINE_PX : e.deltaMode === 2 ? e.deltaY * box.clientHeight : e.deltaY;
       if (dy === 0) return;
-      if (useSettings.getState().settings.wheel === "switch" && !e.ctrlKey && !e.metaKey) {
+      // 编辑模式中不切图，滚轮照常缩放
+      if (useSettings.getState().settings.wheel === "switch" && !e.ctrlKey && !e.metaKey && !editActive()) {
         const dir = stepWheel(dy, performance.now());
         if (dir !== 0) go(dir > 0 ? "next" : "prev");
         return;

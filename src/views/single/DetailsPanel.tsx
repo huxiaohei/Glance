@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { locale, t, type MessageKey } from "../../i18n";
 import type { FileId, ImageDetails } from "../../ipc/types";
 import { formatBytes } from "../../lib/formatBytes";
 import { hasSize } from "../../lib/deriveList";
 import { useSingleEntry } from "../../app/singleSource";
+import { noteAnimated } from "../../stores/animated";
 import { useImageDetails } from "./useImageDetails";
 
 function Row({ label, children, selectable }: { label: string; children: ReactNode; selectable?: boolean }) {
@@ -54,6 +55,11 @@ export default function DetailsPanel({ id }: { id: FileId }) {
   const entry = useSingleEntry(id);
   const version = entry ? `${entry.mtimeMs}-${entry.size}` : "";
   const { details, loading, error } = useImageDetails(id, version);
+  // 顺带记下是不是动图：顶栏的“编辑”按钮据此置灰
+  const animated = details?.animated;
+  useEffect(() => {
+    if (animated !== undefined) noteAnimated(id, animated);
+  }, [id, animated]);
   const yesNo = (b: boolean) => t(b ? "details.yes" : "details.no");
   const modified = details ? formatModified(details.mtimeMs) : null;
   const color = details ? colorText(details) : null;
