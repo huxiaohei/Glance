@@ -109,13 +109,23 @@ describe("useEditUi", () => {
     useEditUi.getState().close();
   });
 
-  it("close_saves_memory", async () => {
+  it("cancel_does_not_write_memory", async () => {
+    editParamsGet.mockResolvedValue(memory());
+    editOpen.mockResolvedValue(opened(3, "gif"));
+    await useEditUi.getState().open(7);
+    useEditUi.getState().patch("convert", { quality: 60 });
+    useEditUi.getState().close();
+    expect(editParamsSet).not.toHaveBeenCalled();
+  });
+
+  it("commit_memory_writes_current_params", async () => {
     editParamsGet.mockResolvedValue(memory());
     editOpen.mockResolvedValue(opened(3));
     await useEditUi.getState().open(7);
     useEditUi.getState().setTab("convert");
-    useEditUi.getState().close();
+    await useEditUi.getState().commitMemory();
     expect(editParamsSet).toHaveBeenCalledWith(expect.objectContaining({ tab: "convert" }));
+    useEditUi.getState().close();
   });
 });
 

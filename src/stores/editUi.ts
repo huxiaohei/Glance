@@ -21,6 +21,8 @@ export interface EditUiState {
   setTab(t: EditTab): void;
   patch<T extends EditTab>(tab: T, partial: Partial<T extends "compress" ? CompressMemory : ConvertMemory>): void;
   setShowOriginal(b: boolean): void;
+  /** 保存成功后调用：记住这次保存用的页与参数（取消不记）。 */
+  commitMemory(): Promise<void>;
 }
 
 const DEFAULT_COMPRESS: CompressMemory = { quality: 80, maxEdgeOn: false, maxEdge: 2048, pngMode: "lossy" };
@@ -111,7 +113,6 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
     const s = get();
     const session = s.opened?.session;
     if (session !== undefined) {
-      void editParamsSet(memoryOf(s)).catch(() => {});
       void editClose(session).catch(() => {});
     }
     set({ ...idle, error: null });
@@ -131,5 +132,13 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
 
   setShowOriginal(showOriginal) {
     set({ showOriginal });
+  },
+
+  async commitMemory() {
+    try {
+      await editParamsSet(memoryOf(get()));
+    } catch {
+      // 记不住不影响保存本身
+    }
   },
 }));
