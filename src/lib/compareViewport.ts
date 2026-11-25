@@ -77,14 +77,12 @@ export function zoomAtCell(
   if (sameScale(next, vp.scale)) return vp;
   if (!(img.w > 0) || !(img.h > 0)) return withScale(vp, next);
 
-  // 求锚点下的图点：图大于格的方向用夹取后的位置（所见即所得）；图不大于格的方向
-  // 用未夹的位置（由 vp 的 u,v 求），否则居中会把共享的 u/v 拉回 0.5，其他格跟着跳。
-  const before = cellTransform(vp, img, box);
-  const s0 = before.scale;
-  const bx = img.w * s0 > box.w + EPS ? before.x : box.w / 2 - vp.u * img.w * s0;
-  const by = img.h * s0 > box.h + EPS ? before.y : box.h / 2 - vp.v * img.h * s0;
-  const ix = (px - bx) / s0;
-  const iy = (py - by) / s0;
+  // 锚点下的图点一律按未夹的位置（由 vp 的 u,v 求）算：共享坐标优先。若按夹取后的位置算，
+  // 锚点格在某方向居中或贴边时共享的 u/v 会被拉动，其他格跟着跳；代价是锚点格贴边时
+  // 缩放后该点可能偏离鼠标几个像素。
+  const s0 = cellScale(vp, img, box);
+  const ix = (px - (box.w / 2 - vp.u * img.w * s0)) / s0;
+  const iy = (py - (box.h / 2 - vp.v * img.h * s0)) / s0;
   // px → rel k=1 时用转换前的 px 倍率求锚点，保证 (u,v) 是“缩放后”的值。
   const s =
     next.kind === "rel" && vp.scale.kind === "px"
@@ -97,11 +95,21 @@ export function zoomAtCell(
   };
 }
 
-/** 在某格里拖动 (dx,dy) 屏幕像素：按该格实际倍率换成 Δu、Δv；u,v 夹到 [0,1]。 */
+/** 一个方向上 u 的合法范围：图大于格时是该格不露空白的范围，否则 [0,1]。 */
+function panAxis(pos: number, delta: number, scale: number, content: number, container: number): number {
+  const next = pos - delta / (scale * content);
+  if (content * scale <= container + EPS) return clamp01(next);
+  const half = container / 2 / (scale * content);
+  return Math.min(1 - half, Math.max(half, next));
+}
+
+/** 在某格里拖动 (dx,dy) 屏幕像素：按该格实际倍率换成 Δu、Δv。
+ *  图在该方向大于格子时夹到这一格不露空白的范围（存的值就是这格看到的，拖回来没有死区），
+ *  否则夹到 [0,1]。 */
 export function panInCell(vp: CompareViewport, dx: number, dy: number, img: Size, box: Size): CompareViewport {
   const s = cellScale(vp, img, box);
   if (!(s > 0) || !(img.w > 0) || !(img.h > 0)) return vp;
-  return { ...vp, u: clamp01(vp.u - dx / (s * img.w)), v: clamp01(vp.v - dy / (s * img.h)) };
+  return { ...vp, u: panAxis(vp.u, dx, s, img.w, box.w), v: panAxis(vp.v, dy, s, img.h, box.h) };
 }
 
 /** 逐像素 100%：px s=1，保留 u,v。 */

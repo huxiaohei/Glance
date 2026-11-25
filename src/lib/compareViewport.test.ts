@@ -141,6 +141,17 @@ describe("zoomAtCell", () => {
     expect(r.v).toBeCloseTo(0.2);
   });
 
+  it("跨过锚点格溢出格子的那一步时，共享坐标也不跳", () => {
+    let vp = rel(2, 0.5, 0.2);
+    for (let i = 0; i < 5; i++) {
+      vp = zoomAtCell(vp, 1.05, { img: wide, box, px: 100, py: 150 }, cells);
+      expect(vp.u).toBeCloseTo(0.5);
+      expect(vp.v).toBeCloseTo(0.2);
+    }
+    // 第 3 步起宽图高度已超过格子。
+    expect(1000 * cellScale(vp, wide, box)).toBeGreaterThan(300);
+  });
+
   it("结果的 u,v 夹在 [0,1]", () => {
     const r = zoomAtCell(px(1), 0.1, { img: tall, box: { w: 1000, h: 1500 }, px: 20, py: 30 }, [
       { img: tall, box: { w: 1000, h: 1500 } },
@@ -171,9 +182,22 @@ describe("panInCell", () => {
     expect(r.v).toBeCloseTo(0.5 - 60 / (0.4 * 1500));
   });
 
-  it("u,v 夹在 [0,1]", () => {
-    expect(panInCell(rel(2), -10000, 10000, tall, box)).toMatchObject({ u: 1, v: 0 });
-    expect(panInCell(rel(2), 10000, -10000, tall, box)).toMatchObject({ u: 0, v: 1 });
+  it("图大于格的方向夹到该格不露空白的范围", () => {
+    // s=0.4，图显示为 400×600：u、v 都夹到 [0.25, 0.75]。
+    const a = panInCell(rel(2), 1000, 0, tall, box);
+    expect(a.u).toBeCloseTo(100 / 400);
+    const b = panInCell(rel(2), -10000, 10000, tall, box);
+    expect(b.u).toBeCloseTo(0.75);
+    expect(b.v).toBeCloseTo(0.25);
+    const c = panInCell(rel(2), 10000, -10000, tall, box);
+    expect(c.u).toBeCloseTo(0.25);
+    expect(c.v).toBeCloseTo(0.75);
+  });
+
+  it("图不大于格的方向夹在 [0,1]", () => {
+    // 宽图 k=2：显示 400×266.7，竖向比格小。
+    expect(panInCell(rel(2), 0, 10000, wide, box).v).toBe(0);
+    expect(panInCell(rel(2), 0, -10000, wide, box).v).toBe(1);
   });
 });
 
