@@ -11,6 +11,7 @@ import {
 import { wheelFactor, type Size } from "../../lib/viewport";
 import { useCompareUi } from "../../stores/compareUi";
 import { useNav } from "../../stores/nav";
+import { beginSortDrag, type SortDrag } from "./compareDragSort";
 
 /** 对比视图当前的布局：图片区尺寸（所有格相同）、已知尺寸且未缺失的格的图片尺寸、缺失集合。 */
 export interface CompareLayout {
@@ -65,7 +66,8 @@ function hitCell(target: EventTarget | null): Hit | null {
 }
 
 /**
- * 对比视图的交互：Ctrl / Cmd + 滚轮（含触控板捏合）缩放、放大后拖动平移、单击设焦点、双击打开单张、右键菜单。
+ * 对比视图的交互：Ctrl / Cmd + 滚轮（含触控板捏合）缩放、放大后拖动平移、没放大时拖动排序（compareDragSort）、
+ * 单击设焦点、双击打开单张、右键菜单。
  * 热路径：交互只改这里的 live 视口，一个 rAF 里遍历挂载中的格子写 transform；
  * 拖动结束或滚轮停下 150 ms 后写回 compareUi。store 的视口被别处改了（键盘、同步开关、进入）时以 store 为准。
  * 渲染时 CompareCell 按 store 的视口写同样格式的 transform：写回之后二者一致，写回之前 React 不会碰它（props 没变）。
@@ -176,7 +178,8 @@ export function useCompareViewport(scroller: HTMLElement | null, layout: Compare
       timer = setTimeout(commit, WHEEL_COMMIT_MS);
     };
 
-    // 按下：记下起点与所在格；该格已放大才平移。moved 是本次按下以来离起点最远的距离，供单击 / 双击判断
+    // 按下：记下起点与所在格；该格已放大是平移，否则（不带修饰键时）是排序。
+    // moved 是本次按下以来离起点最远的距离，供单击 / 双击判断
     let press: {
       pointerId: number;
       x: number;
@@ -186,13 +189,26 @@ export function useCompareViewport(scroller: HTMLElement | null, layout: Compare
       id: FileId;
       img: Size | null;
       pan: boolean;
+      /** 移动够远后可开始排序拖动 */
+      sortable: boolean;
+      sort: SortDrag | null;
     } | null = null;
     let moved = 0;
-    const endPress = () => {
+    const capture = (pointerId: number) => {
+      try {
+        scroller.setPointerCapture?.(pointerId);
+      } catch {
+        // 指针已失效：不捕获也能拖，抬起时照常结束
+      }
+    };
+    /** 结束本次按下；排序拖动按 accept 提交或取消。 */
+    const endPress = (accept = true) => {
       if (!press) return;
       const pid = press.pointerId;
       const panned = press.pan;
+      const sort = press.sort;
       press = null;
+      sort?.finish(accept);
       if (scroller.hasPointerCapture?.(pid)) scroller.releasePointerCapture(pid);
       if (panned) commit();
     };
@@ -205,14 +221,12 @@ export function useCompareViewport(scroller: HTMLElement | null, layout: Compare
       const { box, sizes } = layoutRef.current;
       const img = sizes.get(hit.id) ?? null;
       const pan = img !== null && box.w > 0 && box.h > 0 && isZoomed(vpOf(hit.id), img, box);
-      press = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, id: hit.id, img, pan };
-      if (pan) {
-        try {
-          scroller.setPointerCapture?.(e.pointerId);
-        } catch {
-          // 指针已失效：不捕获也能拖，抬起时照常结束
-        }
-      }
+      const sortable = !pan && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+      press = {
+        pointerId: e.pointerId, x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY,
+        id: hit.id, img, pan, sortable, sort: null,
+      };
+      if (pan) capture(e.pointerId);
     };
     const onPointerMove = (e: PointerEvent) => {
       if (!press || e.pointerId !== press.pointerId) return;
@@ -221,8 +235,19 @@ export function useCompareViewport(scroller: HTMLElement | null, layout: Compare
         return;
       }
       moved = Math.max(moved, Math.hypot(e.clientX - press.x, e.clientY - press.y));
-      // 没放大时拖动不做事（V0.2-B 留给拖动排序）；移动够远才开始平移，免得单击时抖一下
-      if (!press.pan || !press.img || moved < CLICK_SLOP) return;
+      // 移动够远才开始平移或排序，免得单击时抖一下
+      if (moved < CLICK_SLOP) return;
+      if (!press.pan) {
+        if (!press.sort && press.sortable) {
+          press.sortable = false;
+          press.sort = beginSortDrag(scroller, press.id, press.x, press.y);
+          // 排序开始后才捕获：拖出滚动区（含窗口外）后松开仍按最后的目标提交；单击不受捕获影响
+          if (press.sort) capture(press.pointerId);
+        }
+        press.sort?.move(e.clientX, e.clientY);
+        return;
+      }
+      if (!press.img) return;
       const dx = e.clientX - press.lastX;
       const dy = e.clientY - press.lastY;
       press.lastX = e.clientX;
@@ -233,8 +258,11 @@ export function useCompareViewport(scroller: HTMLElement | null, layout: Compare
     };
     const onPointerEnd = (e: PointerEvent) => {
       if (!press || e.pointerId !== press.pointerId) return;
-      if (e.type === "pointerup") moved = Math.max(moved, Math.hypot(e.clientX - press.x, e.clientY - press.y));
-      endPress();
+      if (e.type === "pointerup") {
+        moved = Math.max(moved, Math.hypot(e.clientX - press.x, e.clientY - press.y));
+        press.sort?.move(e.clientX, e.clientY);
+      }
+      endPress(e.type !== "pointercancel");
     };
 
     const onClick = (e: MouseEvent) => {
@@ -270,6 +298,7 @@ export function useCompareViewport(scroller: HTMLElement | null, layout: Compare
     scroller.addEventListener("dblclick", onDblClick);
     scroller.addEventListener("contextmenu", onContextMenu);
     return () => {
+      endPress(false);
       commit();
       if (frame !== 0) cancelAnimationFrame(frame);
       frame = 0;

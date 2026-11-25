@@ -457,7 +457,7 @@ describe("CompareView", () => {
       expect(useCompareUi.getState().focus).toBe(2);
     });
 
-    it("没放大的格里拖动不做事", () => {
+    it("没放大的格里拖动不平移：视口与图片 transform 不变", () => {
       const { container } = render(<CompareView />);
       const pic1 = cell(container, 1).querySelector<HTMLImageElement>(".compare-pic")!;
       const before = pic1.style.transform;
@@ -470,6 +470,167 @@ describe("CompareView", () => {
       raf.flush();
       expect(useCompareUi.getState().viewport).toBe(vp0);
       expect(pic1.style.transform).toBe(before);
+    });
+  });
+
+  describe("拖动排序", () => {
+    // 4 列，格子 100×160，间隙 10，网格左上角 (16, 16)；滚动区 (0, 0)–(500, 300)（与 fakeBox 的 clientHeight 一致）
+    const PITCH_X = 110;
+    const PITCH_Y = 170;
+    let restoreBox = () => {};
+    let raf: ReturnType<typeof fakeRaf>;
+    let rectDesc: PropertyDescriptor;
+    beforeEach(() => {
+      restoreBox = fakeBox();
+      raf = fakeRaf();
+      rectDesc = Object.getOwnPropertyDescriptor(Element.prototype, "getBoundingClientRect")!;
+      Object.defineProperty(Element.prototype, "getBoundingClientRect", {
+        configurable: true,
+        value(this: Element) {
+          const rect = (x: number, y: number, w: number, h: number) =>
+            ({ left: x, top: y, right: x + w, bottom: y + h, width: w, height: h, x, y, toJSON() {} }) as DOMRect;
+          if (this.classList.contains("compare-scroller")) return rect(0, 0, 500, 300);
+          if (this.classList.contains("compare-cell")) {
+            const scroller = this.closest<HTMLElement>(".compare-scroller")!;
+            const i = [...this.parentElement!.children].indexOf(this);
+            return rect(16 + (i % 4) * PITCH_X, 16 + Math.floor(i / 4) * PITCH_Y - scroller.scrollTop, 100, 160);
+          }
+          return rect(0, 0, 0, 0);
+        },
+      });
+    });
+    afterEach(() => {
+      Object.defineProperty(Element.prototype, "getBoundingClientRect", rectDesc);
+      raf.restore();
+      restoreBox();
+    });
+
+    const pic = (c: HTMLElement, id: FileId) => cell(c, id).querySelector(".compare-img")!;
+    const at = (i: number) => ({ x: 16 + (i % 4) * PITCH_X + 50, y: 16 + Math.floor(i / 4) * PITCH_Y + 80 });
+    const down = (el: Element, p: { x: number; y: number }, mods: Record<string, boolean> = {}) =>
+      fireEvent.pointerDown(el, { button: 0, buttons: 1, pointerId: 1, clientX: p.x, clientY: p.y, ...mods });
+    const move = (el: Element, p: { x: number; y: number }) =>
+      fireEvent.pointerMove(el, { button: 0, buttons: 1, pointerId: 1, clientX: p.x, clientY: p.y });
+    const up = (el: Element, p: { x: number; y: number }) =>
+      act(() => {
+        fireEvent.pointerUp(el, { button: 0, buttons: 0, pointerId: 1, clientX: p.x, clientY: p.y });
+      });
+    const transforms = (c: HTMLElement) => [...cells(c)].map((e) => (e as HTMLElement).style.transform);
+    /** transform 里的平移量（jsdom 会把 translate(x, 0px) 规整成 translate(x)）。 */
+    const shift = (el: HTMLElement) => {
+      const m = /^translate\((-?[\d.]+)px(?:, (-?[\d.]+)px)?\)$/.exec(el.style.transform);
+      return m ? [Number(m[1]), Number(m[2] ?? 0)] : null;
+    };
+
+    it("drag reorders unzoomed cells：拖动中写 transform 预览，松开后 order 变为 [2,3,1]、焦点落在被拖的格", () => {
+      const { container } = render(<CompareView />);
+      const el = pic(container, 1);
+      down(el, at(0));
+      move(el, { x: at(0).x + 10, y: at(0).y });
+      move(el, at(2));
+      raf.flush();
+      // 被拖的格跟着指针，其余两格各让一位；store 不变
+      expect(useBasket.getState().order).toEqual([1, 2, 3]);
+      expect(shift(cell(container, 1))).toEqual([2 * PITCH_X, 0]);
+      expect(shift(cell(container, 2))).toEqual([-PITCH_X, 0]);
+      expect(shift(cell(container, 3))).toEqual([-PITCH_X, 0]);
+      expect(cell(container, 1).classList.contains("is-dragging")).toBe(true);
+      up(el, at(2));
+      expect(useBasket.getState().order).toEqual([2, 3, 1]);
+      expect(useCompareUi.getState().focus).toBe(1);
+      expect(transforms(container)).toEqual(["", "", ""]);
+      expect(container.querySelector(".is-dragging, .is-sorting")).toBeNull();
+      // 拖动之后的 click / dblclick 不算
+      fireEvent.click(pic(container, 3));
+      fireEvent.doubleClick(pic(container, 3));
+      expect(useCompareUi.getState().focus).toBe(1);
+      expect(topView().kind).toBe("compare");
+    });
+
+    it("拖到最后一格之后的空槽：移到末尾", () => {
+      const { container } = render(<CompareView />);
+      const el = pic(container, 1);
+      down(el, at(0));
+      move(el, at(3));
+      up(el, at(3));
+      expect(useBasket.getState().order).toEqual([2, 3, 1]);
+    });
+
+    it("zoomed cell drags pan, not sort", () => {
+      const { container } = render(<CompareView />);
+      act(() => useCompareUi.setState({ viewport: { scale: { kind: "rel", k: 2 }, u: 0.5, v: 0.5 } }));
+      const el = pic(container, 1);
+      down(el, at(0));
+      move(el, at(2));
+      raf.flush();
+      expect(transforms(container)).toEqual(["", "", ""]);
+      up(el, at(2));
+      expect(useBasket.getState().order).toEqual([1, 2, 3]);
+      expect(useCompareUi.getState().viewport.u).not.toBe(0.5);
+    });
+
+    it("escape cancels drag：格子回原位，Esc 不再传给命令表", () => {
+      const { container } = render(<CompareView />);
+      const later = vi.fn();
+      window.addEventListener("keydown", later);
+      try {
+        const el = pic(container, 1);
+        down(el, at(0));
+        move(el, at(2));
+        raf.flush();
+        const notPrevented = fireEvent.keyDown(window, { key: "Escape" });
+        expect(notPrevented).toBe(false);
+        expect(later).not.toHaveBeenCalled();
+        expect(transforms(container)).toEqual(["", "", ""]);
+        expect(container.querySelector(".is-dragging, .is-sorting")).toBeNull();
+        up(el, at(2));
+        expect(useBasket.getState().order).toEqual([1, 2, 3]);
+        // 拖动结束后 Esc 照常往下传
+        fireEvent.keyDown(window, { key: "Escape" });
+        expect(later).toHaveBeenCalledTimes(1);
+      } finally {
+        window.removeEventListener("keydown", later);
+      }
+    });
+
+    it("modifier press does not start drag", () => {
+      for (const mod of ["metaKey", "ctrlKey", "shiftKey", "altKey"]) {
+        const { container, unmount } = render(<CompareView />);
+        const el = pic(container, 1);
+        down(el, at(0), { [mod]: true });
+        move(el, at(2));
+        raf.flush();
+        expect(transforms(container)).toEqual(["", "", ""]);
+        up(el, at(2));
+        expect(useBasket.getState().order).toEqual([1, 2, 3]);
+        unmount();
+      }
+    });
+
+    it("边缘自动滚动：滚动后按新位置重算目标", () => {
+      useBasket.setState({
+        order: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        items: new Map([...ITEMS, ...[4, 5, 6, 7, 8, 9].map((id) => item(id, `${id}.png`, 1024, 1536))].map((i) => [i.id, i])),
+        missing: new Set(),
+      });
+      vi.mocked(api.basketCheck).mockReturnValue(new Promise(() => {}));
+      const { container } = render(<CompareView />);
+      const scroller = container.querySelector<HTMLElement>(".compare-scroller")!;
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => 2000 });
+      const el = pic(container, 1);
+      down(el, at(0));
+      // 指针贴近底边（第 2 行第 1 格的位置）：自动向下滚
+      const edge = { x: at(0).x, y: 298 };
+      move(el, edge);
+      raf.flush();
+      expect(scroller.scrollTop).toBeGreaterThan(0);
+      // 第一帧目标是第 2 行第 1 格（下标 4）：原在下标 4 的那格让到下标 3
+      expect(shift(cell(container, 5))).toEqual([3 * PITCH_X, -PITCH_Y]);
+      for (let i = 0; i < 20; i++) raf.flush();
+      // 滚过约一行半后指针落在第 3 行之后的空槽 → 末尾；松开不需要再动鼠标
+      expect(scroller.scrollTop).toBeGreaterThan(PITCH_Y + 60);
+      up(el, edge);
+      expect(useBasket.getState().order).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 1]);
     });
   });
 });

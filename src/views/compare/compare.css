@@ -136,6 +136,20 @@
   box-shadow: 0 0 0 1px var(--accent);
 }
 
+/* 拖动排序：其余格以 150 ms 过渡让位；被拖的格跟随指针，半透明、略抬起，盖在其余格之上 */
+.compare-scroller.is-sorting {
+  cursor: grabbing;
+  user-select: none;
+}
+.compare-scroller.is-sorting .compare-cell { transition: transform 150ms ease; }
+.compare-cell.is-dragging {
+  position: relative;
+  z-index: 2;
+  opacity: 0.8;
+}
+.compare-scroller.is-sorting .compare-cell.is-dragging { transition: none; }
+.compare-cell.is-dragging .compare-img { box-shadow: var(--shadow); }
+
 /* 两层图叠在一起：缩略图垫底，原图到达后盖住它 */
 .compare-pic {
   position: absolute;
@@ -200,3 +214,5 @@
 }
 .compare-cell:hover .compare-remove,
 .compare-cell.is-focus .compare-remove { display: flex; }
+/* 拖动排序中不显示移出按钮（写在悬停规则之后才盖得住） */
+.compare-scroller.is-sorting .compare-remove { display: none; }
