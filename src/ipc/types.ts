@@ -56,7 +56,7 @@ export interface ImageDetails {
 
 export type FsErrorCode = "notFound" | "exists" | "invalidName" | "readOnly" | "diskFull" | "denied"
   | "restoreDenied" | "notInTrash" | "tooLarge" | "other";
-export type OpKind = "trash" | "rename" | "move" | "copy";
+export type OpKind = "trash" | "rename" | "move" | "copy" | "edit";
 /** 文件操作的结果。dest 是移动 / 复制的目标目录，只用于显示。 */
 export interface OpReport { kind: OpKind; done: FileId[]; failed: { id: FileId; code: FsErrorCode }[]; token: number | null; dest: string | null }
 export type Dest =
@@ -106,3 +106,23 @@ export interface RecentEntry {
 
 /** 拖出窗口的系统拖拽结束结果。 */
 export type DragEnd = "dropped" | "cancelled";
+
+// ---- 编辑（压缩与转格式）----
+export type SrcFormat = "png" | "jpeg" | "webp" | "gif" | "bmp";
+export type OutFormat = "png" | "jpeg" | "webp";
+export type PngMode = "lossy" | "lossless";
+export type EditTab = "compress" | "convert";
+export type EditError = "notFound" | "animated" | "tooLarge" | "decode" | "unsupported" | "noSession" | "encode";
+export type EditParams =
+  | { op: "compress"; quality: number; maxEdge: number | null; pngMode: PngMode }
+  | { op: "convert"; format: OutFormat; quality: number; fill: [number, number, number] };
+export interface EditOpened {
+  session: number; width: number; height: number; proxyW: number; proxyH: number;
+  srcFormat: SrcFormat; hasAlpha: boolean; fileSize: number;
+}
+export interface PreviewResult { rev: number; bytes: number; approx: boolean; format: OutFormat; width: number; height: number }
+export type SaveMode = { kind: "copy" } | { kind: "overwrite" } | { kind: "saveAs"; path: string };
+export interface SaveReport { id: FileId; name: string; bytes: number; token: number | null; outside: boolean }
+export interface CompressMemory { quality: number; maxEdgeOn: boolean; maxEdge: number; pngMode: PngMode }
+export interface ConvertMemory { format: OutFormat; quality: number; fill: [number, number, number] }
+export interface EditParamsMemory { tab: EditTab; compress: CompressMemory; convert: ConvertMemory }

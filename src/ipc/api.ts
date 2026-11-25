@@ -1,8 +1,15 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
+import { glanceUrl } from "../lib/glanceUrl";
 import type { SortKey } from "../lib/deriveList";
 import type {
+  EditOpened,
+  EditParams,
+  EditParamsMemory,
+  PreviewResult,
+  SaveMode,
+  SaveReport,
   CatalogEvent,
   Conflict,
   Dest,
@@ -164,4 +171,36 @@ export function updateInstall(): Promise<void> {
 /** 当前应用版本号。 */
 export function appVersion(): Promise<string> {
   return getVersion();
+}
+
+/** 打开编辑会话；动图等不可编辑的拒绝为 EditError 字符串。 */
+export function editOpen(id: FileId): Promise<EditOpened> {
+  return invoke<EditOpened>("edit_open", { id });
+}
+
+/** 请求一次预览；被更新的请求取代或会话已关时为 null。 */
+export function editPreview(session: number, rev: number, params: EditParams, full: boolean): Promise<PreviewResult | null> {
+  return invoke<PreviewResult | null>("edit_preview", { session, rev, params, full });
+}
+
+export function editClose(session: number): Promise<void> {
+  return invoke<void>("edit_close", { session });
+}
+
+/** 保存编辑结果；另存的路径来自系统存储对话框，原样传入。 */
+export function editSave(session: number, params: EditParams, mode: SaveMode): Promise<SaveReport> {
+  return invoke<SaveReport>("edit_save", { session, params, mode });
+}
+
+export function editParamsGet(): Promise<EditParamsMemory> {
+  return invoke<EditParamsMemory>("edit_params_get");
+}
+
+export function editParamsSet(p: EditParamsMemory): Promise<void> {
+  return invoke<void>("edit_params_set", { p });
+}
+
+/** 预览结果的图片地址（只含会话号与版本号）。 */
+export function editResultUrl(session: number, rev: number): string {
+  return glanceUrl(`edit/${session}/${rev}`);
 }
