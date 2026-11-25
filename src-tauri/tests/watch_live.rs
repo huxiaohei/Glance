@@ -25,7 +25,7 @@ fn png() -> Vec<u8> {
         width: 1,
         height: 1,
         data: &data,
-    })
+    }, None)
     .unwrap()
 }
 

@@ -57,7 +57,7 @@ fn scaled_preview(thumb: &[u8]) -> Result<Vec<u8>, ImagingError> {
         width: d.width,
         height: d.height,
         data: &d.rgba,
-    })
+    }, None)
 }
 
 const FALLBACK_EDGE: u32 = 64;
@@ -68,7 +68,7 @@ fn plain_square() -> Vec<u8> {
         width: FALLBACK_EDGE,
         height: FALLBACK_EDGE,
         data: &data,
-    })
+    }, None)
     .expect("固定尺寸的纯色方块一定能编码")
 }
 
@@ -158,7 +158,7 @@ mod tests {
             width: w,
             height: h,
             data: &data,
-        })
+        }, None)
         .unwrap();
         make_thumbnail(&png, 320).unwrap().webp
     }

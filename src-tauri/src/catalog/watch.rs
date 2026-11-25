@@ -398,7 +398,7 @@ mod tests {
             width: w,
             height: h,
             data: &data,
-        })
+        }, None)
         .unwrap()
     }
 

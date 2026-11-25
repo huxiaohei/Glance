@@ -115,7 +115,7 @@ mod tests {
             width: w,
             height: h,
             data: &data,
-        })
+        }, None)
         .unwrap();
         std::fs::write(path, png).unwrap();
     }

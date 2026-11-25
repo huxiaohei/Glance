@@ -184,7 +184,7 @@ mod tests {
             width: w,
             height: h,
             data: &data,
-        })
+        }, None)
         .unwrap();
         std::fs::write(path, png).unwrap();
     }
@@ -257,7 +257,7 @@ mod tests {
                 width: w,
                 height: h,
                 data: &data,
-            })
+            }, None)
             .unwrap()
         };
         std::fs::write(&img, bigger).unwrap();
@@ -295,7 +295,7 @@ mod tests {
             width: w,
             height: 10,
             data: &data,
-        })
+        }, None)
         .unwrap();
         bytes.extend(std::iter::repeat_n(0u8, pad));
         bytes

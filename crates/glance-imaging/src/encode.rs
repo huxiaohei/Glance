@@ -1,8 +1,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
-
 use crate::error::ImagingError;
+use crate::quantize::quantize;
 
 /// 8 位 RGBA，行优先，长度必须等于 width * height * 4。
 pub struct RgbaView<'a> {
@@ -39,7 +38,13 @@ fn encode_err(e: impl std::fmt::Display) -> ImagingError {
 }
 
 /// JPEG 没有透明通道：按 fill 颜色铺底后编码。
-pub fn encode_jpeg(img: RgbaView, quality: u8, fill: [u8; 3]) -> Result<Vec<u8>, ImagingError> {
+/// icc 非空时写入 ICC 配置文件（APP2 标记）。
+pub fn encode_jpeg(
+    img: RgbaView,
+    quality: u8,
+    fill: [u8; 3],
+    icc: Option<&[u8]>,
+) -> Result<Vec<u8>, ImagingError> {
     validate(&img)?;
     validate_quality(quality)?;
 
@@ -59,6 +64,20 @@ pub fn encode_jpeg(img: RgbaView, quality: u8, fill: [u8; 3]) -> Result<Vec<u8>,
         comp.set_size(img.width as usize, img.height as usize);
         comp.set_quality(f32::from(quality));
         let mut started = comp.start_compress(Vec::new())?;
+        if let Some(icc) = icc.filter(|p| !p.is_empty()) {
+            // 自己写 APP2：mozjpeg::write_icc_profile 的分块序号从 0 起，
+            // 而 ICC 规范（及 zune-jpeg 等解码器）要求从 1 起，读不回来。
+            const MAX_DATA_PER_MARKER: usize = 65533 - 14;
+            let chunks = icc.chunks(MAX_DATA_PER_MARKER);
+            let total = chunks.len() as u8;
+            for (i, chunk) in chunks.enumerate() {
+                let mut buf = Vec::with_capacity(chunk.len() + 14);
+                buf.extend_from_slice(b"ICC_PROFILE\0");
+                buf.extend([i as u8 + 1, total]);
+                buf.extend_from_slice(chunk);
+                started.write_marker(mozjpeg::Marker::APP(2), &buf);
+            }
+        }
         started.write_scanlines(&rgb)?;
         started.finish()
     }))
@@ -77,12 +96,214 @@ pub fn encode_webp(img: RgbaView, quality: u8) -> Result<Vec<u8>, ImagingError> 
     Ok(mem.to_vec())
 }
 
-/// 无损：先用 image 编成 PNG，再过 oxipng（预设等级 2）。
-pub fn encode_png_lossless(img: RgbaView) -> Result<Vec<u8>, ImagingError> {
+/// 无损：走 oxipng 的 RawImage（预设等级 2）；icc 非空时写入 iCCP。
+pub fn encode_png_lossless(img: RgbaView, icc: Option<&[u8]>) -> Result<Vec<u8>, ImagingError> {
     validate(&img)?;
-    let mut png = Vec::new();
-    PngEncoder::new(&mut png)
-        .write_image(img.data, img.width, img.height, ExtendedColorType::Rgba8)
-        .map_err(encode_err)?;
-    oxipng::optimize_from_memory(&png, &oxipng::Options::from_preset(2)).map_err(encode_err)
+    let mut raw = oxipng::RawImage::new(
+        img.width,
+        img.height,
+        oxipng::ColorType::RGBA,
+        oxipng::BitDepth::Eight,
+        img.data.to_vec(),
+    )
+    .map_err(encode_err)?;
+    add_icc(&mut raw, icc);
+    raw.create_optimized_png(&oxipng::Options::from_preset(2))
+        .map_err(encode_err)
+}
+
+/// 有损：先减色成索引图（保留透明通道），再走 oxipng 输出索引 PNG。
+/// 质量 1..=100 映射到颜色数 18..=256 与采样因子 30..=10。
+pub fn encode_png_lossy(
+    img: RgbaView,
+    quality: u8,
+    icc: Option<&[u8]>,
+) -> Result<Vec<u8>, ImagingError> {
+    validate(&img)?;
+    validate_quality(quality)?;
+    let colors = 16 + (u16::from(quality) * 240) / 100;
+    let sample = (30 - i32::from(quality) / 5).clamp(1, 30);
+    let (palette, indices) = quantize(
+        RgbaView {
+            width: img.width,
+            height: img.height,
+            data: img.data,
+        },
+        colors,
+        sample,
+    );
+    let palette = palette
+        .into_iter()
+        .map(|[r, g, b, a]| oxipng::RGBA8::new(r, g, b, a))
+        .collect();
+    let mut raw = oxipng::RawImage::new(
+        img.width,
+        img.height,
+        oxipng::ColorType::Indexed { palette },
+        oxipng::BitDepth::Eight,
+        indices,
+    )
+    .map_err(encode_err)?;
+    add_icc(&mut raw, icc);
+    raw.create_optimized_png(&oxipng::Options::from_preset(2))
+        .map_err(encode_err)
+}
+
+fn add_icc(raw: &mut oxipng::RawImage, icc: Option<&[u8]>) {
+    if let Some(icc) = icc.filter(|p| !p.is_empty()) {
+        raw.add_icc_profile(icc);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{ImageDecoder, ImageReader};
+    use std::io::Cursor;
+
+    fn noise_gradient(w: u32, h: u32) -> Vec<u8> {
+        let mut seed = 12345u32;
+        let mut d = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let n = (seed >> 24) as u8 / 8;
+                d.extend_from_slice(&[
+                    (x as u8).wrapping_add(n),
+                    (y as u8).wrapping_add(n),
+                    ((x + y) / 2) as u8,
+                    255,
+                ]);
+            }
+        }
+        d
+    }
+
+    fn view(w: u32, h: u32, d: &[u8]) -> RgbaView<'_> {
+        RgbaView {
+            width: w,
+            height: h,
+            data: d,
+        }
+    }
+
+    #[test]
+    fn lossy_png_keeps_alpha() {
+        let (w, h) = (64u32, 16u32);
+        let mut d = Vec::new();
+        for _ in 0..h {
+            for x in 0..w {
+                let a = if x < 31 {
+                    0
+                } else if x == 31 {
+                    128
+                } else {
+                    255
+                };
+                d.extend_from_slice(&[(x * 3) as u8, 40, 200, a]);
+            }
+        }
+        let png = encode_png_lossy(view(w, h, &d), 60, None).unwrap();
+        let img = image::load_from_memory(&png).unwrap().into_rgba8();
+        assert_eq!(img.get_pixel(5, 3)[3], 0);
+        assert!(
+            (112..=144).contains(&img.get_pixel(31, 3)[3]),
+            "alpha={}",
+            img.get_pixel(31, 3)[3]
+        );
+        assert_eq!(img.get_pixel(50, 3)[3], 255);
+    }
+
+    #[test]
+    fn lossy_png_many_colors_keeps_fully_transparent() {
+        let (w, h) = (128u32, 128u32);
+        let mut d = noise_gradient(w, h);
+        for px in d.chunks_exact_mut(4).take((w * h / 2) as usize) {
+            px[3] = 0;
+        }
+        let png = encode_png_lossy(view(w, h, &d), 50, None).unwrap();
+        let img = image::load_from_memory(&png).unwrap().into_rgba8();
+        assert!(img.pixels().take((w * h / 2) as usize).all(|p| p[3] == 0));
+        assert!(img.pixels().skip((w * h / 2) as usize).all(|p| p[3] == 255));
+    }
+
+    #[test]
+    fn lossy_png_smaller_than_lossless() {
+        let d = noise_gradient(256, 256);
+        let lossy = encode_png_lossy(view(256, 256, &d), 60, None).unwrap();
+        let lossless = encode_png_lossless(view(256, 256, &d), None).unwrap();
+        assert!(lossy.len() < lossless.len());
+    }
+
+    #[test]
+    fn lossy_quality_monotonic() {
+        let d = noise_gradient(256, 256);
+        let lo = encode_png_lossy(view(256, 256, &d), 20, None).unwrap();
+        let hi = encode_png_lossy(view(256, 256, &d), 90, None).unwrap();
+        assert!(lo.len() <= hi.len());
+    }
+
+    fn fake_icc() -> Vec<u8> {
+        let mut p = vec![7u8; 192];
+        p[0..4].copy_from_slice(&192u32.to_be_bytes());
+        p[36..40].copy_from_slice(b"acsp");
+        p
+    }
+
+    fn icc_of(bytes: &[u8]) -> Option<Vec<u8>> {
+        let mut dec = ImageReader::new(Cursor::new(bytes))
+            .with_guessed_format()
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        dec.icc_profile().unwrap()
+    }
+
+    #[test]
+    fn png_and_jpeg_keep_icc() {
+        let d = noise_gradient(32, 32);
+        let icc = fake_icc();
+        let lossless = encode_png_lossless(view(32, 32, &d), Some(&icc)).unwrap();
+        let lossy = encode_png_lossy(view(32, 32, &d), 60, Some(&icc)).unwrap();
+        let jpg = encode_jpeg(view(32, 32, &d), 80, [255; 3], Some(&icc)).unwrap();
+        assert_eq!(icc_of(&lossless).as_deref(), Some(icc.as_slice()));
+        assert_eq!(icc_of(&lossy).as_deref(), Some(icc.as_slice()));
+        assert_eq!(icc_of(&jpg).as_deref(), Some(icc.as_slice()));
+    }
+
+    #[test]
+    fn decode_rgba_icc_reads_profile() {
+        let d = noise_gradient(16, 16);
+        let icc = fake_icc();
+        let png = encode_png_lossless(view(16, 16, &d), Some(&icc)).unwrap();
+        let got = crate::decode_rgba_icc(&png, u64::MAX).unwrap();
+        assert_eq!(got.icc.as_deref(), Some(icc.as_slice()));
+        assert_eq!(got.decoded.rgba, d);
+        let plain = encode_png_lossless(view(16, 16, &d), None).unwrap();
+        assert!(
+            crate::decode_rgba_icc(&plain, u64::MAX)
+                .unwrap()
+                .icc
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn deterministic() {
+        let d = noise_gradient(64, 64);
+        let v = || view(64, 64, &d);
+        assert_eq!(
+            encode_png_lossy(v(), 60, None).unwrap(),
+            encode_png_lossy(v(), 60, None).unwrap()
+        );
+        assert_eq!(
+            encode_png_lossless(v(), None).unwrap(),
+            encode_png_lossless(v(), None).unwrap()
+        );
+        assert_eq!(
+            encode_jpeg(v(), 80, [255; 3], None).unwrap(),
+            encode_jpeg(v(), 80, [255; 3], None).unwrap()
+        );
+        assert_eq!(encode_webp(v(), 80).unwrap(), encode_webp(v(), 80).unwrap());
+    }
 }

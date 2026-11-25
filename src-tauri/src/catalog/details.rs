@@ -655,7 +655,7 @@ pub(crate) mod testimg {
                 data: &opaque(w, h),
             },
             90,
-            [0, 0, 0],
+            [0, 0, 0], None,
         )
         .unwrap()
     }
@@ -675,7 +675,7 @@ pub(crate) mod testimg {
             width: w,
             height: h,
             data: &opaque(w, h),
-        })
+        }, None)
         .unwrap()
     }
 
@@ -695,7 +695,7 @@ pub(crate) mod testimg {
             width: 32,
             height: 32,
             data: &data,
-        })
+        }, None)
         .unwrap()
     }
 

@@ -137,7 +137,7 @@ mod tests {
             width: 3,
             height: 2,
             data: &data,
-        })
+        }, None)
         .unwrap();
         std::fs::write(&p, png).unwrap();
         let id = registry.register(&p);

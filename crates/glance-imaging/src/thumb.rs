@@ -67,8 +67,36 @@ pub fn decode_rgba(bytes: &[u8], max_pixels: u64) -> Result<Decoded, ImagingErro
     })
 }
 
+/// 解码结果加上源文件内嵌的 ICC 配置文件（没有则为 None）。
+pub struct DecodedWithIcc {
+    pub decoded: Decoded,
+    pub icc: Option<Vec<u8>>,
+}
+
+/// 同 decode_rgba，另外取出内嵌 ICC。
+pub fn decode_rgba_icc(bytes: &[u8], max_pixels: u64) -> Result<DecodedWithIcc, ImagingError> {
+    let (img, icc) = decode_oriented_icc(bytes, max_pixels)?;
+    let src = img.into_rgba8();
+    let (width, height) = src.dimensions();
+    Ok(DecodedWithIcc {
+        decoded: Decoded {
+            width,
+            height,
+            rgba: src.into_raw(),
+        },
+        icc,
+    })
+}
+
 /// 先从文件头取尺寸，超过 max_pixels 就不再解码；再解码（动图取第一帧）并应用 EXIF 方向。
 fn decode_oriented(bytes: &[u8], max_pixels: u64) -> Result<DynamicImage, ImagingError> {
+    decode_oriented_icc(bytes, max_pixels).map(|(img, _)| img)
+}
+
+fn decode_oriented_icc(
+    bytes: &[u8],
+    max_pixels: u64,
+) -> Result<(DynamicImage, Option<Vec<u8>>), ImagingError> {
     let decode_err = |e: &dyn std::fmt::Display| ImagingError::Decode(e.to_string());
 
     let reader = ImageReader::new(Cursor::new(bytes))
@@ -80,9 +108,10 @@ fn decode_oriented(bytes: &[u8], max_pixels: u64) -> Result<DynamicImage, Imagin
         return Err(ImagingError::TooLarge);
     }
     let orientation = decoder.orientation().map_err(|e| decode_err(&e))?;
+    let icc = decoder.icc_profile().map_err(|e| decode_err(&e))?;
     let mut img = DynamicImage::from_decoder(decoder).map_err(|e| decode_err(&e))?;
     img.apply_orientation(orientation);
-    Ok(img)
+    Ok((img, icc))
 }
 
 /// 长边缩到 max_edge（不放大），另一边四舍五入且不小于 1。

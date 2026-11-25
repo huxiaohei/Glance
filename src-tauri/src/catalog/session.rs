@@ -277,7 +277,7 @@ mod tests {
 
     fn png(w: u32, h: u32) -> Vec<u8> {
         let data = vec![255u8; (w * h * 4) as usize];
-        encode_png_lossless(RgbaView { width: w, height: h, data: &data }).unwrap()
+        encode_png_lossless(RgbaView { width: w, height: h, data: &data }, None).unwrap()
     }
 
     /// 期望的根目录形式：非 Windows 上是规范路径（macOS 的临时目录在 /private/var 下）。

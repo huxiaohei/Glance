@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+color_quant = "1.1.0"
 # 只关掉默认特性会同时关掉 std，而它要求 std 与 no_std 二选一：都不开时 x86_64 上缺 cpufeatures，编译失败。
 fast_image_resize = { version = "6.2.0", default-features = false, features = ["std"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
