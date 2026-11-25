@@ -96,4 +96,26 @@ describe("basketPersist", () => {
     expect(api.basketSave).toHaveBeenCalledTimes(2);
     expect(api.basketSave).toHaveBeenLastCalledWith([1, 2, 3]);
   });
+  it("saves when items change without order change (rename)", async () => {
+    api.basketRestore.mockResolvedValue([rest(3)]);
+    stop = startBasketPersist();
+    await flush();
+    const items = new Map(useBasket.getState().items);
+    items.set(3, { ...items.get(3)!, name: "renamed.png" });
+    useBasket.setState({ items });
+    await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS);
+    expect(api.basketSave).toHaveBeenCalledTimes(1);
+    expect(api.basketSave).toHaveBeenCalledWith([3]);
+  });
+  it("saves an add made while restore was pending", async () => {
+    let resolve!: (v: RestoredItem[]) => void;
+    api.basketRestore.mockReturnValue(new Promise<RestoredItem[]>((r) => { resolve = r; }));
+    stop = startBasketPersist();
+    add(9);
+    resolve([rest(3)]);
+    await flush();
+    await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS);
+    expect(api.basketSave).toHaveBeenCalledTimes(1);
+    expect(api.basketSave).toHaveBeenCalledWith([3, 9]);
+  });
 });

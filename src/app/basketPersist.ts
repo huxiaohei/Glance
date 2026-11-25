@@ -4,7 +4,8 @@ import { useBasket } from "../stores/basket";
 export const SAVE_DEBOUNCE_MS = 500;
 
 /**
- * 启动时恢复对比篮，之后 order 变化去抖保存。
+ * 启动时恢复对比篮，之后 order 或 items 变化去抖保存（改名不换 id、顺序不变，
+ * 只有 items 变；后端保存时按 Registry 取当前路径）。
  * 任何时刻最多一个 basketSave 在途（后端各次保存在不同线程里，并发会乱序）；
  * 在途期间又有变化，等它结束后再发一次最新的顺序。
  */
@@ -43,7 +44,7 @@ export function startBasketPersist(): () => void {
       if (stopped) return;
       useBasket.getState().hydrate(items);
       unsubscribe = useBasket.subscribe((state, prev) => {
-        if (state.order !== prev.order) schedule();
+        if (state.order !== prev.order || state.items !== prev.items) schedule();
       });
       // 恢复期间用户已加入的图：合并后的顺序也要存
       if (useBasket.getState().order.length !== new Set(items.map((i) => i.id)).size) schedule();
