@@ -318,4 +318,85 @@ describe("CompareView", () => {
     expect(fireEvent.wheel(cell(container, 1).querySelector(".compare-img")!, { deltaY: 100 })).toBe(true);
     expect(useCompareUi.getState().viewport).toBe(vp0);
   });
+
+  describe("拖动平移", () => {
+    let restoreBox = () => {};
+    let raf: ReturnType<typeof fakeRaf>;
+    beforeEach(() => {
+      restoreBox = fakeBox();
+      raf = fakeRaf();
+      useThumbs.getState().markReady([{ id: 1, v: "1-101" }, { id: 2, v: "1-102" }], 640);
+    });
+    afterEach(() => {
+      raf.restore();
+      restoreBox();
+    });
+
+    const down = (el: Element, x: number, y: number) =>
+      fireEvent.pointerDown(el, { button: 0, buttons: 1, pointerId: 1, clientX: x, clientY: y });
+    const move = (el: Element, x: number, y: number) =>
+      fireEvent.pointerMove(el, { button: 0, buttons: 1, pointerId: 1, clientX: x, clientY: y });
+    const up = (el: Element, x: number, y: number) =>
+      fireEvent.pointerUp(el, { button: 0, buttons: 0, pointerId: 1, clientX: x, clientY: y });
+
+    it("放大的格里拖动：rAF 后 transform 改变，抬起时写回 compareUi", () => {
+      const { container } = render(<CompareView />);
+      const zoomed = { scale: { kind: "rel" as const, k: 2 }, u: 0.5, v: 0.5 };
+      act(() => useCompareUi.setState({ viewport: zoomed }));
+      raf.flush();
+      const pic1 = cell(container, 1).querySelector<HTMLImageElement>(".compare-pic")!;
+      const pic2 = cell(container, 2).querySelector<HTMLImageElement>(".compare-pic")!;
+      const before1 = pic1.style.transform;
+      const before2 = pic2.style.transform;
+      down(pic1, 100, 150);
+      move(pic1, 80, 120);
+      expect(useCompareUi.getState().viewport).toBe(zoomed);
+      raf.flush();
+      expect(pic1.style.transform).not.toBe(before1);
+      expect(pic2.style.transform).not.toBe(before2);
+      expect(useCompareUi.getState().viewport).toBe(zoomed);
+      act(() => {
+        up(pic1, 80, 120);
+      });
+      const vp = useCompareUi.getState().viewport;
+      expect(vp.scale).toEqual(zoomed.scale);
+      // 向左上拖：看到图的右下方
+      expect(vp.u).toBeGreaterThan(0.5);
+      expect(vp.v).toBeGreaterThan(0.5);
+      // 拖动之后的 click 不算单击：焦点不变
+      fireEvent.click(cell(container, 2).querySelector(".compare-img")!);
+      expect(useCompareUi.getState().focus).toBe(1);
+    });
+
+    it("移动不到 4 px 再抬起算单击：设焦点、不平移", () => {
+      const { container } = render(<CompareView />);
+      const zoomed = { scale: { kind: "rel" as const, k: 2 }, u: 0.5, v: 0.5 };
+      act(() => useCompareUi.setState({ viewport: zoomed }));
+      const pic2 = cell(container, 2).querySelector<HTMLImageElement>(".compare-pic")!;
+      down(pic2, 100, 150);
+      move(pic2, 102, 151);
+      act(() => {
+        up(pic2, 102, 151);
+      });
+      fireEvent.click(pic2);
+      raf.flush();
+      expect(useCompareUi.getState().viewport).toBe(zoomed);
+      expect(useCompareUi.getState().focus).toBe(2);
+    });
+
+    it("没放大的格里拖动不做事", () => {
+      const { container } = render(<CompareView />);
+      const pic1 = cell(container, 1).querySelector<HTMLImageElement>(".compare-pic")!;
+      const before = pic1.style.transform;
+      const vp0 = useCompareUi.getState().viewport;
+      down(pic1, 100, 150);
+      move(pic1, 40, 60);
+      act(() => {
+        up(pic1, 40, 60);
+      });
+      raf.flush();
+      expect(useCompareUi.getState().viewport).toBe(vp0);
+      expect(pic1.style.transform).toBe(before);
+    });
+  });
 });

@@ -1,6 +1,8 @@
 import { t } from "../i18n";
 import { fsRecentTargets } from "../ipc/api";
 import { lastSegment } from "../lib/lastSegment";
+import { useBasket } from "../stores/basket";
+import { useCompareUi } from "../stores/compareUi";
 import { topView } from "../stores/nav";
 import { allCommands } from "./commands";
 import { opTargets, pickAndTransfer, transferTo, transferToNewChild, type TransferKind } from "./fileOps";
@@ -13,8 +15,9 @@ export type MenuNode =
   | { kind: "submenu"; label: string; enabled: boolean; children: MenuNode[] };
 
 /** readOnly：不出改文件的项（重命名、移动到、复制到、删除），用于对比篮来源的单张视图。
- *  compare：对比视图，只有“移出对比”与复制图片 / 路径、在访达中显示（同样不出改文件的项）。 */
-export interface MenuCtx { view: "grid" | "single" | "compare"; count: number; recent: string[]; readOnly?: boolean }
+ *  compare：对比视图，只有“移出对比”与复制图片 / 路径、在访达中显示（同样不出改文件的项）。
+ *  removable：对比视图里焦点格在篮内（缺失也算）：count 为 0（焦点缺失）时仍出四项，只有“移出对比”可用。 */
+export interface MenuCtx { view: "grid" | "single" | "compare"; count: number; recent: string[]; readOnly?: boolean; removable?: boolean }
 
 /** 命令表里的一条命令做成菜单项：标签与快捷键取自命令表，点击即命令的 run。命令未注册时没有这一项。 */
 function commandItem(id: string, enabled: boolean): MenuNode[] {
@@ -51,11 +54,12 @@ function transferSubmenu(kind: TransferKind, recent: string[]): MenuNode {
 
 /** 当前视图与操作对象下的菜单。组之间有分隔线；没有操作对象时为空。 */
 export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
-  if (ctx.count === 0) return [];
+  const compare = ctx.view === "compare";
+  if (ctx.count === 0 && !(compare && ctx.removable)) return [];
   const single = ctx.count === 1;
   const groups: MenuNode[][] = [
     ctx.view === "grid" ? commandItem("grid.open", single) : [],
-    ctx.view === "compare" ? commandItem("compare.remove", true) : [],
+    compare ? commandItem("compare.remove", true) : [],
     ctx.readOnly || ctx.view === "compare" ? [] : [
       ...commandItem("file.rename", single),
       transferSubmenu("move", ctx.recent),
@@ -64,7 +68,7 @@ export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
     ],
     [
       ...commandItem("file.copyImage", single),
-      ...commandItem("file.copyPath", true),
+      ...commandItem("file.copyPath", ctx.count > 0),
       ...commandItem("file.reveal", single),
     ],
   ];
@@ -83,7 +87,9 @@ export async function showImageMenu(): Promise<void> {
   const kind = topView().kind;
   const view = kind === "single" || kind === "compare" ? kind : "grid";
   const recent = await fsRecentTargets().catch(() => [] as string[]);
-  const nodes = buildImageMenu({ view, count, recent, readOnly: singleSource() === "basket" });
+  const focus = useCompareUi.getState().focus;
+  const removable = view === "compare" && focus !== null && useBasket.getState().order.includes(focus);
+  const nodes = buildImageMenu({ view, count, recent, readOnly: singleSource() === "basket", removable });
   if (nodes.length === 0) return;
   try {
     await popup(nodes);

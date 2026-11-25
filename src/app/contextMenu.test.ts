@@ -69,6 +69,15 @@ describe("buildImageMenu", () => {
     expect((find(m, T("cmd.compare.remove")) as Item).accelerator).toBe("Delete");
   });
 
+  it("对比视图焦点格缺失：仍是四项，只有移出对比可用", () => {
+    const m = buildImageMenu({ view: "compare", count: 0, recent: [], removable: true });
+    expect(labels(m)).toEqual([T("cmd.compare.remove"), "-", T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]);
+    const enabled = (l: string) => (find(m, l) as Item).enabled;
+    expect(enabled(T("cmd.compare.remove"))).toBe(true);
+    for (const l of [T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]) expect(enabled(l)).toBe(false);
+    expect(buildImageMenu({ view: "compare", count: 0, recent: [] })).toEqual([]);
+  });
+
   it("没有操作对象时菜单为空", () => {
     expect(buildImageMenu({ view: "grid", count: 0, recent: [] })).toEqual([]);
   });
@@ -146,5 +155,21 @@ describe("showImageMenu", () => {
     await showImageMenu();
     const nodes = vi.mocked(popup).mock.calls[0][0];
     expect(labels(nodes)).toEqual([T("cmd.compare.remove"), "-", T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]);
+  });
+
+  it("对比视图里焦点格缺失时也弹出四项菜单", async () => {
+    const { useBasket } = await import("../stores/basket");
+    const { useCompareUi } = await import("../stores/compareUi");
+    useBasket.setState({ order: [5], items: new Map(), missing: new Set([5]) });
+    useCompareUi.setState({ focus: 5 });
+    useNav.getState().openCompare();
+    vi.mocked(opTargets).mockReturnValueOnce([]);
+    await showImageMenu();
+    const nodes = vi.mocked(popup).mock.calls[0][0];
+    expect(labels(nodes)).toEqual([T("cmd.compare.remove"), "-", T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac")]);
+    expect((find(nodes, T("cmd.compare.remove")) as Item).enabled).toBe(true);
+    expect((find(nodes, T("cmd.file.copyPath")) as Item).enabled).toBe(false);
+    useBasket.setState({ order: [], items: new Map(), missing: new Set() });
+    useCompareUi.setState({ focus: null });
   });
 });
