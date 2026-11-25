@@ -105,4 +105,53 @@ describe("basket store", () => {
     s = useBasket.getState();
     expect(s.missing.size).toBe(0);
   });
+  it("restore 带回缺失标记", () => {
+    load([1, 2]);
+    useBasket.getState().toggle([1, 2]);
+    useCatalog.getState().apply({ type: "removed", generation: 1, ids: [1] });
+    expect(useBasket.getState().missing.has(1)).toBe(true);
+    const snap = useBasket.getState().remove([1]);
+    expect(useBasket.getState().missing.has(1)).toBe(false);
+    useBasket.getState().restore(snap);
+    expect(useBasket.getState().missing.has(1)).toBe(true);
+    const snap2 = useBasket.getState().clear();
+    useBasket.getState().restore(snap2);
+    expect(useBasket.getState().missing.has(1)).toBe(true);
+  });
+  it("刷新同一目录：消失的条目在 done 时才标缺失", () => {
+    load([1, 2]);
+    useBasket.getState().toggle([1, 2]);
+    const c = useCatalog.getState();
+    c.begin(root(2), { keep: true });
+    c.apply({ type: "batch", generation: 2, entries: [w(2)] });
+    expect(useBasket.getState().missing.size).toBe(0);
+    c.apply({ type: "done", generation: 2, total: 1 });
+    expect([...useBasket.getState().missing]).toEqual([1]);
+  });
+  it("扫描中不标缺失，done 后才标", () => {
+    load([1, 2]);
+    useBasket.getState().toggle([1, 2]);
+    const c = useCatalog.getState();
+    c.begin(root(2), { keep: true });
+    expect(useCatalog.getState().scanning).toBe(true);
+    c.apply({ type: "removed", generation: 2, ids: [1] });
+    expect(useBasket.getState().missing.size).toBe(0);
+    c.apply({ type: "batch", generation: 2, entries: [w(2)] });
+    c.apply({ type: "done", generation: 2, total: 1 });
+    expect([...useBasket.getState().missing]).toEqual([1]);
+  });
+  it("回到原目录：条目重现则移出缺失并刷新快照", () => {
+    load([1, 2]);
+    useBasket.getState().toggle([1, 2]);
+    useCatalog.getState().apply({ type: "removed", generation: 1, ids: [1] });
+    expect(useBasket.getState().missing.has(1)).toBe(true);
+    load([5], "/other", 2);
+    const c = useCatalog.getState();
+    c.begin(root(3));
+    c.apply({ type: "batch", generation: 3, entries: [{ id: 1, relPath: "1.png", size: 9, mtimeMs: 7 }, w(2)] });
+    c.apply({ type: "done", generation: 3, total: 2 });
+    const s = useBasket.getState();
+    expect(s.missing.size).toBe(0);
+    expect(s.items.get(1)).toMatchObject({ size: 9, mtimeMs: 7 });
+  });
 });

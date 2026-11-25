@@ -8,7 +8,7 @@ import { showToast } from "./toast";
 
 export const BASKET_SOFT_LIMIT = 100;
 
-export interface BasketSnapshot { order: FileId[]; items: Map<FileId, BasketItem> }
+export interface BasketSnapshot { order: FileId[]; items: Map<FileId, BasketItem>; missing: Set<FileId> }
 
 export interface BasketState {
   order: FileId[];
@@ -60,7 +60,7 @@ export const useBasket: UseBoundStore<StoreApi<BasketState>> = create<BasketStat
     }),
 
   remove: (ids) => {
-    const before: BasketSnapshot = { order: get().order, items: get().items };
+    const before: BasketSnapshot = { order: get().order, items: get().items, missing: get().missing };
     set((s) => {
       const gone = new Set(ids);
       if (!s.order.some((id) => gone.has(id))) return s;
@@ -74,11 +74,13 @@ export const useBasket: UseBoundStore<StoreApi<BasketState>> = create<BasketStat
 
   restore: (snap) =>
     set((s) => {
-      return { order: [...snap.order], items: new Map(snap.items), missing: s.missing };
+      const missing = new Set(s.missing);
+      for (const id of snap.missing) missing.add(id);
+      return { order: [...snap.order], items: new Map(snap.items), missing };
     }),
 
   clear: () => {
-    const before: BasketSnapshot = { order: get().order, items: get().items };
+    const before: BasketSnapshot = { order: get().order, items: get().items, missing: get().missing };
     set((s) => (s.order.length === 0 ? s : { order: [], items: new Map(), missing: new Set() }));
     return before;
   },
