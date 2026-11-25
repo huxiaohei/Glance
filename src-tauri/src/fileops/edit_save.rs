@@ -1,7 +1,6 @@
 //! 编辑结果落盘：保存副本、覆盖原图、另存到别处。都先写同目录临时文件再不覆盖地改名，
 //! 任何失败都不留下临时文件；覆盖原图先把原图移进废纸篓，改名失败就放回原处。
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::fsx::{self, FsError};
@@ -105,8 +104,10 @@ fn overwrite(src: &Path, bytes: &[u8], out_ext: &str) -> Result<SaveOutcome, FsE
     }
     let tmp = fsx::write_temp(dir_of(src), bytes)?;
     // 新文件沿用原文件的权限（私有的 0600 图片不能因覆盖变成 0644）；读不到就保持默认。
-    if let Ok(meta) = fs::metadata(src) {
-        let _ = fs::set_permissions(&tmp, meta.permissions());
+    // 只在 Unix 上做：Windows 上权限只有只读属性，抄过来会让失败时删不掉临时文件。
+    #[cfg(unix)]
+    if let Ok(meta) = std::fs::metadata(src) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
     }
     let handle = match trash::move_to_trash(src) {
         Ok(h) => h,
