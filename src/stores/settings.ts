@@ -13,6 +13,9 @@ export const DEFAULT_SETTINGS: Settings = {
   loopAtEnd: false,
   wheel: "zoom",
   checkUpdates: true,
+  compareColumns: 4,
+  compareSyncOnEnter: true,
+  compareBackground: "dark",
 };
 
 export const useSettings = create<{ settings: Settings; open: boolean }>(() => ({

@@ -63,6 +63,8 @@ export interface UndoReport { kind: OpKind | null; done: number; failed: UndoFai
 export type Theme = "dark" | "light" | "system";
 export type Language = "system" | "zh-CN" | "en";
 export type WheelAction = "zoom" | "switch";
+export type CompareBackground = "dark" | "light" | "checker";
+
 export interface Settings {
   theme: Theme;
   language: Language;
@@ -71,6 +73,10 @@ export interface Settings {
   loopAtEnd: boolean;
   wheel: WheelAction;
   checkUpdates: boolean;
+  /** 对比视图每排张数，2 到 8 */
+  compareColumns: number;
+  compareSyncOnEnter: boolean;
+  compareBackground: CompareBackground;
 }
 
 /** 最近目录的一项。path 只用于显示和原样传回 open_path / recents_pin / recents_remove（“前端只见 FileId”的明确例外）。

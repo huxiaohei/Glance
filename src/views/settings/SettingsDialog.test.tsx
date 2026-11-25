@@ -61,7 +61,7 @@ describe("SettingsDialog", () => {
 
   it("各控件显示当前设置的值", () => {
     useSettings.setState({
-      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch", checkUpdates: true },
+      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch", checkUpdates: true, compareColumns: 3, compareSyncOnEnter: false, compareBackground: "dark" },
     });
     render(<SettingsDialog />);
     expect(control("settings.theme").value).toBe("light");
@@ -70,6 +70,8 @@ describe("SettingsDialog", () => {
     expect(control("settings.defaultSort").value).toBe("size");
     expect(control("settings.loopAtEnd").checked).toBe(true);
     expect(control("settings.wheel").value).toBe("switch");
+    expect(control("settings.compareColumns").value).toBe("3");
+    expect(control("settings.compareSyncOnEnter").checked).toBe(false);
   });
 
   it("改主题下拉框调用 updateSettings({ theme: 'light' })", () => {
@@ -119,5 +121,19 @@ describe("SettingsDialog", () => {
     render(<SettingsDialog />);
     fireEvent.click(control("settings.checkUpdates"));
     expect(updateSettings).toHaveBeenCalledWith({ checkUpdates: false });
+  });
+
+  it("改每排张数调用 updateSettings({ compareColumns: 6 })，选项为 2 到 8", () => {
+    render(<SettingsDialog />);
+    const sel = control("settings.compareColumns");
+    expect([...sel.options].map((o) => o.value)).toEqual(["2", "3", "4", "5", "6", "7", "8"]);
+    fireEvent.change(sel, { target: { value: "6" } });
+    expect(updateSettings).toHaveBeenCalledWith({ compareColumns: 6 });
+  });
+
+  it("勾掉“进入对比时开启同步缩放”保存 compareSyncOnEnter: false", () => {
+    render(<SettingsDialog />);
+    fireEvent.click(control("settings.compareSyncOnEnter"));
+    expect(updateSettings).toHaveBeenCalledWith({ compareSyncOnEnter: false });
   });
 });

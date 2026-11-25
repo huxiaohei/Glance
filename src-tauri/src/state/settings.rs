@@ -42,6 +42,28 @@ pub enum WheelAction {
     Switch,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CompareBackground {
+    #[default]
+    Dark,
+    Light,
+    Checker,
+}
+
+pub const COMPARE_COLUMNS_MIN: u8 = 2;
+pub const COMPARE_COLUMNS_MAX: u8 = 8;
+
+impl Settings {
+    /// 把越界的值夹回合法范围。
+    fn clamped(mut self) -> Self {
+        self.compare_columns = self
+            .compare_columns
+            .clamp(COMPARE_COLUMNS_MIN, COMPARE_COLUMNS_MAX);
+        self
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -53,6 +75,11 @@ pub struct Settings {
     pub wheel: WheelAction,
     /// 启动时检查更新（仅正式构建）。
     pub check_updates: bool,
+    /// 对比视图每排张数，2..=8。
+    pub compare_columns: u8,
+    /// 进入对比时是否开启同步缩放。
+    pub compare_sync_on_enter: bool,
+    pub compare_background: CompareBackground,
 }
 
 impl Default for Settings {
@@ -65,6 +92,9 @@ impl Default for Settings {
             loop_at_end: false,
             wheel: WheelAction::Zoom,
             check_updates: true,
+            compare_columns: 4,
+            compare_sync_on_enter: true,
+            compare_background: CompareBackground::Dark,
         }
     }
 }
@@ -77,7 +107,7 @@ pub struct SettingsState {
 impl SettingsState {
     pub fn load(config_dir: &Path) -> Self {
         let path = config_dir.join("settings.json");
-        let current = Mutex::new(store::load(&path));
+        let current = Mutex::new(store::load::<Settings>(&path).clamped());
         Self { path, current }
     }
 
@@ -90,6 +120,7 @@ impl SettingsState {
 
     /// 持锁写盘再换内存值：并发调用串行化；写盘失败时内存值不变。
     pub fn set(&self, next: Settings) -> std::io::Result<()> {
+        let next = next.clamped();
         let mut cur = self.current.lock().unwrap_or_else(|e| e.into_inner());
         store::save(&self.path, &next)?;
         *cur = next;
@@ -178,7 +209,8 @@ mod tests {
         assert_eq!(
             serde_json::to_value(Settings::default()).unwrap(),
             json!({"theme":"dark","language":"system","includeSubdirs":true,
-                   "defaultSort":"name","loopAtEnd":false,"wheel":"zoom","checkUpdates":true})
+                   "defaultSort":"name","loopAtEnd":false,"wheel":"zoom","checkUpdates":true,
+                   "compareColumns":4,"compareSyncOnEnter":true,"compareBackground":"dark"})
         );
     }
 
@@ -272,5 +304,37 @@ mod tests {
         };
         assert!(st.set(next).is_err());
         assert_eq!(st.get(), before);
+    }
+
+    #[test]
+    fn old_settings_file_gets_compare_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            r#"{"theme":"light","includeSubdirs":false,"defaultSort":"size","loopAtEnd":true,"wheel":"switch","language":"en"}"#,
+        )
+        .unwrap();
+        let s = SettingsState::load(dir.path()).get();
+        assert_eq!(s.compare_columns, 4);
+        assert!(s.compare_sync_on_enter);
+        assert_eq!(s.compare_background, CompareBackground::Dark);
+    }
+
+    #[test]
+    fn compare_columns_clamped() {
+        let dir = tempfile::tempdir().unwrap();
+        let st = SettingsState::load(dir.path());
+        for (written, read) in [(1u8, 2u8), (99, 8), (5, 5)] {
+            st.set(Settings {
+                compare_columns: written,
+                ..Settings::default()
+            })
+            .unwrap();
+            assert_eq!(st.get().compare_columns, read);
+            assert_eq!(SettingsState::load(dir.path()).get().compare_columns, read);
+        }
+        // 文件里手写了越界值，加载时也夹取
+        std::fs::write(dir.path().join("settings.json"), r#"{"compareColumns":0}"#).unwrap();
+        assert_eq!(SettingsState::load(dir.path()).get().compare_columns, 2);
     }
 }

@@ -18,7 +18,7 @@ function Row({ id, label, children }: { id: string; label: MessageKey; children:
   );
 }
 
-function Check({ id, label, field }: { id: string; label: MessageKey; field: "includeSubdirs" | "loopAtEnd" | "checkUpdates" }) {
+function Check({ id, label, field }: { id: string; label: MessageKey; field: "includeSubdirs" | "loopAtEnd" | "checkUpdates" | "compareSyncOnEnter" }) {
   const checked = useSettings((s) => s.settings[field]);
   return (
     <div className="settings-row settings-check">
@@ -50,6 +50,25 @@ function Select<K extends "theme" | "language" | "defaultSort" | "wheel">({
         {options.map(([v, text]) => (
           <option key={v} value={v}>
             {text}
+          </option>
+        ))}
+      </select>
+    </Row>
+  );
+}
+
+function ColumnsSelect() {
+  const value = useSettings((s) => s.settings.compareColumns);
+  return (
+    <Row id="settings-compare-columns" label="settings.compareColumns">
+      <select
+        id="settings-compare-columns"
+        value={value}
+        onChange={(e) => updateSettings({ compareColumns: Number(e.target.value) })}
+      >
+        {[2, 3, 4, 5, 6, 7, 8].map((n) => (
+          <option key={n} value={n}>
+            {n}
           </option>
         ))}
       </select>
@@ -108,6 +127,11 @@ export default function SettingsDialog() {
           <Select id="settings-sort" label="settings.defaultSort" field="defaultSort" options={sorts} />
           <Check id="settings-loop" label="settings.loopAtEnd" field="loopAtEnd" />
           <Select id="settings-wheel" label="settings.wheel" field="wheel" options={wheels} />
+        </section>
+        <section className="settings-group">
+          <h3 className="settings-cat">{t("settings.group.compare")}</h3>
+          <ColumnsSelect />
+          <Check id="settings-compare-sync" label="settings.compareSyncOnEnter" field="compareSyncOnEnter" />
         </section>
         <section className="settings-group">
           <h3 className="settings-cat">{t("settings.group.update")}</h3>

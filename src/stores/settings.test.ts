@@ -57,6 +57,9 @@ describe("settings store", () => {
       loopAtEnd: false,
       wheel: "zoom",
       checkUpdates: true,
+      compareColumns: 4,
+      compareSyncOnEnter: true,
+      compareBackground: "dark",
     });
   });
 
