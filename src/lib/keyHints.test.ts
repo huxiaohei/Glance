@@ -85,4 +85,14 @@ describe("compareHints", () => {
   it("已放大：同步缩放、平移、同步开关（截到三条，去掉移出）", () => {
     expect(compareHints({ zoomed: true })).toEqual([{ id: "compare.zoom" }, { id: "compare.pan" }, { id: "compare.sync" }]);
   });
+
+describe("compareHints 同步关", () => {
+  it("同步关时缩放提示标为 solo，其余不变", () => {
+    expect(compareHints({ zoomed: false, sync: false })).toEqual([
+      { id: "compare.zoom", solo: true },
+      { id: "compare.sync" },
+      { id: "compare.remove" },
+    ]);
+  });
+});
 });

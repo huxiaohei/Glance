@@ -9,7 +9,8 @@ export type HintId =
   | "compare.pan"
   | "compare.sync"
   | "compare.remove";
-export interface Hint { id: HintId; n?: number }
+/** solo：只用于 compare.zoom，同步关时为真（文字不带“同步”）。 */
+export interface Hint { id: HintId; n?: number; solo?: boolean }
 
 const MAX_HINTS = 3;
 
@@ -36,9 +37,9 @@ export function singleHints(s: { currentInBasket: boolean; basket: number }): Hi
   return out.slice(0, MAX_HINTS);
 }
 
-/** 对比视图：同步缩放；放大后提示平移；同步开关；移出（放大时被截掉）。 */
-export function compareHints(s: { zoomed: boolean }): Hint[] {
-  const out: Hint[] = [{ id: "compare.zoom" }];
+/** 对比视图：缩放（同步关时标 solo）；放大后提示平移；同步开关；移出（放大时被截掉）。sync 缺省为开。 */
+export function compareHints(s: { zoomed: boolean; sync?: boolean }): Hint[] {
+  const out: Hint[] = [s.sync === false ? { id: "compare.zoom", solo: true } : { id: "compare.zoom" }];
   if (s.zoomed) out.push({ id: "compare.pan" });
   out.push({ id: "compare.sync" }, { id: "compare.remove" });
   return out.slice(0, MAX_HINTS);

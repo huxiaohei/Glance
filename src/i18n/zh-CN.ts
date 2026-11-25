@@ -233,6 +233,7 @@ export const zhCN = {
   "hint.grid.open": "放大查看",
   "hint.single.switch": "切换",
   "hint.compare.zoom": "同步缩放",
+  "hint.compare.zoomSolo": "缩放",
   "hint.compare.pan": "平移",
   "hint.compare.sync": "同步开关",
   "hint.compare.remove": "移出",

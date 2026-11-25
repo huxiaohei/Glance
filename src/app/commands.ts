@@ -20,6 +20,24 @@ export interface Command {
 
 const registry: Command[] = [];
 
+/** 命令表的版本：每次注册、注销加一。界面上按命令表取键名的地方（快捷键提示）靠它在命令晚到时重算。 */
+let version = 0;
+const listeners = new Set<() => void>();
+function bump(): void {
+  version++;
+  for (const l of listeners) l();
+}
+
+/** 供 useSyncExternalStore 订阅命令表的变化。 */
+export function subscribeCommands(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function commandsVersion(): number {
+  return version;
+}
+
 /** 注册命令，返回注销函数；id 重复时抛错（整批不生效）。 */
 export function registerCommands(list: Command[]): () => void {
   const seen = new Set(registry.map((c) => c.id));
@@ -28,11 +46,13 @@ export function registerCommands(list: Command[]): () => void {
     seen.add(c.id);
   }
   registry.push(...list);
+  bump();
   return () => {
     for (const c of list) {
       const i = registry.indexOf(c);
       if (i >= 0) registry.splice(i, 1);
     }
+    bump();
   };
 }
 

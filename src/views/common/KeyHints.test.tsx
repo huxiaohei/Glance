@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerCommands, type Command } from "../../app/commands";
 import { setLanguage, t } from "../../i18n";
@@ -77,5 +77,31 @@ describe("KeyHints", () => {
   it("没有提示时不渲染", () => {
     const { container } = render(<KeyHints hints={[]} />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it("命令晚于组件注册时，不需要别的状态变化，提示随之出现；注销后消失", () => {
+    const { container } = render(<KeyHints hints={[{ id: "grid.open" }]} />);
+    expect(rows(container)).toEqual([]);
+    let off = () => {};
+    act(() => {
+      off = registerCommands([cmd("grid.open", ["Enter"])]);
+    });
+    expect(rows(container)).toEqual([{ keys: ["Enter"], text: t("hint.grid.open") }]);
+    act(() => off());
+    expect(container.querySelector(".key-hints")).toBeNull();
+  });
+
+  it("键名对读屏隐藏，动作文字可读", () => {
+    offs.push(registerCommands([cmd("grid.open", ["Enter"])]));
+    const { container } = render(<KeyHints hints={[{ id: "grid.open" }]} />);
+    const kbd = container.querySelector("kbd")!;
+    expect(kbd.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".key-hint-text")!.getAttribute("aria-hidden")).toBeNull();
+  });
+
+  it("同步关时缩放提示用不带“同步”的文字", () => {
+    const { container } = render(<KeyHints hints={[{ id: "compare.zoom", solo: true }]} />);
+    expect(rows(container)).toEqual([{ keys: [`⌘ ${t("hint.key.wheel")}`], text: t("hint.compare.zoomSolo") }]);
+    expect(t("hint.compare.zoomSolo")).toBe("缩放");
   });
 });

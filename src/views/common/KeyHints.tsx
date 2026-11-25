@@ -1,5 +1,5 @@
-import { Fragment } from "react";
-import { allCommands } from "../../app/commands";
+import { Fragment, useSyncExternalStore } from "react";
+import { allCommands, commandsVersion, subscribeCommands } from "../../app/commands";
 import { IS_MAC, formatKey } from "../../app/keys";
 import { t, type MessageKey } from "../../i18n";
 import type { Hint, HintId } from "../../lib/keyHints";
@@ -51,12 +51,15 @@ function hintKeys(id: HintId): string[] | null {
 
 function hintText(h: Hint): string {
   if (h.id === "basket.add" && h.n === undefined) return t("hint.basket.add1");
+  if (h.id === "compare.zoom" && h.solo) return t("hint.compare.zoomSolo");
   const key: MessageKey = `hint.${h.id}`;
   return h.n === undefined ? t(key) : t(key, { n: h.n });
 }
 
 /** 底部的快捷键提示：一行不换行，窄时从最后一条起被裁掉。没有可显示的条目时不渲染。 */
 export default function KeyHints({ hints }: { hints: Hint[] }) {
+  // 命令表变了（例如网格命令晚于本组件注册）时重渲染，重新取键名
+  useSyncExternalStore(subscribeCommands, commandsVersion);
   const rows = hints.flatMap((h) => {
     const keys = hintKeys(h.id);
     return keys ? [{ id: h.id, keys, text: hintText(h) }] : [];
@@ -69,7 +72,7 @@ export default function KeyHints({ hints }: { hints: Hint[] }) {
           {r.keys.map((k, i) => (
             <Fragment key={i}>
               {i > 0 && " "}
-              <kbd>{k}</kbd>
+              <kbd aria-hidden="true">{k}</kbd>
             </Fragment>
           ))}{" "}
           <span className="key-hint-text">{r.text}</span>

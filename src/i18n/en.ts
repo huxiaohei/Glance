@@ -234,6 +234,7 @@ export const en: Record<MessageKey, string> = {
   "hint.grid.open": "View",
   "hint.single.switch": "Switch",
   "hint.compare.zoom": "Synced zoom",
+  "hint.compare.zoomSolo": "Zoom",
   "hint.compare.pan": "Pan",
   "hint.compare.sync": "Toggle sync",
   "hint.compare.remove": "Remove",

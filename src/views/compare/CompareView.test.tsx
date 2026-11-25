@@ -206,6 +206,7 @@ describe("CompareView", () => {
       const { container } = render(<CompareView />);
       act(() => useCompareUi.setState({ perCell: new Map([[2, { scale: { kind: "px", s: 1 }, u: 0.5, v: 0.5 }]]) }));
       expect(container.querySelector(".compare-hintbar")!.textContent).toContain("平移");
+      expect(container.querySelector(".compare-hintbar .key-hint-text")!.textContent).toBe("缩放");
     } finally {
       off();
     }

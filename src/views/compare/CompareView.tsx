@@ -197,7 +197,7 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
       </div>
       {showHints && (
         <div className="compare-hintbar">
-          <KeyHints hints={compareHints({ zoomed: anyZoomed(viewport, perCell) })} />
+          <KeyHints hints={compareHints({ zoomed: anyZoomed(viewport, perCell), sync: perCell === null })} />
         </div>
       )}
     </div>
