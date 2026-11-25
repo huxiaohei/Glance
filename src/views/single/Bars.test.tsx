@@ -8,6 +8,9 @@ import { useListView } from "../../stores/listView";
 import { topView, useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
 import { useThumbs } from "../../stores/thumbs";
+import { useBasket } from "../../stores/basket";
+import { DEFAULT_SETTINGS, useSettings } from "../../stores/settings";
+import { t } from "../../i18n";
 
 vi.mock("../../ipc/api");
 vi.mock("@tauri-apps/api/webview", () => ({
@@ -99,6 +102,26 @@ describe("信息条", () => {
     const bar = q(c, ".single-infobar")!;
     expect([...bar.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent === "0")).toBe(false);
     expect(q(c, ".single-infobar .info-dims")).toBeNull();
+  });
+
+  it("信息与序号之间给出快捷键提示：不在篮里提示加入，在篮里提示移出与进入对比；关掉设置后不出现", () => {
+    useBasket.setState({ order: [], items: new Map(), missing: new Set() });
+    useSettings.setState({ settings: { ...DEFAULT_SETTINGS } });
+    const c = setup([{ id: 1, relPath: "a.png" }, { id: 2, relPath: "b.png" }]);
+    openAt(1);
+    const hints = () => q(c, ".single-infobar .key-hints");
+    expect(hints()!.textContent).toContain(t("hint.basket.add1"));
+    expect(hints()!.textContent).toContain(t("hint.single.switch"));
+    expect(hints()!.textContent).toContain("←");
+    // 位置：在信息之后、序号之前
+    expect(hints()!.nextElementSibling!.classList.contains("info-index")).toBe(true);
+    act(() => useBasket.getState().toggle([1]));
+    expect(hints()!.textContent).toContain(t("hint.basket.remove"));
+    expect(hints()!.textContent).toContain(t("hint.compare.open", { n: 1 }));
+    act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS, showKeyHints: false } }));
+    expect(hints()).toBeNull();
+    act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS } }));
+    useBasket.setState({ order: [], items: new Map(), missing: new Set() });
   });
 
   it("长文件名单行显示，完整名字在 title 里", () => {

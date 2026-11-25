@@ -3,13 +3,15 @@ import { t } from "../../i18n";
 import { basketCheck } from "../../ipc/api";
 import type { FileId } from "../../ipc/types";
 import { majoritySize, type BasketItem } from "../../lib/basket";
-import { cellScale } from "../../lib/compareViewport";
+import { cellScale, type CompareViewport } from "../../lib/compareViewport";
+import { compareHints } from "../../lib/keyHints";
 import type { Size } from "../../lib/viewport";
 import { basketItem, useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
 import { useCompareUi, viewportOf } from "../../stores/compareUi";
 import { useSettings } from "../../stores/settings";
 import { showToast } from "../../stores/toast";
+import KeyHints from "../common/KeyHints";
 import CompareCell from "./CompareCell";
 import CompareTopBar from "./CompareTopBar";
 import { backIfEmpty, refocusAfterRemoval, removeFromCompare } from "./compareActions";
@@ -37,6 +39,13 @@ function useCellBox(scroller: HTMLElement | null, columns: number, count: number
     return () => ro.disconnect();
   }, [scroller, columns, count]);
   return box;
+}
+
+/** 提示用的“已放大”：共享视口或任一格自己的视口不在适应（按实际像素，或相对倍率大于 1）。
+ *  只看提交后的视口，热路径上的变化在交互结束写回时才反映出来。 */
+function anyZoomed(viewport: CompareViewport, perCell: Map<FileId, CompareViewport> | null): boolean {
+  const zoomed = (vp: CompareViewport) => vp.scale.kind === "px" || vp.scale.k > 1;
+  return zoomed(viewport) || [...(perCell?.values() ?? [])].some(zoomed);
 }
 
 /** 进入时核对篮内文件是否还在：缺失的标记出来并提示，提示条可一键全部移出。 */
@@ -74,6 +83,7 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
   const perCell = useCompareUi((s) => s.perCell);
   const focus = useCompareUi((s) => s.focus);
   const captions = useCompareUi((s) => s.captions);
+  const showHints = useSettings((s) => s.settings.showKeyHints);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const box = useCellBox(scroller, columns, order.length);
 
@@ -185,6 +195,11 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
           })}
         </div>
       </div>
+      {showHints && (
+        <div className="compare-hintbar">
+          <KeyHints hints={compareHints({ zoomed: anyZoomed(viewport, perCell) })} />
+        </div>
+      )}
     </div>
   );
 }

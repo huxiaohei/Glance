@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerFileCommands } from "../../app/fileCommands";
 import { pickAndTransfer, trashTargets } from "../../app/fileOps";
@@ -9,6 +9,8 @@ import { useCatalog } from "../../stores/catalog";
 import { useSelection } from "../../stores/selection";
 import { selectOnly, toggle } from "../../lib/selection";
 import { useBasket } from "../../stores/basket";
+import { registerBasketCommands } from "../../app/basketCommands";
+import { DEFAULT_SETTINGS, useSettings } from "../../stores/settings";
 import StatusBar from "./StatusBar";
 
 vi.mock("../../app/fileOps", () => ({ trashTargets: vi.fn(), undoLast: vi.fn(), pickAndTransfer: vi.fn(), transferToNewChild: vi.fn() }));
@@ -101,5 +103,30 @@ describe("StatusBar", () => {
     expect(btn.getAttribute("title")).toBe(t("cmd.file.moveTo"));
     fireEvent.click(btn);
     expect(pickAndTransfer).toHaveBeenCalledWith("move");
+  });
+
+  it("选中一张不在篮里：底部出现加入对比提示（键名取自命令表）；关掉设置后不出现", () => {
+    off = registerBasketCommands();
+    useSettings.setState({ settings: { ...DEFAULT_SETTINGS } });
+    useSelection.getState().set(selectOnly(1));
+    const { container, rerender } = render(<StatusBar total={3} />);
+    const hints = container.querySelector(".status-bar .key-hints");
+    expect(hints).not.toBeNull();
+    expect(hints!.textContent).toContain("Space");
+    expect(hints!.textContent).toContain(t("hint.basket.add", { n: 1 }));
+    act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS, showKeyHints: false } }));
+    rerender(<StatusBar total={3} />);
+    expect(container.querySelector(".key-hints")).toBeNull();
+    useSettings.setState({ settings: { ...DEFAULT_SETTINGS } });
+  });
+
+  it("选中的已在篮里：提示移出对比与进入对比", () => {
+    off = registerBasketCommands();
+    useBasket.setState({ order: [1, 2] });
+    useSelection.getState().set(selectOnly(1));
+    const { container } = render(<StatusBar total={3} />);
+    const text = container.querySelector(".key-hints")!.textContent;
+    expect(text).toContain(t("hint.basket.remove"));
+    expect(text).toContain(t("hint.compare.open", { n: 2 }));
   });
 });

@@ -1,0 +1,32 @@
+/* 底部快捷键提示：靠右，只显示一行。放不下的条目折到第二行，被固定高度裁掉——
+   折行按顺序发生，所以总是从最后一条起隐藏，且不会露出半条 */
+.key-hints {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 18px;
+  line-height: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  justify-content: flex-end;
+  column-gap: calc(2 * var(--gap));
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.key-hint {
+  flex-shrink: 0;
+}
+.key-hints kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}

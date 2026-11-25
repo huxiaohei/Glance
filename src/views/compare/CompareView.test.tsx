@@ -15,6 +15,7 @@ import { DEFAULT_SETTINGS, useSettings } from "../../stores/settings";
 import { useThumbs } from "../../stores/thumbs";
 import { useToast } from "../../stores/toast";
 import CompareView from "./CompareView";
+import { registerCompareCommands } from "./compareCommands";
 
 vi.mock("../../ipc/api");
 vi.mock("../../app/contextMenu", () => ({ showImageMenu: vi.fn(async () => {}) }));
@@ -178,6 +179,36 @@ describe("CompareView", () => {
     expect(s.perCell).toEqual(new Map());
     expect(s.viewport).toEqual(FIT_VIEWPORT);
     expect(s.focus).toBe(1);
+  });
+
+  it("底部提示条：未放大时提示同步缩放、同步开关、移出；放大后换成平移；关掉设置后不出现", () => {
+    const off = registerCompareCommands();
+    try {
+      const { container } = render(<CompareView />);
+      const bar = () => container.querySelector(".compare-hintbar .key-hints");
+      expect(bar()!.textContent).toContain("同步缩放");
+      expect(bar()!.textContent).toContain("同步开关");
+      expect(bar()!.textContent).toContain("移出");
+      expect(bar()!.textContent).not.toContain("平移");
+      act(() => useCompareUi.setState({ viewport: { scale: { kind: "rel", k: 2 }, u: 0.5, v: 0.5 } }));
+      expect(bar()!.textContent).toContain("平移");
+      expect(bar()!.textContent).not.toContain("移出");
+      act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS, showKeyHints: false } }));
+      expect(container.querySelector(".compare-hintbar")).toBeNull();
+    } finally {
+      off();
+    }
+  });
+
+  it("同步关时任一格放大也算放大", () => {
+    const off = registerCompareCommands();
+    try {
+      const { container } = render(<CompareView />);
+      act(() => useCompareUi.setState({ perCell: new Map([[2, { scale: { kind: "px", s: 1 }, u: 0.5, v: 0.5 }]]) }));
+      expect(container.querySelector(".compare-hintbar")!.textContent).toContain("平移");
+    } finally {
+      off();
+    }
   });
 
   it("同步开关切换 perCell", () => {
