@@ -228,6 +228,35 @@ mod tests {
     }
 
     #[test]
+    fn lossy_png_many_colors_semi_transparent_alpha_error_small() {
+        let (w, h) = (128u32, 64u32);
+        let mut d = noise_gradient(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                let a = match x {
+                    0..=19 => 0,
+                    20..=39 => 64,
+                    40..=59 => 128,
+                    60..=99 => (255 * (x - 60) / 39) as u8, // 柔和渐变
+                    _ => 255,
+                };
+                d[((y * w + x) * 4 + 3) as usize] = a;
+            }
+        }
+        for q in [20u8, 60, 100] {
+            let png = encode_png_lossy(view(w, h, &d), q, None).unwrap();
+            let img = image::load_from_memory(&png).unwrap().into_rgba8();
+            for (src, out) in d.chunks_exact(4).zip(img.pixels()) {
+                match src[3] {
+                    0 => assert_eq!(out[3], 0),
+                    255 => assert_eq!(out[3], 255),
+                    a => assert!(a.abs_diff(out[3]) <= 24, "q={q} alpha {a} -> {}", out[3]),
+                }
+            }
+        }
+    }
+
+    #[test]
     fn lossy_png_smaller_than_lossless() {
         let d = noise_gradient(256, 256);
         let lossy = encode_png_lossy(view(256, 256, &d), 60, None).unwrap();
