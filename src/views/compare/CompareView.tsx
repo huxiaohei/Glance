@@ -149,11 +149,12 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
     if (!hidden) backIfEmpty();
   }, [hidden, order.length]);
 
-  // 焦点格（键盘移动、单击、移出后补位）滚进视口
+  // 焦点格（键盘移动、单击、移出后补位、交换换了位置）滚进视口
+  const focusIndex = focus === null ? -1 : order.indexOf(focus);
   useEffect(() => {
     if (focus === null || !scroller) return;
     scroller.querySelector<HTMLElement>(`.compare-cell[data-id="${focus}"]`)?.scrollIntoView?.({ block: "nearest" });
-  }, [focus, scroller]);
+  }, [focus, focusIndex, scroller]);
 
   // 隐藏时焦点若还留在顶栏里（例如下拉框），按键会被当成在输入框里：移走焦点（与网格相同）
   const viewRef = useRef<HTMLDivElement>(null);

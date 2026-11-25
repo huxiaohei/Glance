@@ -91,6 +91,22 @@ describe("CompareView", () => {
     await waitFor(() => expect(api.basketCheck).toHaveBeenCalledWith([1, 2, 3]));
   });
 
+  it("交换让焦点格换了位置后重新滚进视口", () => {
+    const spy = vi.fn();
+    const orig = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = spy;
+    try {
+      useCompareUi.setState({ focus: 1 });
+      render(<CompareView />);
+      spy.mockClear();
+      act(() => useBasket.getState().swap(1, 2));
+      expect(useCompareUi.getState().focus).toBe(1);
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      HTMLElement.prototype.scrollIntoView = orig;
+    }
+  });
+
   it("列数取自设置 compareColumns", () => {
     useSettings.setState({ settings: { ...DEFAULT_SETTINGS, compareColumns: 3 } });
     const { container } = render(<CompareView />);
