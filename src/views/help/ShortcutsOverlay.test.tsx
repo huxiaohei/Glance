@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { registerBasketCommands } from "../../app/basketCommands";
 import { registerCommands } from "../../app/commands";
+import { registerCompareCommands } from "../../views/compare/compareCommands";
 import { useHelp } from "../../app/useKeyboard";
 import { t } from "../../i18n";
 import ShortcutsOverlay from "./ShortcutsOverlay";
@@ -70,5 +72,21 @@ describe("ShortcutsOverlay", () => {
     act(() => useHelp.setState({ open: false }));
     expect(document.activeElement).toBe(opener);
     opener.remove();
+  });
+
+  it("对比命令出现在“对比”分类里，空格显示为 Space", () => {
+    const offA = registerBasketCommands();
+    const offB = registerCompareCommands();
+    off = () => { offA(); offB(); };
+    useHelp.setState({ open: true });
+    const { container } = render(<ShortcutsOverlay />);
+    const group = [...container.querySelectorAll(".help-group")].find(
+      (g) => g.querySelector(".help-cat")!.textContent === t("cmd.cat.compare"),
+    )!;
+    expect(group).toBeTruthy();
+    const rows = [...group.querySelectorAll(".help-row")].map((r) => [r.querySelector("span")!.textContent, r.querySelector("kbd")!.textContent]);
+    expect(rows).toContainEqual([t("cmd.basket.toggle"), "Space"]);
+    expect(rows).toContainEqual([t("cmd.basket.open"), "C"]);
+    expect(rows).toContainEqual([t("cmd.compare.toggleSync"), "S"]);
   });
 });

@@ -59,6 +59,10 @@ Glance 把“文件夹”当成看图的单位：打开一次，里面（包括�
 
 手滑了按 <kbd>⌘Z</kbd> / <kbd>Ctrl+Z</kbd> 撤销。目标位置有同名文件时会先跳过，提示条上可以一键“保留两者”，不会悄悄覆盖文件。
 
+**5. 挑几张放在一起比**
+
+在网格或单张视图里按 <kbd>空格</kbd> 把当前图（或选中的几张）加入对比，再按一次移出；按 <kbd>C</kbd> 进入对比视图，几张图并排显示。<kbd>Ctrl/⌘</kbd> + 滚轮同步缩放所有格子，拖动平移，<kbd>S</kbd> 开关同步；<kbd>Delete</kbd> 把当前格移出对比（不会删除文件）；双击某一格放大单看，<kbd>Esc</kbd> 回来。换文件夹后对比篮仍然保留。
+
 ## 快捷键
 
 macOS 下 Mod 是 <kbd>⌘</kbd>，Windows 下是 <kbd>Ctrl</kbd>。应用里按 <kbd>?</kbd> 可以随时看到完整列表。
@@ -78,6 +82,9 @@ macOS 下 Mod 是 <kbd>⌘</kbd>，Windows 下是 <kbd>Ctrl</kbd>。应用里按
 | | <kbd>+</kbd> <kbd>-</kbd>，<kbd>0</kbd>，<kbd>1</kbd> | 放大缩小，适应窗口，原始大小 |
 | | <kbd>I</kbd> | 详情面板 |
 | | <kbd>Esc</kbd> | 回到网格 |
+| 对比 | <kbd>空格</kbd> | 加入 / 移出对比（网格、单张） |
+| | <kbd>C</kbd> | 进入对比 |
+| | <kbd>S</kbd> | 同步缩放开关（对比中） |
 | 文件 | <kbd>⌘⌫</kbd>（macOS）/ <kbd>Delete</kbd>（Windows） | 移到废纸篓 |
 | | <kbd>F2</kbd> | 重命名 |
 | | <kbd>Mod+C</kbd> / <kbd>Mod+Shift+C</kbd> | 复制图片 / 复制路径 |
@@ -97,7 +104,7 @@ macOS 下 Mod 是 <kbd>⌘</kbd>，Windows 下是 <kbd>Ctrl</kbd>。应用里按
 
 **Windows 弹出 SmartScreen 警告？** 点“更多信息 → 仍要运行”。
 
-**接下来会加什么？** 多张图并排对比（同步缩放），以及压缩、裁剪、去背景、转格式等轻量编辑。
+**接下来会加什么？** 对比篮里拖动排序、添加面板，以及压缩、裁剪、去背景、转格式等轻量编辑。
 
 ## 从源码构建
 
