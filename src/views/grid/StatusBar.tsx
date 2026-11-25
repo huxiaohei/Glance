@@ -2,6 +2,7 @@ import { allCommands } from "../../app/commands";
 import { pickAndTransfer, trashTargets } from "../../app/fileOps";
 import { IS_MAC, formatKey } from "../../app/keys";
 import { t } from "../../i18n";
+import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
 import { useSelection } from "../../stores/selection";
 
@@ -21,12 +22,15 @@ function moveTitle(): string {
 export default function StatusBar({ total }: { total: number }) {
   const watchFailed = useCatalog((s) => s.watchFailed);
   const selected = useSelection((s) => s.ids.size);
+  const inBasket = useBasket((s) => s.order.length);
   return (
     <div className="status-bar">
       <span className="status-counts">
         <span>{t("grid.total", { n: total })}</span>
         {selected > 0 && <span aria-hidden="true">{t("status.sep")}</span>}
         {selected > 0 && <span>{t("status.selected", { n: selected })}</span>}
+        {inBasket > 0 && <span aria-hidden="true">{t("status.sep")}</span>}
+        {inBasket > 0 && <span>{t("basket.status", { n: inBasket })}</span>}
       </span>
       {watchFailed && <span className="status-warn">{t("status.watchFailed")}</span>}
       {selected > 0 && (

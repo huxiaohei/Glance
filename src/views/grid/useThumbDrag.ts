@@ -157,7 +157,7 @@ export function useThumbDrag(scroller: HTMLElement | null, enabled: boolean): vo
       if (press?.active) return; // 拖拽中别的指针按下：不打断
       if (selectModifier(e)) return; // 带修饰键只是选择操作（与格子的判断同一条）
       const target = e.target as Element;
-      if (target.closest(".rename-input")) return;
+      if (target.closest(".rename-input, .thumb-basket-btn")) return; // 重命名输入框与“加入对比”按钮上按下不开始拖拽
       const cellEl = target.closest<HTMLElement>(".thumb-cell");
       if (!cellEl) return;
       end();

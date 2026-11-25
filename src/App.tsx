@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { registerAppCommands } from "./app/appCommands";
+import { registerBasketCommands } from "./app/basketCommands";
 import { registerFileCommands } from "./app/fileCommands";
 import { subscribeThumbs } from "./app/openFolder";
 import { startOpenRequests } from "./app/openRequests";
@@ -37,6 +38,7 @@ export default function App() {
     const offApp = registerAppCommands();
     const offFile = registerFileCommands();
     const offSingle = registerSingleCommands();
+    const offBasket = registerBasketCommands();
     // 最近目录：启动时读取一次，并开始汇报浏览状态
     const stopRecents = startRecentsSync();
     void loadRecents();
@@ -48,6 +50,7 @@ export default function App() {
       stopUpdateCheck();
       stopOpenRequests();
       stopRecents();
+      offBasket();
       offSingle();
       offFile();
       offApp();

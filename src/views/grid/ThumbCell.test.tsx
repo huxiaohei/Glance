@@ -9,6 +9,9 @@ import { useNav } from "../../stores/nav";
 import { stopRename, useRename } from "../../stores/rename";
 import { useThumbs } from "../../stores/thumbs";
 import { useSelection } from "../../stores/selection";
+import { t } from "../../i18n";
+import { useBasket } from "../../stores/basket";
+import { useCatalog } from "../../stores/catalog";
 import ThumbCell from "./ThumbCell";
 
 const entry: ImageEntry = { id: 1, relPath: "a.jpg", dir: "", name: "a.jpg", size: 10, mtimeMs: 5 };
@@ -78,5 +81,37 @@ describe("ThumbCell 右键菜单", () => {
     expect(notPrevented).toBe(true);
     expect(showImageMenu).not.toHaveBeenCalled();
     act(() => stopRename());
+  });
+});
+
+describe("ThumbCell 对比篮", () => {
+  beforeEach(() => {
+    useThumbs.getState().reset();
+    useBasket.setState({ order: [], items: new Map(), missing: new Set() });
+    useSelection.getState().clear();
+    useCatalog.getState().reset();
+    const c = useCatalog.getState();
+    c.begin({ generation: 1, path: "/r", name: "r", recursive: false, focus: null });
+    c.apply({ type: "batch", generation: 1, entries: [{ id: 1, relPath: "a.jpg", size: 10, mtimeMs: 5 }] });
+  });
+
+  it("在篮内显示角标，不在则没有", () => {
+    const { container, rerender } = render(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);
+    expect(container.querySelector(".thumb-basket-badge")).toBeNull();
+    act(() => useBasket.getState().toggle([1]));
+    rerender(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);
+    const badge = container.querySelector(".thumb-basket-badge")!;
+    expect(badge.getAttribute("aria-label")).toBe(t("basket.inBasket"));
+  });
+
+  it("点悬停按钮加入对比，选中不变", () => {
+    const { container } = render(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);
+    const btn = container.querySelector<HTMLButtonElement>(".thumb-basket-btn")!;
+    expect(btn.textContent).toBe(t("basket.add"));
+    fireEvent.pointerDown(btn, { button: 0 });
+    fireEvent.click(btn);
+    expect(useBasket.getState().order).toEqual([1]);
+    expect(useSelection.getState().ids.size).toBe(0);
+    expect(btn.textContent).toBe(t("basket.remove"));
   });
 });

@@ -8,6 +8,8 @@ import { recentsList } from "../../ipc/api";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
 import { t } from "../../i18n";
+import { useBasket } from "../../stores/basket";
+import { topView, useNav } from "../../stores/nav";
 import GridToolbar from "./GridToolbar";
 
 vi.mock("../../app/openFolder", () => ({
@@ -68,5 +70,21 @@ describe("GridToolbar", () => {
     render(<GridToolbar />);
     expect(screen.getByRole("combobox", { name: t("toolbar.sort") })).toBeTruthy();
     expect(screen.getByRole("slider", { name: t("toolbar.size") })).toBeTruthy();
+  });
+
+  it("“对比 · N”按钮：篮空时禁用，N=2 时显示并可进入对比；点击后不留焦点", () => {
+    useBasket.setState({ order: [], items: new Map(), missing: new Set() });
+    useNav.getState().reset();
+    const { rerender } = render(<GridToolbar />);
+    const btn0 = screen.getByRole("button", { name: t("basket.button", { n: 0 }) }) as HTMLButtonElement;
+    expect(btn0.disabled).toBe(true);
+    useBasket.setState({ order: [1, 2] });
+    rerender(<GridToolbar />);
+    const btn = screen.getByRole("button", { name: t("basket.button", { n: 2 }) }) as HTMLButtonElement;
+    expect(btn.textContent).toBe(t("basket.button", { n: 2 }));
+    expect(btn.disabled).toBe(false);
+    expect(fireEvent.mouseDown(btn)).toBe(false);
+    fireEvent.click(btn);
+    expect(topView().kind).toBe("compare");
   });
 });

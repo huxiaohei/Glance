@@ -7,6 +7,7 @@ import type { ImageList } from "../../lib/deriveList";
 import { glanceUrl } from "../../lib/glanceUrl";
 import { markSwitchStart } from "../../lib/perfMarks";
 import { layoutStrip, scrollToShow, STRIP_DIVIDER, STRIP_GAP, STRIP_ITEM, stripVisible } from "../../lib/stripLayout";
+import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
 import { useNav } from "../../stores/nav";
 import { useThumbs } from "../../stores/thumbs";
@@ -17,6 +18,7 @@ const TIER = 320;
 const StripCell = memo(function StripCell({ id, left, current }: { id: FileId; left: number; current: boolean }) {
   const ready = useThumbs((s) => s.ready.get(id));
   const broken = useThumbs((s) => s.broken.has(id));
+  const inBasket = useBasket((s) => s.items.has(id));
   const src = ready ? glanceUrl(`thumb/${id}/${ready.tier}?v=${ready.v}`) : null;
   // 文件被改动或删除时协议返回 404：改显占位
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
@@ -29,6 +31,7 @@ const StripCell = memo(function StripCell({ id, left, current }: { id: FileId; l
       ) : (
         <div className="strip-placeholder" />
       )}
+      {inBasket && <span className="strip-basket-badge" role="img" aria-label={t("basket.inBasket")} />}
     </div>
   );
 });

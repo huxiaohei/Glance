@@ -8,6 +8,7 @@ import { t } from "../../i18n";
 import { useCatalog } from "../../stores/catalog";
 import { useSelection } from "../../stores/selection";
 import { selectOnly, toggle } from "../../lib/selection";
+import { useBasket } from "../../stores/basket";
 import StatusBar from "./StatusBar";
 
 vi.mock("../../app/fileOps", () => ({ trashTargets: vi.fn(), undoLast: vi.fn(), pickAndTransfer: vi.fn(), transferToNewChild: vi.fn() }));
@@ -27,6 +28,16 @@ describe("StatusBar", () => {
   beforeEach(() => {
     useCatalog.getState().reset();
     useSelection.getState().clear();
+    useBasket.setState({ order: [], items: new Map(), missing: new Set() });
+  });
+
+  it("篮内有图时显示“对比篮 N 张”，没有则不显示", () => {
+    useBasket.setState({ order: [], items: new Map(), missing: new Set() });
+    const { rerender } = render(<StatusBar total={3} />);
+    expect(screen.queryByText(t("basket.status", { n: 2 }))).toBeNull();
+    useBasket.setState({ order: [1, 2] });
+    rerender(<StatusBar total={3} />);
+    expect(screen.getByText(t("basket.status", { n: 2 }))).toBeTruthy();
   });
 
   it("显示总数", () => {

@@ -8,6 +8,7 @@ import { middleEllipsis } from "../../lib/middleEllipsis";
 import { selectForContext, selectOnly, selectRange, toggle } from "../../lib/selection";
 import { selectModifier } from "../../lib/thumbDrag";
 import { useDrag } from "../../stores/drag";
+import { useBasket } from "../../stores/basket";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useNav } from "../../stores/nav";
 import { startRename, useRename } from "../../stores/rename";
@@ -58,6 +59,9 @@ function onNameDoubleClick(e: MouseEvent<HTMLDivElement>): void {
   if (cell) startRename(Number(cell.dataset.id));
 }
 
+/** 悬停按钮：加入 / 移出对比。按下与点击都不外传：不开始拖拽或框选，也不改选中。 */
+const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+
 /** 12px 字体下窄字符约 6.5px、全角约 13px：按窄字符单位估算每格预算。 */
 const nameBudget = (cell: number) => Math.max(8, Math.floor(cell / 6.5));
 
@@ -66,6 +70,7 @@ function ThumbCell({ entry, cell, selected, focused }: Props) {
   const broken = useThumbs((s) => s.broken.has(entry.id));
   // 只让正在重命名的那一格重新渲染
   const renaming = useRename((s) => s.id === entry.id);
+  const inBasket = useBasket((s) => s.items.has(entry.id));
   const { width, height } = entry;
   // 版本号来自后端生成这张缩略图时读到的文件状态
   const src = ready ? glanceUrl(`thumb/${entry.id}/${ready.tier}?v=${ready.v}`) : null;
@@ -101,6 +106,19 @@ function ThumbCell({ entry, cell, selected, focused }: Props) {
         ) : (
           <div className="thumb-placeholder" style={placeholder ?? { width: "100%", height: "100%" }} />
         )}
+        {inBasket && <span className="thumb-basket-badge" role="img" aria-label={t("basket.inBasket")} />}
+        <button
+          type="button"
+          className="thumb-basket-btn"
+          onPointerDown={stop}
+          onDoubleClick={stop}
+          onClick={(e) => {
+            e.stopPropagation();
+            useBasket.getState().toggle([entry.id]);
+          }}
+        >
+          {t(inBasket ? "basket.remove" : "basket.add")}
+        </button>
       </div>
       {renaming ? (
         <div className="thumb-name thumb-name-editing">

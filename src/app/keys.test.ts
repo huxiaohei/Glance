@@ -79,3 +79,12 @@ describe("matchKey 带 Shift 的数字键", () => {
     expect(matchKey(ev("!", { shiftKey: true }), "Shift+1", true)).toBe(false);
   });
 });
+
+describe("空格键", () => {
+  it("Space 按 e.key 为 \" \" 匹配，显示为 Space", () => {
+    expect(matchKey(ev(" "), " ", true)).toBe(true);
+    expect(matchKey(ev(" ", { metaKey: true }), " ", true)).toBe(false);
+    expect(formatKey(" ", true)).toBe("Space");
+    expect(formatKey(" ", false)).toBe("Space");
+  });
+});

@@ -12,6 +12,7 @@ import { useRename } from "../../stores/rename";
 import { useSingleUi } from "../../stores/singleUi";
 import DetailsPanel from "./DetailsPanel";
 import Filmstrip from "./Filmstrip";
+import StageBasketButton from "./StageBasketButton";
 import Hint from "./Hint";
 import InfoBar from "./InfoBar";
 import TopBar from "./TopBar";
@@ -147,6 +148,7 @@ export default function SingleView() {
             {index >= 0 && index < list.ids.length - 1 && <ArrowZone side="right" />}
           </Stage>
         )}
+        {id !== null && <StageBasketButton id={id} />}
       </div>
       {id !== null && <Filmstrip list={list} current={id} />}
         </div>

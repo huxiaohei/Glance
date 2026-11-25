@@ -7,6 +7,8 @@ import { markSwitchPainted, switchStats } from "../../lib/perfMarks";
 import { useCatalog } from "../../stores/catalog";
 import { topView, useNav } from "../../stores/nav";
 import { useThumbs } from "../../stores/thumbs";
+import { t } from "../../i18n";
+import { useBasket } from "../../stores/basket";
 import Filmstrip from "./Filmstrip";
 
 vi.mock("../../ipc/api", () => ({ thumbsWant: vi.fn() }));
@@ -223,5 +225,16 @@ describe("Filmstrip", () => {
         vi.unstubAllGlobals();
       }
     });
+  });
+});
+
+describe("Filmstrip 对比角标", () => {
+  it("只有在篮内的项显示琥珀角标", () => {
+    useBasket.setState({ order: [2], items: new Map([[2, {} as never]]), missing: new Set() });
+    const { container } = render(<Filmstrip list={flat(5)} current={1} />);
+    const badges = container.querySelectorAll(".strip-basket-badge");
+    expect(badges.length).toBe(1);
+    expect(badges[0].closest<HTMLElement>(".strip-item")!.dataset.id).toBe("2");
+    expect(badges[0].getAttribute("aria-label")).toBe(t("basket.inBasket"));
   });
 });

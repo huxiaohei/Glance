@@ -47,6 +47,7 @@ const ARROWS: Record<string, string> = { ArrowLeft: "←", ArrowRight: "→", Ar
 
 /** 显示用的键名：方向键与退格各平台都用符号；向前删除在 macOS 上是 ⌦，其他平台 Del。 */
 function keyLabel(key: string, isMac: boolean): string {
+  if (key === " ") return "Space";
   if (key === "Backspace") return "⌫";
   if (key === "Delete") return isMac ? "⌦" : "Del";
   return ARROWS[key] ?? (key.length === 1 ? key.toUpperCase() : key);

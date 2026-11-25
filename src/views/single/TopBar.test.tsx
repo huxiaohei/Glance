@@ -2,9 +2,11 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCatalog } from "../../stores/catalog";
-import { useNav } from "../../stores/nav";
+import { topView, useNav } from "../../stores/nav";
 import { stopRename, useRename } from "../../stores/rename";
 import { useSingleUi } from "../../stores/singleUi";
+import { t } from "../../i18n";
+import { useBasket } from "../../stores/basket";
 import TopBar from "./TopBar";
 
 vi.mock("../../ipc/api");
@@ -52,5 +54,21 @@ describe("TopBar 按钮焦点", () => {
     const before = useSingleUi.getState().infoOpen;
     fireEvent.click(btn);
     expect(useSingleUi.getState().infoOpen).toBe(!before);
+  });
+});
+
+describe("TopBar 对比按钮", () => {
+  it("篮空时禁用，N=2 显示“对比 · 2”并可进入对比", () => {
+    useBasket.setState({ order: [], items: new Map(), missing: new Set() });
+    const { container, rerender } = render(<TopBar id={1} />);
+    const btn = container.querySelector<HTMLButtonElement>(".compare-btn")!;
+    expect(btn.disabled).toBe(true);
+    act(() => useBasket.setState({ order: [1, 2] }));
+    rerender(<TopBar id={1} />);
+    expect(btn.textContent).toBe(t("basket.button", { n: 2 }));
+    expect(btn.disabled).toBe(false);
+    expect(fireEvent.mouseDown(btn)).toBe(false);
+    fireEvent.click(btn);
+    expect(topView().kind).toBe("compare");
   });
 });

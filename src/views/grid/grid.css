@@ -282,3 +282,37 @@
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* 对比篮：右上角琥珀圆点角标；悬停（或键盘聚焦）时出现加入 / 移出按钮 */
+.thumb-box { position: relative; }
+.thumb-basket-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--basket);
+  box-shadow: 0 0 0 1px var(--on-basket);
+  pointer-events: none;
+}
+.thumb-basket-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: var(--radius-thumb);
+  background: var(--overlay-bg);
+  color: var(--overlay-text);
+  border: 1px solid var(--line);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+.thumb-cell:hover .thumb-basket-btn,
+.thumb-basket-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.compare-btn:not(:disabled) { border-color: var(--basket); }

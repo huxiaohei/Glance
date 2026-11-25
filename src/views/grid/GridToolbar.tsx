@@ -6,6 +6,7 @@ import { t } from "../../i18n";
 import type { SortKey } from "../../lib/deriveList";
 import { useCatalog } from "../../stores/catalog";
 import { CELL_MAX, CELL_MIN, useListView } from "../../stores/listView";
+import CompareButton from "../common/CompareButton";
 import { loadRecents, useRecents } from "../../stores/recents";
 
 const SORTS: SortKey[] = ["name", "mtime", "size"];
@@ -65,6 +66,7 @@ function GridToolbar() {
           onChange={(e) => useListView.getState().setCell(Number(e.target.value))}
         />
       </label>
+      <CompareButton />
       <button type="button" onClick={() => void pickAndOpenFolder()}>{t("grid.openOther")}</button>
     </div>
   );

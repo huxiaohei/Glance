@@ -356,3 +356,33 @@
 .single-view.idle .single-stage * {
   cursor: none !important;
 }
+
+/* 对比篮：缩略图条角标；画面右上角的加入 / 移出按钮（在篮内时实心琥珀色） */
+.strip-basket-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--basket);
+  box-shadow: 0 0 0 1px var(--on-basket);
+  pointer-events: none;
+}
+.stage-basket-btn {
+  position: absolute;
+  top: var(--gap);
+  right: var(--gap);
+  z-index: 2;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  background: var(--overlay-bg);
+  color: var(--overlay-text);
+  border: 1px solid var(--line);
+}
+.stage-basket-btn.active {
+  background: var(--basket);
+  border-color: var(--basket);
+  color: var(--on-basket);
+}
+.compare-btn:not(:disabled) { border-color: var(--basket); }

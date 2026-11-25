@@ -6,6 +6,7 @@ import type { FileId } from "../../ipc/types";
 import { useNav } from "../../stores/nav";
 import { startRename, useRename } from "../../stores/rename";
 import { useSingleUi } from "../../stores/singleUi";
+import CompareButton from "../common/CompareButton";
 import RenameInput from "../common/RenameInput";
 import { backToGrid, singleCommand } from "./singleCommands";
 
@@ -72,6 +73,7 @@ export default function TopBar({ id }: { id: FileId }) {
           )}
         </div>
       )}
+      <CompareButton />
       <button
         type="button"
         className={`topbar-info${infoOpen ? " active" : ""}`}

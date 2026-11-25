@@ -5,6 +5,7 @@ import { handleKeyDown } from "../../app/useKeyboard";
 import { t } from "../../i18n";
 import { dragOut, fsCopy, fsMove, thumbsWant } from "../../ipc/api";
 import type { OpReport } from "../../ipc/types";
+import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
 import { useDrag } from "../../stores/drag";
 import { useGridCtx } from "../../stores/gridCtx";
@@ -275,6 +276,18 @@ describe("GridView 缩略图拖拽", () => {
     move(scroller, 80, 100);
     expect(badge()).toBeNull();
     expect(useDrag.getState().count).toBe(0);
+  });
+
+  it("“加入对比”悬停按钮上按下并移动：不开始拖拽，不改选中，点击加入对比篮", () => {
+    const { container, scroller } = setup();
+    const btn = container.querySelector(`[data-id="1"] .thumb-basket-btn`) as HTMLElement;
+    press(btn);
+    move(scroller, 80, 100);
+    expect(badge()).toBeNull();
+    expect(useDrag.getState().count).toBe(0);
+    expect(ids()).toEqual([]);
+    fireEvent.click(btn);
+    expect(useBasket.getState().order).toEqual([1]);
   });
 
   it("双击（没拖）照常进入单张视图", () => {
