@@ -138,11 +138,23 @@ function watchEditSource(): () => void {
   };
 }
 
+/** 页面卸下（重载、关窗）时关掉编辑会话，后端早些放下解码好的大图。保存进行中不关：让后端把这次保存做完。 */
+function closeOnPageHide(): () => void {
+  const onHide = () => {
+    const { status } = useEditUi.getState();
+    if (status === "ready" || status === "opening") useEditUi.getState().close();
+  };
+  window.addEventListener("pagehide", onHide);
+  return () => window.removeEventListener("pagehide", onHide);
+}
+
 /** 应用启动时注册一次：编辑命令（按视图生效）与编辑会话的收尾监听；返回注销函数。 */
 export function registerEditCommands(): () => void {
   const off = registerCommands(editCommands);
   const unwatch = watchEditSource();
+  const unhide = closeOnPageHide();
   return () => {
+    unhide();
     unwatch();
     off();
   };
