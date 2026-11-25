@@ -2,13 +2,14 @@
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tauri::State;
 
 use crate::catalog::details::{self, BasketEntry};
 use crate::catalog::registry::{FileId, Registry};
 use crate::catalog::scan;
+use crate::catalog::session;
 use crate::fileops::fsx::FsError;
 use crate::state::session::SessionStore;
 
@@ -72,12 +73,15 @@ pub struct BrowseResult {
 }
 
 /// 只扫一层，复用扫描的跳过规则与扩展名，并登记 id；顺序不保证。读目录，不上主线程。
+/// 先按目录会话的规则规范化路径，同一文件经符号链接或不同写法浏览也得到同一个 id；
+/// 显示名仍取对话框给的路径。
 pub fn run_browse(registry: &Registry, dir: &Path) -> Result<BrowseResult, FsError> {
     if !dir.is_dir() {
         return Err(FsError::NotFound);
     }
+    let root = session::canonical_dir(dir).map_err(|_| FsError::NotFound)?;
     let mut entries = Vec::new();
-    scan::scan(dir, false, &AtomicBool::new(false), &mut |batch| {
+    scan::scan(&root, false, &AtomicBool::new(false), &mut |batch| {
         entries.extend(batch.into_iter().map(|e| {
             BrowseEntry {
                 id: registry.register(&e.path).0,
@@ -245,11 +249,30 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         browse_tree(tmp.path());
         let registry = Registry::default();
-        let id = registry.register(&tmp.path().join("a.png"));
+        // 目录会话登记的是规范化后的路径（macOS 上临时目录 /var 实为 /private/var）
+        let canon = fs::canonicalize(tmp.path()).unwrap();
+        let id = registry.register(&canon.join("a.png"));
         let r = run_browse(&registry, tmp.path()).unwrap();
         let e = r.entries.iter().find(|e| e.name == "a.png").unwrap();
         assert_eq!(e.id, id.0);
         assert_eq!(e.size, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn browse_via_symlink_registers_canonical_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("real");
+        fs::create_dir(&real).unwrap();
+        browse_tree(&real);
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let registry = Registry::default();
+        let id = registry.register(&fs::canonicalize(&real).unwrap().join("a.png"));
+        let r = run_browse(&registry, &link).unwrap();
+        let e = r.entries.iter().find(|e| e.name == "a.png").unwrap();
+        assert_eq!(e.id, id.0);
+        assert_eq!(r.name, "link");
     }
 
     #[test]

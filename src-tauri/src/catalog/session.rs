@@ -54,13 +54,14 @@ pub fn resolve_open_target(path: &Path, recursive: bool) -> Result<OpenTarget, O
     Err(OpenError::NotAnImage)
 }
 
+/// 目录会话与添加面板“其他文件夹”共用的规范化：同一文件不论经哪种写法打开，登记成同一个 `FileId`。
 #[cfg(not(windows))]
-fn canonical_dir(dir: &Path) -> Result<PathBuf, OpenError> {
+pub(crate) fn canonical_dir(dir: &Path) -> Result<PathBuf, OpenError> {
     std::fs::canonicalize(dir).map_err(|_| OpenError::Unreadable)
 }
 
 #[cfg(windows)]
-fn canonical_dir(dir: &Path) -> Result<PathBuf, OpenError> {
+pub(crate) fn canonical_dir(dir: &Path) -> Result<PathBuf, OpenError> {
     Ok(dir.to_path_buf())
 }
 
