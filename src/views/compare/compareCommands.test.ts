@@ -240,6 +240,18 @@ describe("添加面板的键盘（按焦点区域分派）", () => {
     expect(findCommand(tab, "grid", false, true)?.id).not.toBe("compare.togglePanel");
   });
 
+  it("面板已开但焦点在墙（顶栏按钮打开）：Tab 把焦点移进面板，不收起；再按 Tab 才收起", () => {
+    ui().togglePanel();
+    expect(ui().focusArea).toBe("wall");
+    press("Tab");
+    expect(ui().panelOpen).toBe(true);
+    expect(ui().focusArea).toBe("panel");
+    expect(ui().panelFocus).toBe(101);
+    press("Tab");
+    expect(ui().panelOpen).toBe(false);
+    expect(ui().focusArea).toBe("wall");
+  });
+
   it("Tab 再打开时落在上次的位置；上次那张已不在面板里时落第一张", () => {
     press("Tab");
     press("ArrowRight");

@@ -186,17 +186,23 @@ export function inPanel(): boolean {
   return ui.panelOpen && ui.focusArea === "panel";
 }
 
-/** Tab：打开面板并把焦点放进去（上次的位置，已不在面板里时第一张）；已打开则收起，焦点回墙。 */
-export function togglePanelWithFocus(): void {
+/** 把焦点放进面板：上次的位置，已不在面板里时第一张。 */
+function focusPanel(): void {
   const ui = useCompareUi.getState();
-  if (ui.panelOpen) {
-    ui.togglePanel();
-    return;
-  }
-  ui.togglePanel();
   const ids = currentPanelIds();
   if (ui.panelFocus === null || !ids.includes(ui.panelFocus)) ui.setPanelFocus(ids[0] ?? null);
   ui.setFocusArea("panel");
+}
+
+/** Tab：面板未开则打开并把焦点放进去；已开但焦点在墙（如顶栏按钮打开的）则把焦点移进去；焦点已在面板里则收起，焦点回墙。 */
+export function togglePanelWithFocus(): void {
+  const ui = useCompareUi.getState();
+  if (ui.panelOpen && ui.focusArea === "panel") {
+    ui.togglePanel();
+    return;
+  }
+  if (!ui.panelOpen) ui.togglePanel();
+  focusPanel();
 }
 
 /** 面板焦点移动 delta 格（左右 ±1，上下 ±3）；越界不动。焦点不在当前列表里时落在第一张。 */

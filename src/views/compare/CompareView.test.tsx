@@ -220,18 +220,23 @@ describe("CompareView", () => {
     expect(s.focus).toBe(1);
   });
 
-  it("底部提示条：未放大时提示同步缩放、同步开关、移出；放大后换成平移；关掉设置后不出现", () => {
+  it("底部提示条：未放大时提示同步缩放、同步开关、添加图片；放大后换成平移；关掉设置后不出现", () => {
     const off = registerCompareCommands();
     try {
       const { container } = render(<CompareView />);
       const bar = () => container.querySelector(".compare-hintbar .key-hints");
       expect(bar()!.textContent).toContain("同步缩放");
       expect(bar()!.textContent).toContain("同步开关");
-      expect(bar()!.textContent).toContain("移出");
+      expect(bar()!.textContent).toContain("添加图片");
       expect(bar()!.textContent).not.toContain("平移");
       act(() => useCompareUi.setState({ viewport: { scale: { kind: "rel", k: 2 }, u: 0.5, v: 0.5 } }));
       expect(bar()!.textContent).toContain("平移");
       expect(bar()!.textContent).not.toContain("移出");
+      act(() => useCompareUi.setState({ panelOpen: true, focusArea: "panel" }));
+      expect(bar()!.textContent).toContain("添加 / 移出");
+      expect(bar()!.textContent).toContain("回到图片");
+      expect(bar()!.textContent).not.toContain("同步缩放");
+      act(() => useCompareUi.setState({ panelOpen: false, focusArea: "wall" }));
       act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS, showKeyHints: false } }));
       expect(container.querySelector(".compare-hintbar")).toBeNull();
     } finally {

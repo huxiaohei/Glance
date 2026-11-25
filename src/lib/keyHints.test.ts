@@ -74,11 +74,27 @@ describe("singleHints", () => {
 });
 
 describe("compareHints", () => {
-  it("未放大：同步缩放、同步开关、移出", () => {
+  it("未放大、面板未开：同步缩放、同步开关、添加面板", () => {
     expect(compareHints({ zoomed: false })).toEqual([
       { id: "compare.zoom" },
       { id: "compare.sync" },
+      { id: "compare.panel" },
+    ]);
+  });
+
+  it("面板已开（焦点在墙）：同步缩放、同步开关、移出", () => {
+    expect(compareHints({ zoomed: false, panelOpen: true })).toEqual([
+      { id: "compare.zoom" },
+      { id: "compare.sync" },
       { id: "compare.remove" },
+    ]);
+  });
+
+  it("焦点在面板里：只提示面板的键", () => {
+    expect(compareHints({ zoomed: true, panelOpen: true, panelFocus: true })).toEqual([
+      { id: "panel.move" },
+      { id: "panel.toggle" },
+      { id: "panel.back" },
     ]);
   });
 
@@ -91,7 +107,7 @@ describe("compareHints 同步关", () => {
     expect(compareHints({ zoomed: false, sync: false })).toEqual([
       { id: "compare.zoom", solo: true },
       { id: "compare.sync" },
-      { id: "compare.remove" },
+      { id: "compare.panel" },
     ]);
   });
 });

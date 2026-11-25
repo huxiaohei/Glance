@@ -85,6 +85,7 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
   const focus = useCompareUi((s) => s.focus);
   const captions = useCompareUi((s) => s.captions);
   const panelOpen = useCompareUi((s) => s.panelOpen);
+  const panelFocus = useCompareUi((s) => s.panelOpen && s.focusArea === "panel");
   const showHints = useSettings((s) => s.settings.showKeyHints);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const box = useCellBox(scroller, columns, order.length);
@@ -209,7 +210,7 @@ export default function CompareView({ hidden = false }: { hidden?: boolean }) {
       </div>
       {showHints && (
         <div className="compare-hintbar">
-          <KeyHints hints={compareHints({ zoomed: anyZoomed(viewport, perCell), sync: perCell === null })} />
+          <KeyHints hints={compareHints({ zoomed: anyZoomed(viewport, perCell), sync: perCell === null, panelOpen, panelFocus })} />
         </div>
       )}
     </div>

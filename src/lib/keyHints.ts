@@ -8,7 +8,11 @@ export type HintId =
   | "compare.zoom"
   | "compare.pan"
   | "compare.sync"
-  | "compare.remove";
+  | "compare.remove"
+  | "compare.panel"
+  | "panel.move"
+  | "panel.toggle"
+  | "panel.back";
 /** solo：只用于 compare.zoom，同步关时为真（文字不带“同步”）。 */
 export interface Hint { id: HintId; n?: number; solo?: boolean }
 
@@ -37,10 +41,14 @@ export function singleHints(s: { currentInBasket: boolean; basket: number }): Hi
   return out.slice(0, MAX_HINTS);
 }
 
-/** 对比视图：缩放（同步关时标 solo）；放大后提示平移；同步开关；移出（放大时被截掉）。sync 缺省为开。 */
-export function compareHints(s: { zoomed: boolean; sync?: boolean }): Hint[] {
+/**
+ * 对比视图：缩放（同步关时标 solo）；放大后提示平移；同步开关；面板未开时提示添加面板，否则是移出（放大时被截掉）。
+ * sync 缺省为开。键盘焦点在添加面板里（panelFocus）时只提示面板里的键。
+ */
+export function compareHints(s: { zoomed: boolean; sync?: boolean; panelOpen?: boolean; panelFocus?: boolean }): Hint[] {
+  if (s.panelFocus) return [{ id: "panel.move" }, { id: "panel.toggle" }, { id: "panel.back" }];
   const out: Hint[] = [s.sync === false ? { id: "compare.zoom", solo: true } : { id: "compare.zoom" }];
   if (s.zoomed) out.push({ id: "compare.pan" });
-  out.push({ id: "compare.sync" }, { id: "compare.remove" });
+  out.push({ id: "compare.sync" }, s.panelOpen ? { id: "compare.remove" } : { id: "compare.panel" });
   return out.slice(0, MAX_HINTS);
 }

@@ -42,6 +42,23 @@ function hintKeys(id: HintId): string[] | null {
       const k = commandKey("compare.remove");
       return k ? [k] : null;
     }
+    case "compare.panel": {
+      const k = commandKey("compare.togglePanel");
+      return k ? [k] : null;
+    }
+    case "panel.move": {
+      const l = commandKey("compare.focusLeft");
+      const r = commandKey("compare.focusRight");
+      return l && r ? [l, r] : null;
+    }
+    case "panel.toggle": {
+      const k = commandKey("compare.panelToggle");
+      return k ? [k] : null;
+    }
+    case "panel.back": {
+      const k = commandKey("compare.back");
+      return k ? [k] : null;
+    }
     case "compare.zoom":
       return [`${IS_MAC ? "⌘" : "Ctrl"} ${t("hint.key.wheel")}`];
     case "compare.pan":
