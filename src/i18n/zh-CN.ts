@@ -90,6 +90,7 @@ export const zhCN = {
   "help.view.all": "全部视图",
   "toast.details": "详情",
   "toast.close": "关闭",
+  "basket.tooMany": "对比篮已超过 100 张，可能变慢",
   "status.delete": "删除",
   "cmd.cat.file": "文件",
   "cmd.file.trash": "移到废纸篓",

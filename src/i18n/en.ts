@@ -92,6 +92,7 @@ export const en: Record<MessageKey, string> = {
   "help.view.all": "All Views",
   "toast.details": "Details",
   "toast.close": "Close",
+  "basket.tooMany": "The compare basket has more than 100 images and may slow down",
   "status.delete": "Delete",
   "cmd.cat.file": "File",
   "cmd.file.trash": "Move to Trash",
