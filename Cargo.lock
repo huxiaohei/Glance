@@ -1739,6 +1739,8 @@ dependencies = [
  "mozjpeg",
  "mozjpeg-sys",
  "oxipng",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "webp",
 ]

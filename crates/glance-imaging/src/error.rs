@@ -11,6 +11,8 @@ pub enum ImagingError {
     Decode(String),
     #[error("缩略图边长必须大于 0")]
     InvalidMaxEdge,
+    #[error("该格式不支持此操作")]
+    Unsupported,
     #[error("图片像素数超过上限")]
     TooLarge,
 }

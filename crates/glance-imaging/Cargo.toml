@@ -15,5 +15,9 @@ mozjpeg = { version = "0.10.13", default-features = false }
 mozjpeg-sys = { version = "2.2.3", default-features = false, features = ["unwinding", "with_simd"] }
 # 去掉 binary（命令行）、parallel、zopfli 默认特性，保持依赖精简。
 oxipng = { version = "10.2.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
 thiserror = "2.0.21"
 webp = { version = "0.3.1", default-features = false }
+
+[dev-dependencies]
+serde_json = "1"
