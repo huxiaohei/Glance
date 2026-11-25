@@ -9,7 +9,7 @@ import { useListView } from "../../stores/listView";
 import { topView, useNav } from "../../stores/nav";
 import { useSettings } from "../../stores/settings";
 import { showToast } from "../../stores/toast";
-import { compareLayout, flushCompareViewport, layoutCells } from "./useCompareViewport";
+import { cancelActiveSort, compareLayout, flushCompareViewport, layoutCells } from "./useCompareViewport";
 
 /** 篮子被移空 / 清空时退回进入前的视图（只在对比视图在栈顶时）。 */
 export function backIfEmpty(): void {
@@ -196,6 +196,8 @@ function focusPanel(): void {
 
 /** Tab：面板未开则打开并把焦点放进去；已开但焦点在墙（如顶栏按钮打开的）则把焦点移进去；焦点已在面板里则收起，焦点回墙。 */
 export function togglePanelWithFocus(): void {
+  // 面板开合会改墙的宽度：进行中的排序拖动按旧尺寸量的，先取消
+  cancelActiveSort();
   const ui = useCompareUi.getState();
   if (ui.panelOpen && ui.focusArea === "panel") {
     ui.togglePanel();

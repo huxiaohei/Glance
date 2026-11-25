@@ -17,6 +17,7 @@ import {
   zoomFocused,
 } from "./compareActions";
 import { useCompareUi } from "../../stores/compareUi";
+import { cancelActiveSort } from "./useCompareViewport";
 
 const ZOOM_STEP = 1.25;
 
@@ -32,9 +33,14 @@ const once = (fn: () => void): Command["run"] => ({ repeat }) => {
   if (!repeat) fn();
 };
 
-/** 焦点在添加面板里时不做事（按键仍被命令拦下，不落到 WebView 的默认行为）。 */
+/**
+ * 焦点在添加面板里时不做事（按键仍被命令拦下，不落到 WebView 的默认行为）。
+ * 在墙上执行前先取消进行中的排序拖动：这些命令会改顺序、移出格子或改缩放，拖动的预览会过时。
+ */
 const wallOnly = (run: Command["run"]): Command["run"] => (ctx) => {
-  if (!inPanel()) run(ctx);
+  if (inPanel()) return;
+  cancelActiveSort();
+  run(ctx);
 };
 
 /** 方向键：墙上移动格子焦点（上下按列数），面板里移动面板焦点（上下按 3 列）。 */

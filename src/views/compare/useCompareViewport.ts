@@ -38,7 +38,7 @@ export function layoutCells(layout: CompareLayout): { img: Size; box: Size }[] {
 }
 
 // 挂载中的对比视图：命令（键盘缩放）要用它的布局，并在改 store 之前把热路径上未写回的视口写回
-let active: { layout: () => CompareLayout; flush: () => void } | null = null;
+let active: { layout: () => CompareLayout; flush: () => void; cancelSort: () => void } | null = null;
 
 /** 挂载中的对比视图的布局；没有对比视图时为 null。 */
 export function compareLayout(): CompareLayout | null {
@@ -48,6 +48,14 @@ export function compareLayout(): CompareLayout | null {
 /** 把滚轮 / 拖动中尚未写回的视口立即写回 store。 */
 export function flushCompareViewport(): void {
   active?.flush();
+}
+
+/**
+ * 取消进行中的排序拖动（格子回原位、顺序不变）；没有在拖时不做事。
+ * 会改墙的布局或顺序的键盘命令（Tab 开合面板、Alt+方向键、移出、缩放等）先调它，免得拖动的预览与目标槽位过时。
+ */
+export function cancelActiveSort(): void {
+  active?.cancelSort();
 }
 
 interface Hit {
@@ -287,7 +295,10 @@ export function useCompareViewport(scroller: HTMLElement | null, layout: Compare
       void showImageMenu();
     };
 
-    const mine = { layout: () => layoutRef.current, flush: commit };
+    const cancelSort = () => {
+      if (press?.sort) endPress(false);
+    };
+    const mine = { layout: () => layoutRef.current, flush: commit, cancelSort };
     active = mine;
 
     scroller.addEventListener("wheel", onWheel, { passive: false });

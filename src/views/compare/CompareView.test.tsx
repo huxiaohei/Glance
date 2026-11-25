@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { allCommands } from "../../app/commands";
 import { showImageMenu } from "../../app/contextMenu";
 import { setLanguage } from "../../i18n";
 import * as api from "../../ipc/api";
@@ -657,6 +658,37 @@ describe("CompareView", () => {
         window.removeEventListener("keydown", later);
       }
     });
+
+    for (const [cmd, label] of [
+      ["compare.togglePanel", "Tab 开合面板"],
+      ["compare.moveRight", "Alt+方向键交换"],
+      ["compare.zoomIn", "缩放"],
+    ] as const) {
+      it(`拖动中按${label}：先取消拖动，临时样式清空，顺序不变`, () => {
+        const off = registerCompareCommands();
+        try {
+          const { container } = render(<CompareView />);
+          // 焦点在最后一格：Alt+→ 交换不动，只看拖动是否取消
+          act(() => useCompareUi.getState().setFocus(3));
+          const el = pic(container, 1);
+          down(el, at(0));
+          move(el, at(2));
+          raf.flush();
+          expect(container.querySelector(".is-sorting")).not.toBeNull();
+          act(() => allCommands().find((c) => c.id === cmd)!.run({ shift: false, repeat: false }));
+          expect(transforms(container)).toEqual(["", "", ""]);
+          expect(container.querySelector(".is-dragging, .is-sorting")).toBeNull();
+          // 取消后的移动与松开不再改顺序
+          move(el, at(1));
+          raf.flush();
+          up(el, at(1));
+          expect(transforms(container)).toEqual(["", "", ""]);
+          expect(useBasket.getState().order).toEqual([1, 2, 3]);
+        } finally {
+          off();
+        }
+      });
+    }
 
     it("modifier press does not start drag", () => {
       for (const mod of ["metaKey", "ctrlKey", "shiftKey", "altKey"]) {
