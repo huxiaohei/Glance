@@ -64,7 +64,12 @@ pub async fn open_path(
 
     // 会话的收件口：监听器与之后的文件操作（经 Sessions::hint）都往这里投递。
     let (tx, rx) = std::sync::mpsc::channel::<SessionMsg>();
-    sessions.attach(generation, target.root.clone(), tx.clone());
+    sessions.attach_scoped(
+        generation,
+        target.root.clone(),
+        target.recursive,
+        tx.clone(),
+    );
 
     // 会话线程长期存活（监听直到下一次打开），不占 spawn_blocking 的线程池，
     // 也不占主线程或异步运行时的核心线程。

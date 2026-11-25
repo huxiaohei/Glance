@@ -22,6 +22,8 @@ pub enum OpKind {
     Rename,
     Move,
     Copy,
+    /// 编辑后保存（副本、覆盖或另存），整次一步撤销。
+    Edit,
 }
 
 pub struct UndoEntry {

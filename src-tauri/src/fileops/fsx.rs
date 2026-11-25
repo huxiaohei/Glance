@@ -200,6 +200,45 @@ pub fn numbered(path: &Path, n: u32) -> PathBuf {
     path.with_file_name(name)
 }
 
+/// 在扩展名前加后缀与序号："a/hero.png", "_compressed", 1 → "a/hero_compressed.png"；
+/// n ≥ 2 → "a/hero_compressed_2.png"；后缀为空时 n = 1 就是原名，n = 2 为 "a/hero_2.png"。
+pub fn suffixed(path: &Path, suffix: &str, n: u32) -> PathBuf {
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    let number = if n >= 2 {
+        format!("_{n}")
+    } else {
+        String::new()
+    };
+    let name = match path.extension() {
+        Some(ext) => format!("{stem}{suffix}{number}.{}", ext.to_string_lossy()),
+        None => format!("{stem}{suffix}{number}"),
+    };
+    path.with_file_name(name)
+}
+
+/// 在 dir 里新建临时文件，写入 bytes 并 fsync，返回它的路径；任何一步失败都删掉临时文件。
+/// 之后由调用方 [`rename_noreplace`] 到目标，失败时用 [`discard_temp`] 删掉。
+pub fn write_temp(dir: &Path, bytes: &[u8]) -> Result<PathBuf, FsError> {
+    let (path, mut file) = create_temp_file(dir).map_err(|e| FsError::from(&e))?;
+    let written = (|| -> io::Result<()> {
+        io::Write::write_all(&mut file, bytes)?;
+        file.sync_all()
+    })();
+    drop(file);
+    match written {
+        Ok(()) => Ok(path),
+        Err(e) => {
+            remove_temp(&path);
+            Err(FsError::from(&e))
+        }
+    }
+}
+
+/// 尽力删掉 [`write_temp`] 写出的临时文件。
+pub fn discard_temp(path: &Path) {
+    remove_temp(path);
+}
+
 /// 文件名或目录名是否可用。拒绝：空、首尾空格、以 '.' 开头、"." 与 ".."、含 '/' '\\' 或 NUL；
 /// 另拒绝 Windows 上不可用的名字（含 <>:"|?* 或控制字符、以 '.' 结尾、保留名 CON PRN AUX NUL COM1–9 LPT1–9，
 /// 不分大小写、带不带扩展名都算）——两个平台用同一套规则，免得在一边起的名字到另一边打不开。
@@ -532,6 +571,46 @@ mod tests {
         );
         assert_eq!(numbered(&dir.join("a.tar.gz"), 3), dir.join("a.tar (3).gz"));
         assert_eq!(numbered(&dir.join("无扩展名"), 2), dir.join("无扩展名 (2)"));
+    }
+
+    #[test]
+    fn suffixed_appends_suffix_and_number_before_the_extension() {
+        let a = Path::new("a");
+        assert_eq!(
+            suffixed(&a.join("hero.png"), "_compressed", 1),
+            a.join("hero_compressed.png")
+        );
+        assert_eq!(
+            suffixed(&a.join("hero.png"), "_compressed", 2),
+            a.join("hero_compressed_2.png")
+        );
+        assert_eq!(suffixed(&a.join("hero.webp"), "", 1), a.join("hero.webp"));
+        assert_eq!(suffixed(&a.join("hero.webp"), "", 2), a.join("hero_2.webp"));
+        assert_eq!(
+            suffixed(&a.join("无扩展名"), "_x", 3),
+            a.join("无扩展名_x_3")
+        );
+    }
+
+    #[test]
+    fn write_temp_writes_a_hidden_file_and_discard_removes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = write_temp(dir.path(), b"data").unwrap();
+        assert_eq!(tmp.parent(), Some(dir.path()));
+        assert!(
+            tmp.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".glance-tmp-")
+        );
+        assert_eq!(fs::read(&tmp).unwrap(), b"data");
+        discard_temp(&tmp);
+        assert!(names_in(dir.path()).is_empty());
+        // 目录不存在：报错，不留东西。
+        assert_eq!(
+            write_temp(&dir.path().join("missing"), b"x"),
+            Err(FsError::NotFound)
+        );
     }
 
     #[test]

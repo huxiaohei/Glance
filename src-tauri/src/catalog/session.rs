@@ -190,6 +190,8 @@ struct Current {
     cancel: Option<Arc<AtomicBool>>,
     /// 当前会话的根目录与收件口（attach 之后才有）。
     attached: Option<(PathBuf, Sender<SessionMsg>)>,
+    /// 当前会话是否包含子目录。
+    recursive: bool,
 }
 
 /// 管理“当前这一次打开”。
@@ -205,6 +207,7 @@ impl Default for Sessions {
                 seen: 0,
                 cancel: None,
                 attached: None,
+                recursive: false,
             }),
         }
     }
@@ -235,13 +238,39 @@ impl Sessions {
         Some((cur.generation, cancel))
     }
 
-    /// begin 之后调用：记下当前会话的根目录与收件口。下一次 begin 时清掉。
+    /// begin 之后调用：记下当前会话的根目录、是否含子目录与收件口。下一次 begin 时清掉。
     /// `generation` 已不是当前会话（期间又有新的 begin）时忽略。
-    pub fn attach(&self, generation: u32, root: PathBuf, tx: Sender<SessionMsg>) {
+    pub fn attach_scoped(
+        &self,
+        generation: u32,
+        root: PathBuf,
+        recursive: bool,
+        tx: Sender<SessionMsg>,
+    ) {
         let mut cur = self.current.lock().unwrap();
         if cur.generation == generation && cur.cancel.is_some() {
             cur.attached = Some((root, tx));
+            cur.recursive = recursive;
         }
+    }
+
+    /// 测试用：含子目录的 [`attach_scoped`](Self::attach_scoped)。
+    #[cfg(test)]
+    pub fn attach(&self, generation: u32, root: PathBuf, tx: Sender<SessionMsg>) {
+        self.attach_scoped(generation, root, true, tx);
+    }
+
+    /// path 是否落在当前会话的范围里（与监听的范围一致：根之下、未被跳过、不含子目录时须是根的直接下级）。
+    /// 没有会话时为 false。
+    pub fn contains(&self, path: &Path) -> bool {
+        let cur = self.current.lock().unwrap();
+        let Some((root, _)) = &cur.attached else {
+            return false;
+        };
+        path != root
+            && path.starts_with(root)
+            && (cur.recursive || path.parent() == Some(root.as_path()))
+            && !crate::catalog::scan::is_skipped_path(root, path)
     }
 
     /// 当前会话的根目录；没有会话返回 None。
@@ -556,6 +585,28 @@ mod tests {
         assert_eq!(s.current(), None, "下一次 begin 清掉上一次的会话");
         s.attach(g2, PathBuf::from("/r2"), tx);
         assert_eq!(s.current(), Some((g2, PathBuf::from("/r2"))));
+    }
+
+    #[test]
+    fn contains_follows_root_and_recursion() {
+        use std::sync::mpsc::channel;
+        let s = Sessions::default();
+        let root = PathBuf::from("/r");
+        assert!(!s.contains(&root.join("a.png")), "没有会话");
+        s.note(1);
+        let (g1, _) = s.begin(1).unwrap();
+        let (tx, _rx) = channel();
+        s.attach_scoped(g1, root.clone(), false, tx.clone());
+        assert!(s.contains(&root.join("a.png")));
+        assert!(!s.contains(&root.join("sub/a.png")), "不含子目录");
+        assert!(!s.contains(&root), "根本身不算");
+        assert!(!s.contains(Path::new("/other/a.png")));
+        assert!(!s.contains(Path::new("/r2/a.png")));
+        s.note(2);
+        let (g2, _) = s.begin(2).unwrap();
+        s.attach_scoped(g2, root.clone(), true, tx);
+        assert!(s.contains(&root.join("sub/a.png")));
+        assert!(!s.contains(&root.join(".hidden/a.png")), "跳过的目录不算");
     }
 
     #[test]

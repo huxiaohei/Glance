@@ -152,6 +152,8 @@ struct Results {
 
 pub(crate) struct Session {
     id: u32,
+    /// 打开时的源图。
+    source: FileId,
     src_format: SrcFormat,
     icc: Option<Vec<u8>>,
     orig: Arc<Decoded>,
@@ -365,6 +367,7 @@ impl EditState {
         let sid = self.next.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         let session = Arc::new(Session {
             id: sid,
+            source: id,
             src_format: l.src_format,
             icc: l.icc,
             orig: l.orig,
@@ -436,14 +439,18 @@ impl EditState {
         self.session(session).ok()?.bytes(rev)
     }
 
+    /// 会话的源图与它的格式。
+    pub fn source(&self, session: u32) -> Result<(FileId, SrcFormat), EditError> {
+        let s = self.session(session)?;
+        Ok((s.source, s.src_format))
+    }
+
     /// 最近一份全尺寸结果，参数相同才返回。
-    #[allow(dead_code, reason = "保存命令使用")]
     pub fn full_result_for(&self, session: u32, params: &EditParams) -> Option<Arc<Encoded>> {
         self.session(session).ok()?.cached_full(params)
     }
 
     /// 全尺寸结果：参数相同则复用，否则在调用方线程上算（不记入会话）。
-    #[allow(dead_code, reason = "保存命令使用")]
     pub fn compute_full(
         &self,
         session: u32,
@@ -539,6 +546,8 @@ mod tests {
         assert_eq!((o.width, o.height), (3000, 1000));
         assert_eq!((o.proxy_w, o.proxy_h), (2048, 683));
         assert_eq!(o.src_format, SrcFormat::Png);
+        assert_eq!(st.source(o.session), Ok((f.a, SrcFormat::Png)));
+        assert_eq!(st.source(o.session + 1), Err(EditError::NoSession));
         assert!(!o.has_alpha);
         let size = std::fs::metadata(f.reg.path(f.a).unwrap()).unwrap().len();
         assert_eq!(o.file_size, size);
