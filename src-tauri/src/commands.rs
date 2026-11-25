@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::{Manager, State};
 
-use crate::catalog::details::{self, ImageDetails};
+use crate::catalog::details::{self, BasketEntry, ImageDetails};
 use crate::catalog::events::{CatalogEvent, OpenError, RootInfo};
 use crate::catalog::registry::FileId;
 use crate::catalog::registry::Registry;
@@ -275,6 +275,18 @@ pub fn thumbs_want(
 #[tauri::command(async)]
 pub fn image_details(id: u32, registry: State<'_, Arc<Registry>>) -> Result<ImageDetails, String> {
     details::details_by_id(&registry, FileId(id))
+}
+
+/// 按 ID 核对对比篮里的文件（可能在当前目录之外），顺序与 `ids` 一致；
+/// 未登记、文件不在或不是普通文件的位置为 None。读文件，不上主线程。
+#[tauri::command(async)]
+pub fn basket_check(
+    ids: Vec<u32>,
+    registry: State<'_, Arc<Registry>>,
+) -> Vec<Option<BasketEntry>> {
+    ids.into_iter()
+        .map(|id| details::basket_entry(&registry, FileId(id)))
+        .collect()
 }
 
 #[cfg(test)]

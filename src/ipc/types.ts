@@ -3,6 +3,15 @@ import type { SortKey } from "../lib/deriveList";
 export type FileId = number;
 export type Tier = 320 | 640;
 
+export interface BasketEntry {
+  id: FileId;
+  name: string;
+  dirName: string;
+  size: number;
+  mtimeMs: number;
+  w: number | null;
+  h: number | null;
+}
 export interface WireEntry { id: FileId; relPath: string; size: number; mtimeMs: number }
 
 export type CatalogEvent =

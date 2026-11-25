@@ -8,6 +8,7 @@ import type {
   Dest,
   DragEnd,
   FileId,
+  BasketEntry,
   ImageDetails,
   OpReport,
   RecentEntry,
@@ -44,6 +45,10 @@ export function thumbsWant(consumer: string, ids: FileId[], tier: Tier): Promise
 
 export function imageDetails(id: FileId): Promise<ImageDetails> {
   return invoke<ImageDetails>("image_details", { id });
+}
+
+export function basketCheck(ids: FileId[]): Promise<(BasketEntry | null)[]> {
+  return invoke<(BasketEntry | null)[]>("basket_check", { ids });
 }
 
 export function fsTrash(ids: FileId[]): Promise<OpReport> {

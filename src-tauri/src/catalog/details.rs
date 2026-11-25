@@ -108,6 +108,40 @@ pub fn details_by_id(registry: &Registry, id: FileId) -> Result<ImageDetails, St
     image_details(&path).ok_or_else(|| format!("file not readable: {}", id.0))
 }
 
+/// 对比篮里的一项：只有名字与所在目录的名字（最后一段），不含路径。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BasketEntry {
+    pub id: u32,
+    pub name: String,
+    pub dir_name: String,
+    pub size: u64,
+    pub mtime_ms: f64,
+    pub w: Option<u32>,
+    pub h: Option<u32>,
+}
+
+/// 按 ID 核对一个文件当前的状态；未登记、文件不在或不是普通文件返回 None。
+/// 宽高取 [`display_size`]（已按 EXIF 方向换算），读不出为 None。
+pub fn basket_entry(registry: &Registry, id: FileId) -> Option<BasketEntry> {
+    let path = registry.path(id)?;
+    if !std::fs::metadata(&path).ok()?.is_file() {
+        return None;
+    }
+    let stamp = stamp_of(&path)?;
+    let name_of = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned());
+    let dims = display_size(&path);
+    Some(BasketEntry {
+        id: id.0,
+        name: name_of(&path)?,
+        dir_name: path.parent().and_then(name_of).unwrap_or_default(),
+        size: stamp.size,
+        mtime_ms: stamp.mtime_ms as f64,
+        w: dims.map(|d| d.0),
+        h: dims.map(|d| d.1),
+    })
+}
+
 /// 从文件头读到的信息。
 #[derive(Default)]
 struct Head {
@@ -970,6 +1004,35 @@ mod tests {
         assert_eq!(d.color.as_deref(), Some("Indexed"));
         let one = write(tmp.path(), "one.gif", &gif(1));
         assert!(!image_details(&one).unwrap().animated);
+    }
+
+    #[test]
+    fn basket_entry_reads_name_dir_size_dims() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("cards")).unwrap();
+        let bytes = png(30, 20);
+        let p = write(&tmp.path().join("cards"), "a.png", &bytes);
+        let registry = crate::catalog::registry::Registry::default();
+        let id = registry.register(&p);
+        let e = basket_entry(&registry, id).unwrap();
+        assert_eq!(e.id, id.0);
+        assert_eq!(e.name, "a.png");
+        assert_eq!(e.dir_name, "cards");
+        assert_eq!(e.size, bytes.len() as u64);
+        assert_eq!((e.w, e.h), (Some(30), Some(20)));
+        assert_eq!(e.mtime_ms, stamp_of(&p).unwrap().mtime_ms as f64);
+    }
+
+    #[test]
+    fn basket_entry_none_when_deleted_or_unknown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = write(tmp.path(), "a.png", &png(2, 2));
+        let registry = crate::catalog::registry::Registry::default();
+        let id = registry.register(&p);
+        assert!(basket_entry(&registry, id).is_some());
+        fs::remove_file(&p).unwrap();
+        assert!(basket_entry(&registry, id).is_none());
+        assert!(basket_entry(&registry, crate::catalog::registry::FileId(999_999)).is_none());
     }
 
     #[test]
