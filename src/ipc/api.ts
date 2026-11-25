@@ -9,6 +9,7 @@ import type {
   DragEnd,
   FileId,
   BasketEntry,
+  BrowseResult,
   RestoredItem,
   ImageDetails,
   OpReport,
@@ -54,6 +55,10 @@ export function basketCheck(ids: FileId[]): Promise<(BasketEntry | null)[]> {
 
 export function basketSave(ids: FileId[]): Promise<void> {
   return invoke<void>("basket_save", { ids });
+}
+
+export function browseDir(path: string): Promise<BrowseResult> {
+  return invoke<BrowseResult>("browse_dir", { path });
 }
 
 export function basketRestore(): Promise<RestoredItem[]> {

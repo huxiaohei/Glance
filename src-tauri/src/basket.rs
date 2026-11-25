@@ -2,11 +2,14 @@
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::State;
 
 use crate::catalog::details::{self, BasketEntry};
 use crate::catalog::registry::{FileId, Registry};
+use crate::catalog::scan;
+use crate::fileops::fsx::FsError;
 use crate::state::session::SessionStore;
 
 /// 启动恢复出的一项。文件不在时 `entry` 为 None，名字仍取自路径。
@@ -48,6 +51,65 @@ pub fn run_restore(registry: &Registry, store: &SessionStore) -> Vec<RestoredIte
             }
         })
         .collect()
+}
+
+/// 浏览目录里的一张图。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowseEntry {
+    pub id: u32,
+    pub name: String,
+    pub size: u64,
+    pub mtime_ms: f64,
+}
+
+/// 浏览一个目录的结果：目录名与里面（只一层）的图。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowseResult {
+    pub name: String,
+    pub entries: Vec<BrowseEntry>,
+}
+
+/// 只扫一层，复用扫描的跳过规则与扩展名，并登记 id；顺序不保证。读目录，不上主线程。
+pub fn run_browse(registry: &Registry, dir: &Path) -> Result<BrowseResult, FsError> {
+    if !dir.is_dir() {
+        return Err(FsError::NotFound);
+    }
+    let mut entries = Vec::new();
+    scan::scan(dir, false, &AtomicBool::new(false), &mut |batch| {
+        entries.extend(batch.into_iter().map(|e| {
+            BrowseEntry {
+                id: registry.register(&e.path).0,
+                name: e
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                size: e.size,
+                mtime_ms: e.mtime_ms as f64,
+            }
+        }));
+    });
+    Ok(BrowseResult {
+        name: dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        entries,
+    })
+}
+
+/// 浏览一个目录（添加面板的“其他文件夹”）。路径来自系统文件夹对话框。
+#[tauri::command]
+pub async fn browse_dir(
+    path: String,
+    registry: State<'_, Arc<Registry>>,
+) -> Result<BrowseResult, FsError> {
+    let registry = registry.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || run_browse(&registry, Path::new(&path)))
+        .await
+        .map_err(|_| FsError::Other)?
 }
 
 /// 保存对比篮（只存路径）。
@@ -140,5 +202,67 @@ mod tests {
         let store = SessionStore::memory();
         run_save(&Registry::default(), &store, &[9999]);
         assert!(store.basket().is_empty());
+    }
+
+    fn browse_tree(root: &Path) {
+        for rel in [
+            "a.png",
+            "b.JPG",
+            ".hidden.png",
+            "a.txt",
+            "sub/deep.png",
+            "node_modules/x.png",
+        ] {
+            let p = root.join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, [0u8]).unwrap();
+        }
+    }
+
+    #[test]
+    fn browse_one_level_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        browse_tree(tmp.path());
+        let r = run_browse(&Registry::default(), tmp.path()).unwrap();
+        let mut names: Vec<_> = r.entries.iter().map(|e| e.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["a.png", "b.JPG"]);
+        assert_eq!(r.name, tmp.path().file_name().unwrap().to_string_lossy());
+    }
+
+    #[test]
+    fn browse_skips_hidden_and_non_images() {
+        let tmp = tempfile::tempdir().unwrap();
+        browse_tree(tmp.path());
+        let r = run_browse(&Registry::default(), tmp.path()).unwrap();
+        for bad in [".hidden.png", "a.txt", "x.png"] {
+            assert!(r.entries.iter().all(|e| e.name != bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn browse_registers_same_id_as_catalog() {
+        let tmp = tempfile::tempdir().unwrap();
+        browse_tree(tmp.path());
+        let registry = Registry::default();
+        let id = registry.register(&tmp.path().join("a.png"));
+        let r = run_browse(&registry, tmp.path()).unwrap();
+        let e = r.entries.iter().find(|e| e.name == "a.png").unwrap();
+        assert_eq!(e.id, id.0);
+        assert_eq!(e.size, 1);
+    }
+
+    #[test]
+    fn browse_not_a_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = write(tmp.path(), "a.png");
+        assert_eq!(
+            run_browse(&Registry::default(), &f).unwrap_err(),
+            FsError::NotFound
+        );
+        assert_eq!(
+            run_browse(&Registry::default(), &tmp.path().join("nope")).unwrap_err(),
+            FsError::NotFound
+        );
     }
 }

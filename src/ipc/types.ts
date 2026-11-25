@@ -18,6 +18,8 @@ export interface RestoredItem {
   dirName: string;
   entry: BasketEntry | null;
 }
+export interface BrowseEntry { id: FileId; name: string; size: number; mtimeMs: number }
+export interface BrowseResult { name: string; entries: BrowseEntry[] }
 export interface WireEntry { id: FileId; relPath: string; size: number; mtimeMs: number }
 
 export type CatalogEvent =
