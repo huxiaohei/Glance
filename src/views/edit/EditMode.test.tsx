@@ -431,6 +431,26 @@ describe("面板控件聚焦时的回车与 Esc", () => {
     expect(saveEdit).not.toHaveBeenCalled();
   });
 
+  it("esc_with_save_menu_open_closes_menu_first", async () => {
+    await enterEditing();
+    const more = byLabel(t("edit.save.more"));
+    act(() => {
+      fireEvent.click(more);
+    });
+    expect(panel().querySelector('[role="menu"]')).toBeTruthy();
+    // 第一次 Esc 只收起下拉，不退出编辑
+    act(() => {
+      press(more, "Escape");
+    });
+    expect(panel().querySelector('[role="menu"]')).toBeNull();
+    expect(useEditUi.getState().status).toBe("ready");
+    // 再按一次才取消编辑
+    act(() => {
+      press(more, "Escape");
+    });
+    expect(useEditUi.getState().status).toBe("idle");
+  });
+
   it("esc_on_panel_button_still_cancels", async () => {
     await enterEditing();
     const more = byLabel(t("edit.save.more"));

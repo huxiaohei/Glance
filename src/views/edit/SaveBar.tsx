@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 import { saveEdit } from "../../app/editSave";
 import { t } from "../../i18n";
 import { compressUnsupported, useEditUi } from "../../stores/editUi";
 import { useSettings } from "../../stores/settings";
 import { useConfirmOverwrite } from "../../stores/confirmOverwrite";
+import { setSaveMenuOpen, useSaveMenu } from "../../stores/saveMenu";
 import { exitEdit } from "./editCommands";
 
 /** 按下不把焦点移到按钮上：焦点留在页面，回车仍是“保存”命令，不会再点一次按钮。 */
@@ -17,10 +18,14 @@ export default function SaveBar() {
   const mode = useSettings((s) => s.settings.editSaveMode);
   const status = useEditUi((s) => s.status);
   const unsupported = useEditUi(compressUnsupported);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const menuOpen = useSaveMenu((s) => s.open);
+  const setMenuOpen = setSaveMenuOpen;
   const root = useRef<HTMLDivElement>(null);
   const saving = status === "saving";
   const disabled = status !== "ready" || unsupported;
+
+  // 卸下（退出编辑）时收起
+  useEffect(() => () => setSaveMenuOpen(false), []);
 
   // 点下拉之外的地方收起
   useEffect(() => {
@@ -62,7 +67,7 @@ export default function SaveBar() {
           aria-expanded={menuOpen}
           disabled={disabled}
           onMouseDown={keepFocus}
-          onClick={() => setMenuOpen((o) => !o)}
+          onClick={() => setMenuOpen(!menuOpen)}
         >
           <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
             <path d="M2 4l4 4 4-4" />

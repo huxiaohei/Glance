@@ -5,6 +5,7 @@ import type { EditError, FileId } from "../../ipc/types";
 import { noteAnimated } from "../../stores/animated";
 import { useCatalog } from "../../stores/catalog";
 import { useEditUi } from "../../stores/editUi";
+import { isSaveMenuOpen, setSaveMenuOpen } from "../../stores/saveMenu";
 import { topView, useNav } from "../../stores/nav";
 import { showToast } from "../../stores/toast";
 
@@ -96,8 +97,14 @@ const editCommands: Command[] = [
     allowInInput: true,
     when: () => !inForeignInput(),
     run: ({ repeat }) => {
+      if (repeat) return;
+      // 保存旁的下拉开着：先收起它
+      if (isSaveMenuOpen()) {
+        setSaveMenuOpen(false);
+        return;
+      }
       // 保存进行中不取消：结果由保存流程收尾
-      if (!repeat && useEditUi.getState().status !== "saving") exitEdit();
+      if (useEditUi.getState().status !== "saving") exitEdit();
     },
   },
 ];
