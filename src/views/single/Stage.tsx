@@ -20,10 +20,10 @@ export const useStageApi: UseBoundStore<StoreApi<{ api: StageApi | null }>> = cr
 }));
 
 /** 文件版本：修改时间与大小。缩略图的 v 用同样的写法。 */
-const versionOf = (entry: ImageEntry) => `${entry.mtimeMs}-${entry.size}`;
+export const versionOf = (entry: Pick<ImageEntry, "mtimeMs" | "size">) => `${entry.mtimeMs}-${entry.size}`;
 
-/** 原图地址：带文件版本，内容变化时地址随之变化。 */
-export function imageUrl(entry: ImageEntry): string {
+/** 原图地址：带文件版本，内容变化时地址随之变化。对比篮的条目（BasketItem）也用它。 */
+export function imageUrl(entry: Pick<ImageEntry, "id" | "mtimeMs" | "size">): string {
   return glanceUrl(`image/${entry.id}?v=${versionOf(entry)}`);
 }
 

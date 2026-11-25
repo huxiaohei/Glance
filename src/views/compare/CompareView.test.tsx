@@ -1,0 +1,171 @@
+// @vitest-environment jsdom
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setLanguage } from "../../i18n";
+import * as api from "../../ipc/api";
+import type { BasketEntry, FileId } from "../../ipc/types";
+import type { BasketItem } from "../../lib/basket";
+import { FIT_VIEWPORT } from "../../lib/compareViewport";
+import { useBasket } from "../../stores/basket";
+import { useCatalog } from "../../stores/catalog";
+import { useCompareUi } from "../../stores/compareUi";
+import { topView, useNav } from "../../stores/nav";
+import { DEFAULT_SETTINGS, useSettings } from "../../stores/settings";
+import { useThumbs } from "../../stores/thumbs";
+import { useToast } from "../../stores/toast";
+import CompareView from "./CompareView";
+
+vi.mock("../../ipc/api");
+
+const item = (id: FileId, name: string, width: number, height: number): BasketItem => ({
+  id, name, dirName: "魏国", size: 100 + id, mtimeMs: 1, width, height,
+});
+const ITEMS = [item(1, "关羽.png", 1024, 1536), item(2, "张飞.png", 1024, 1536), item(3, "马超.png", 832, 1216)];
+const entry = (it: BasketItem): BasketEntry => ({
+  id: it.id, name: it.name, dirName: it.dirName, size: it.size, mtimeMs: it.mtimeMs, w: it.width!, h: it.height!,
+});
+
+function fill(items: BasketItem[]) {
+  useBasket.setState({ order: items.map((i) => i.id), items: new Map(items.map((i) => [i.id, i])), missing: new Set() });
+}
+
+beforeEach(() => {
+  setLanguage("zh-CN");
+  useCatalog.getState().reset();
+  useNav.getState().reset();
+  useNav.getState().openCompare();
+  useSettings.setState({ settings: { ...DEFAULT_SETTINGS }, open: false });
+  useToast.setState({ current: null });
+  useCompareUi.setState({ viewport: FIT_VIEWPORT, perCell: null, focus: null, captions: true });
+  fill(ITEMS);
+  vi.mocked(api.thumbsWant).mockResolvedValue([]);
+  vi.mocked(api.settingsSet).mockResolvedValue();
+  vi.mocked(api.basketCheck).mockImplementation((ids) =>
+    Promise.resolve(ids.map((id) => entry(ITEMS.find((i) => i.id === id)!))),
+  );
+});
+afterEach(() => vi.clearAllMocks());
+
+const cells = (c: HTMLElement) => c.querySelectorAll(".compare-cell");
+
+describe("CompareView", () => {
+  it("篮内 3 张 → 3 格，标题“对比 · 3 张”", async () => {
+    const { container } = render(<CompareView />);
+    expect(cells(container)).toHaveLength(3);
+    expect(screen.getByText("对比 · 3 张")).toBeTruthy();
+    await waitFor(() => expect(api.basketCheck).toHaveBeenCalledWith([1, 2, 3]));
+  });
+
+  it("列数取自设置 compareColumns", () => {
+    useSettings.setState({ settings: { ...DEFAULT_SETTINGS, compareColumns: 3 } });
+    const { container } = render(<CompareView />);
+    const grid = container.querySelector<HTMLElement>(".compare-grid")!;
+    expect(grid.style.gridTemplateColumns).toMatch(/^repeat\(3,/);
+  });
+
+  it("改每排张数写回设置", async () => {
+    render(<CompareView />);
+    fireEvent.change(screen.getByLabelText("每排张数"), { target: { value: "6" } });
+    expect(useSettings.getState().settings.compareColumns).toBe(6);
+    await waitFor(() => expect(api.settingsSet).toHaveBeenCalledWith(expect.objectContaining({ compareColumns: 6 })));
+  });
+
+  it("尺寸与多数不同的那一格说明带 is-odd", () => {
+    const { container } = render(<CompareView />);
+    const odd = [...container.querySelectorAll(".compare-size.is-odd")].map((e) => e.textContent);
+    expect(odd).toEqual(["832×1216"]);
+    expect(container.querySelector('[data-id="3"] .compare-caption')!.textContent).toBe("马超.png · 832×1216");
+  });
+
+  it("basketCheck 报某张缺失 → 该格显示“文件已不在”，并出现提示条，点“全部移出”移出缺失的", async () => {
+    vi.mocked(api.basketCheck).mockResolvedValue([entry(ITEMS[0]), null, entry(ITEMS[2])]);
+    const { container } = render(<CompareView />);
+    await waitFor(() => expect(useToast.getState().current?.text).toBe("有 1 张已不存在"));
+    expect(container.querySelector('[data-id="2"]')!.textContent).toContain("文件已不在");
+    expect(container.querySelector('[data-id="1"]')!.textContent).not.toContain("文件已不在");
+    const action = useToast.getState().current!.actions!.find((a) => a.label === "全部移出")!;
+    act(() => action.run());
+    expect(useBasket.getState().order).toEqual([1, 3]);
+  });
+
+  it("都在时不出提示条", async () => {
+    render(<CompareView />);
+    await waitFor(() => expect(api.basketCheck).toHaveBeenCalled());
+    await act(async () => {});
+    expect(useToast.getState().current).toBeNull();
+  });
+
+  it("改背景 → settingsSet 收到新值，根节点 data-bg 改变", async () => {
+    const { container } = render(<CompareView />);
+    const root = container.querySelector<HTMLElement>(".compare-view")!;
+    expect(root.dataset.bg).toBe("dark");
+    fireEvent.click(screen.getByRole("button", { name: "棋盘格" }));
+    expect(root.dataset.bg).toBe("checker");
+    await waitFor(() =>
+      expect(api.settingsSet).toHaveBeenCalledWith(expect.objectContaining({ compareBackground: "checker" })),
+    );
+  });
+
+  it("关掉说明后说明消失", () => {
+    const { container } = render(<CompareView />);
+    expect(container.querySelectorAll(".compare-caption")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "说明" }));
+    expect(container.querySelectorAll(".compare-caption")).toHaveLength(0);
+  });
+
+  it("返回按钮回到进入前的视图", () => {
+    render(<CompareView />);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    expect(topView().kind).toBe("grid");
+  });
+
+  it("清空：篮子清空并返回", () => {
+    render(<CompareView />);
+    fireEvent.click(screen.getByRole("button", { name: "清空" }));
+    expect(useBasket.getState().order).toEqual([]);
+    expect(topView().kind).toBe("grid");
+  });
+
+  it("挂载即一次进入：按 compareSyncOnEnter 设同步，视口回到适应，焦点为第一张", () => {
+    useSettings.setState({ settings: { ...DEFAULT_SETTINGS, compareSyncOnEnter: false } });
+    useCompareUi.setState({ viewport: { scale: { kind: "rel", k: 3 }, u: 0, v: 0 }, focus: 9 });
+    render(<CompareView />);
+    const s = useCompareUi.getState();
+    expect(s.perCell).toEqual(new Map());
+    expect(s.viewport).toEqual(FIT_VIEWPORT);
+    expect(s.focus).toBe(1);
+  });
+
+  it("同步开关切换 perCell", () => {
+    render(<CompareView />);
+    const sync = screen.getByRole("switch", { name: "同步缩放" }) as HTMLInputElement;
+    expect(sync.checked).toBe(true);
+    fireEvent.click(sync);
+    expect(useCompareUi.getState().perCell).toEqual(new Map());
+    expect(sync.checked).toBe(false);
+  });
+
+  it("隐藏时（单张视图盖在上面）只隐藏不卸载", () => {
+    const { container, rerender } = render(<CompareView />);
+    rerender(<CompareView hidden />);
+    const root = container.querySelector<HTMLElement>(".compare-view")!;
+    expect(root.classList.contains("compare-hidden")).toBe(true);
+    expect(cells(container)).toHaveLength(3);
+  });
+
+  it("量出图片区后每格按视口换算 transform（适应：整张放进 2:3 的格子）", () => {
+    const descs = (["clientWidth", "clientHeight"] as const).map((p) => [p, Object.getOwnPropertyDescriptor(Element.prototype, p)!] as const);
+    Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get: () => 200 });
+    Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get: () => 300 });
+    try {
+      useThumbs.getState().markReady([{ id: 1, v: "1-101" }], 640);
+      const { container } = render(<CompareView />);
+      const pic = container.querySelector<HTMLImageElement>('[data-id="1"] .compare-pic')!;
+      expect(pic.style.width).toBe("1024px");
+      // 300 / 1536 = 0.1953125；jsdom 会把数值与 translate 写法规整
+      expect(pic.style.transform).toMatch(/^translate\(0px(, 0px)?\) scale\(0\.1953/);
+    } finally {
+      for (const [p, d] of descs) Object.defineProperty(Element.prototype, p, d);
+    }
+  });
+});

@@ -23,6 +23,7 @@ const { useCatalog } = await import("./stores/catalog");
 const { useNav, topView } = await import("./stores/nav");
 const { useSelection } = await import("./stores/selection");
 const { selectOnly } = await import("./lib/selection");
+const { useBasket } = await import("./stores/basket");
 
 let stop = () => {};
 afterEach(() => {
@@ -82,5 +83,36 @@ describe("App", () => {
     } finally {
       for (const [p, d] of descs) Object.defineProperty(Element.prototype, p, d);
     }
+  });
+});
+
+describe("App 对比视图", () => {
+  afterEach(() => act(() => void useBasket.getState().clear()));
+
+  it("栈顶为 compare 时显示对比视图、网格隐藏；其上压入对比篮来源的单张时对比视图只隐藏不卸载", () => {
+    act(() => {
+      useCatalog.getState().begin({ generation: 1, path: "/p", name: "p", recursive: true, focus: null });
+      useCatalog.getState().apply({
+        type: "batch", generation: 1, entries: [1, 2].map((id) => ({ id, relPath: `${id}.jpg`, size: 1, mtimeMs: 1 })),
+      });
+      useBasket.getState().toggle([1, 2]);
+    });
+    const { container } = render(<App />);
+    expect(container.querySelector(".compare-view")).toBeNull();
+    act(() => useNav.getState().openCompare());
+    const compare = container.querySelector(".compare-view")!;
+    expect(compare.classList.contains("compare-hidden")).toBe(false);
+    expect(container.querySelector(".grid-view")!.classList.contains("grid-hidden")).toBe(true);
+    act(() => useNav.getState().openSingle(1, "basket"));
+    expect(container.querySelector(".compare-view")).toBe(compare);
+    expect(compare.classList.contains("compare-hidden")).toBe(true);
+    expect(container.querySelector(".single-view")).not.toBeNull();
+    act(() => useNav.getState().back());
+    expect(container.querySelector(".compare-view")).toBe(compare);
+    expect(compare.classList.contains("compare-hidden")).toBe(false);
+    expect(container.querySelector(".single-view")).toBeNull();
+    act(() => useNav.getState().back());
+    expect(container.querySelector(".compare-view")).toBeNull();
+    expect(container.querySelector(".grid-view")!.classList.contains("grid-hidden")).toBe(false);
   });
 });

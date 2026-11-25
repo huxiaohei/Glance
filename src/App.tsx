@@ -14,6 +14,8 @@ import { useNav } from "./stores/nav";
 import { loadRecents } from "./stores/recents";
 import { useSettings } from "./stores/settings";
 import NamePrompt from "./views/common/NamePrompt";
+import CompareView from "./views/compare/CompareView";
+import { registerCompareCommands } from "./views/compare/compareCommands";
 import GridView from "./views/grid/GridView";
 import ShortcutsOverlay from "./views/help/ShortcutsOverlay";
 import SettingsDialog from "./views/settings/SettingsDialog";
@@ -26,7 +28,8 @@ import "./app/app.css";
 
 export default function App() {
   const hasRoot = useCatalog((s) => s.root !== null);
-  const single = useNav((s) => s.stack[s.stack.length - 1].kind === "single");
+  const topKind = useNav((s) => s.stack[s.stack.length - 1].kind);
+  const inCompare = useNav((s) => s.stack.some((v) => v.kind === "compare"));
   const language = useSettings((s) => s.settings.language);
   const dragging = useFolderDrop();
   const [lab, setLab] = useState(false);
@@ -39,6 +42,7 @@ export default function App() {
     const offFile = registerFileCommands();
     const offSingle = registerSingleCommands();
     const offBasket = registerBasketCommands();
+    const offCompare = registerCompareCommands();
     // 最近目录：启动时读取一次，并开始汇报浏览状态
     const stopRecents = startRecentsSync();
     void loadRecents();
@@ -50,6 +54,7 @@ export default function App() {
       stopUpdateCheck();
       stopOpenRequests();
       stopRecents();
+      offCompare();
       offBasket();
       offSingle();
       offFile();
@@ -61,9 +66,11 @@ export default function App() {
   return (
     <>
       <Fragment key={language}>
-        {/* 有根目录时网格始终挂载；单张视图盖在上面时网格只隐藏，滚动位置与选中保留 */}
-        {hasRoot ? <GridView hidden={single} /> : <StartView />}
-        {hasRoot && single && <SingleView />}
+        {/* 有根目录时网格始终挂载；对比或单张视图盖在上面时网格只隐藏，滚动位置与选中保留。
+            对比视图在栈里就挂着，其上压着对比篮来源的单张视图时同样只隐藏 */}
+        {hasRoot ? <GridView hidden={topKind !== "grid"} /> : <StartView />}
+        {hasRoot && inCompare && <CompareView hidden={topKind !== "compare"} />}
+        {hasRoot && topKind === "single" && <SingleView />}
         <ShortcutsOverlay />
         <SettingsDialog />
         <TipDialog />

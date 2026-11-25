@@ -3,7 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { t } from "../../i18n";
-import { appVersion, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
+import { appVersion, basketCheck, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
 import { switchStats } from "../../lib/perfMarks";
 import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
@@ -41,6 +41,8 @@ beforeEach(() => {
   vi.mocked(appVersion).mockResolvedValue("0.1.0");
   vi.mocked(onOpenRequest).mockResolvedValue(() => {});
   vi.mocked(thumbsWant).mockResolvedValue([]);
+  // 进入对比时的核对：这里不关心结果，挂起不返回（免得把篮里的图标成缺失）
+  vi.mocked(basketCheck).mockReturnValue(new Promise(() => {}));
   stubProp(Element.prototype, "clientWidth", { get: () => 800 });
   stubProp(Element.prototype, "clientHeight", { get: () => 600 });
   stubProp(HTMLImageElement.prototype, "decode", {
