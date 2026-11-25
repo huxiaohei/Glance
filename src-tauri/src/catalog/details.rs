@@ -563,7 +563,7 @@ fn exif_items(exif: &Exif) -> Vec<ExifItem> {
 pub(crate) mod testimg {
     //! 测试用的图片构造：手工拼 EXIF（TIFF 结构）并塞进 JPEG / PNG / WebP 容器。
 
-    use glance_imaging::{encode_jpeg, encode_png_lossless, encode_webp, RgbaView};
+    use glance_imaging::{RgbaView, encode_jpeg, encode_png_lossless, encode_webp};
 
     #[derive(Clone, Copy)]
     pub enum V {
