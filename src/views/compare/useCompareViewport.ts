@@ -213,6 +213,8 @@ export function useCompareViewport(scroller: HTMLElement | null, layout: Compare
       if (panned) commit();
     };
     const onPointerDown = (e: PointerEvent) => {
+      // 排序拖动中又有指针按下（第二根手指、笔、移出按钮）：先取消它，免得临时样式与 Esc 监听留下来
+      if (press?.sort) endPress(false);
       if (e.button !== 0) return;
       moved = 0;
       press = null;

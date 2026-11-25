@@ -593,6 +593,27 @@ describe("CompareView", () => {
       }
     });
 
+    it("拖动中另一个指针按下：取消拖动，临时样式清空，Esc 恢复往下传", () => {
+      const { container } = render(<CompareView />);
+      const later = vi.fn();
+      window.addEventListener("keydown", later);
+      try {
+        const el = pic(container, 1);
+        down(el, at(0));
+        move(el, at(2));
+        raf.flush();
+        fireEvent.pointerDown(pic(container, 3), { button: 0, buttons: 1, pointerId: 2, clientX: at(2).x, clientY: at(2).y });
+        expect(transforms(container)).toEqual(["", "", ""]);
+        expect(container.querySelector(".is-dragging, .is-sorting")).toBeNull();
+        fireEvent.keyDown(window, { key: "Escape" });
+        expect(later).toHaveBeenCalledTimes(1);
+        up(el, at(2));
+        expect(useBasket.getState().order).toEqual([1, 2, 3]);
+      } finally {
+        window.removeEventListener("keydown", later);
+      }
+    });
+
     it("modifier press does not start drag", () => {
       for (const mod of ["metaKey", "ctrlKey", "shiftKey", "altKey"]) {
         const { container, unmount } = render(<CompareView />);
