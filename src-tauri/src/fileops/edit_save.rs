@@ -150,6 +150,68 @@ fn save_as(to: &Path, bytes: &[u8]) -> Result<SaveOutcome, FsError> {
     })
 }
 
+/// [`write_new`] 的结果。
+#[derive(Debug)]
+pub struct WriteOutcome {
+    pub path: PathBuf,
+    /// 本次新建的目录，深的在前。
+    pub new_dirs: Vec<PathBuf>,
+}
+
+/// 把 bytes 写成 `dir` 里的新文件 `file_name`：缺的目录逐级建（只记本次真正新建的），先写临时文件，
+/// 再不覆盖地改名；重名依次试 `_2`、`_3`……（至多 `MAX_COPY_N`）。任何失败都不留临时文件，
+/// 改名全部失败时删掉本次新建的空目录。
+pub fn write_new(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<WriteOutcome, FsError> {
+    let mut missing = Vec::new();
+    let mut cur = Some(dir);
+    while let Some(d) = cur {
+        if d.as_os_str().is_empty() || d.exists() {
+            break;
+        }
+        missing.push(d.to_path_buf());
+        cur = d.parent();
+    }
+    let mut new_dirs = Vec::new();
+    let cleanup = |dirs: &[PathBuf]| {
+        for d in dirs {
+            let _ = std::fs::remove_dir(d);
+        }
+    };
+    for d in missing.iter().rev() {
+        match std::fs::create_dir(d) {
+            Ok(()) => new_dirs.insert(0, d.clone()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => {
+                cleanup(&new_dirs);
+                return Err(FsError::from(&e));
+            }
+        }
+    }
+    let tmp = match fsx::write_temp(dir, bytes) {
+        Ok(t) => t,
+        Err(e) => {
+            cleanup(&new_dirs);
+            return Err(e);
+        }
+    };
+    let base = dir.join(file_name);
+    for n in 1..=MAX_COPY_N {
+        let to = fsx::suffixed(&base, "", n);
+        match fsx::rename_noreplace(&tmp, &to) {
+            Ok(()) => return Ok(WriteOutcome { path: to, new_dirs }),
+            Err(FsError::Exists) => continue,
+            Err(e) => {
+                fsx::discard_temp(&tmp);
+                cleanup(&new_dirs);
+                return Err(e);
+            }
+        }
+    }
+    fsx::discard_temp(&tmp);
+    cleanup(&new_dirs);
+    Err(FsError::Exists)
+}
+
 /// 测试用的故障注入：覆盖原图时最后一步改名失败（只作用于当前线程的下一次）。
 #[cfg(test)]
 mod fault {
@@ -187,6 +249,45 @@ mod tests {
             fs::write(dir.path().join(name), content).unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn write_new_creates_dirs_deepest_first() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("a/b/c");
+        let out = write_new(&dir, "x.png", b"data").unwrap();
+        assert_eq!(out.path, dir.join("x.png"));
+        assert_eq!(fs::read(&out.path).unwrap(), b"data");
+        assert_eq!(
+            out.new_dirs,
+            vec![dir.clone(), root.path().join("a/b"), root.path().join("a")]
+        );
+        assert_eq!(names(&dir), vec!["x.png"]);
+    }
+
+    #[test]
+    fn write_new_numbers_on_collision() {
+        let d = dir_with(&[("x.webp", b"1")]);
+        let out = write_new(d.path(), "x.webp", b"new").unwrap();
+        assert_eq!(out.path, d.path().join("x_2.webp"));
+        assert!(out.new_dirs.is_empty());
+        let out = write_new(d.path(), "x.webp", b"new").unwrap();
+        assert_eq!(out.path, d.path().join("x_3.webp"));
+        assert_eq!(fs::read(d.path().join("x.webp")).unwrap(), b"1");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_new_leaves_no_temp_on_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("ro");
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let r = write_new(&dir, "x.png", b"data");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(matches!(r, Err(FsError::ReadOnly | FsError::Denied)));
+        assert!(names(&dir).is_empty());
     }
 
     #[test]

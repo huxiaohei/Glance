@@ -2,6 +2,7 @@
 //! 结果经 `glance://edit/{会话}/{版本}` 交给前端。前端只见会话号与版本号，不见路径。
 
 pub mod commands;
+pub mod render;
 mod session;
 mod worker;
 

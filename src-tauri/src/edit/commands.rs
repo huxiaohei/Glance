@@ -113,7 +113,7 @@ fn fs_error(e: EditError) -> FsError {
 
 /// 副本后缀与输出扩展名。压缩 → `_compressed`；转格式且格式变了 → 无后缀；格式没变 → `_converted`。
 /// 原扩展名已属于输出格式（如 `.jpeg`、`.JPG` 之于 JPEG）时原样保留，否则用 png / jpg / webp。
-fn naming(
+pub(crate) fn naming(
     src: &Path,
     src_format: SrcFormat,
     params: &EditParams,

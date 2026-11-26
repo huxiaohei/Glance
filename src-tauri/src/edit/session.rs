@@ -7,13 +7,12 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 use glance_imaging::{
     Decoded, EditParams, Encoded, ImagingError, OutFormat, RemoveBg, RgbaView, SrcFormat, apply,
-    decode_rgba_icc, downscale, encode_jpeg, encode_png_fast, out_dims, pick, remove_bg,
-    src_format_of,
+    downscale, encode_jpeg, encode_png_fast, out_dims, pick, remove_bg,
 };
 use serde::Serialize;
 
+use super::render::read_source;
 use super::worker::{Answer, Request, Worker};
-use crate::catalog::details::image_details;
 use crate::catalog::registry::{FileId, Registry};
 
 /// 编辑解码的像素上限。
@@ -92,7 +91,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// 输出格式：转格式取目标格式，压缩取源格式（GIF / BMP 不支持压缩）。
-fn out_format(src: SrcFormat, p: &EditParams) -> Result<OutFormat, EditError> {
+pub(super) fn out_format(src: SrcFormat, p: &EditParams) -> Result<OutFormat, EditError> {
     match *p {
         EditParams::Convert { format, .. } => Ok(format),
         EditParams::Compress { .. } => match src {
@@ -440,14 +439,8 @@ struct Loaded {
 
 fn load(registry: &Registry, id: FileId) -> Result<Loaded, EditError> {
     let path = registry.path(id).ok_or(EditError::NotFound)?;
-    let details = image_details(&path).ok_or(EditError::NotFound)?;
-    if details.animated {
-        return Err(EditError::Animated);
-    }
-    let bytes = std::fs::read(&path).map_err(|_| EditError::NotFound)?;
-    let src_format = src_format_of(&bytes).ok_or(EditError::Unsupported)?;
-    let d = decode_rgba_icc(&bytes, MAX_PIXELS)?;
-    let orig = Arc::new(d.decoded);
+    let src = read_source(&path)?;
+    let orig = Arc::new(src.decoded);
     let proxy = if orig.width.max(orig.height) <= PROXY_EDGE {
         orig.clone()
     } else {
@@ -455,11 +448,11 @@ fn load(registry: &Registry, id: FileId) -> Result<Loaded, EditError> {
     };
     let has_alpha = orig.rgba.chunks_exact(4).any(|p| p[3] != 255);
     Ok(Loaded {
-        src_format,
-        icc: d.icc,
+        src_format: src.src_format,
+        icc: src.icc,
         orig,
         proxy,
-        file_size: bytes.len() as u64,
+        file_size: src.file_size,
         has_alpha,
     })
 }
