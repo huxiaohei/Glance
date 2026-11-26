@@ -1,5 +1,7 @@
 //! 裁剪：先按“顺时针转 N 个四分之一圈、再在转后画面上翻转”得到朝向，再截取矩形。
 
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 
 use crate::encode::RgbaView;
@@ -24,20 +26,52 @@ pub fn oriented_dims(w: u32, h: u32, quarter_turns: u8) -> (u32, u32) {
     }
 }
 
+/// 转后的画面：没有旋转翻转时借用输入，否则是新分配的像素。
+pub struct Oriented<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub data: Cow<'a, [u8]>,
+}
+
+impl Oriented<'_> {
+    pub fn view(&self) -> RgbaView<'_> {
+        RgbaView {
+            width: self.width,
+            height: self.height,
+            data: &self.data,
+        }
+    }
+}
+
 /// 先顺时针转 `quarter_turns` × 90°，再在转后的画面上水平 / 垂直翻转。
 /// `quarter_turns` 按 4 取模；调用方负责拒绝大于 3 的输入。
 pub fn orient(src: RgbaView, quarter_turns: u8, flip_h: bool, flip_v: bool) -> Decoded {
+    let o = orient_view(src, quarter_turns, flip_h, flip_v);
+    Decoded {
+        width: o.width,
+        height: o.height,
+        rgba: o.data.into_owned(),
+    }
+}
+
+/// 同 [`orient`]，但不转不翻时直接借用输入、不复制像素（大图上省一整份内存）。
+pub fn orient_view(
+    src: RgbaView<'_>,
+    quarter_turns: u8,
+    flip_h: bool,
+    flip_v: bool,
+) -> Oriented<'_> {
     let (sw, sh) = (src.width as usize, src.height as usize);
     let turns = quarter_turns % 4;
-    let (dw, dh) = oriented_dims(src.width, src.height, turns);
-    let (dw, dh) = (dw as usize, dh as usize);
     if turns == 0 && !flip_h && !flip_v {
-        return Decoded {
+        return Oriented {
             width: src.width,
             height: src.height,
-            rgba: src.data.to_vec(),
+            data: Cow::Borrowed(src.data),
         };
     }
+    let (dw, dh) = oriented_dims(src.width, src.height, turns);
+    let (dw, dh) = (dw as usize, dh as usize);
     let mut out = vec![0u8; dw * dh * 4];
     for y in 0..sh {
         for x in 0..sw {
@@ -58,10 +92,10 @@ pub fn orient(src: RgbaView, quarter_turns: u8, flip_h: bool, flip_v: bool) -> D
             out[d..d + 4].copy_from_slice(&src.data[s..s + 4]);
         }
     }
-    Decoded {
+    Oriented {
         width: dw as u32,
         height: dh as u32,
-        rgba: out,
+        data: Cow::Owned(out),
     }
 }
 
@@ -230,6 +264,39 @@ mod tests {
                 crop_rgba(view(3, 2, &d), r),
                 Err(ImagingError::InvalidParams(_))
             ));
+        }
+    }
+
+    #[test]
+    fn orient_view_borrows_without_rotation_or_flip() {
+        let d = numbered(3, 2);
+        let o = orient_view(view(3, 2, &d), 0, false, false);
+        assert_eq!((o.width, o.height), (3, 2));
+        assert!(matches!(o.data, Cow::Borrowed(_)));
+        assert_eq!(o.data.as_ptr(), d.as_ptr());
+        // 4 圈也按 0 圈处理
+        let o = orient_view(view(3, 2, &d), 4, false, false);
+        assert!(matches!(o.data, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn orient_view_matches_orient_for_all_cases() {
+        let d = numbered(3, 2);
+        for turns in 0..4u8 {
+            for fh in [false, true] {
+                for fv in [false, true] {
+                    let v = orient_view(view(3, 2, &d), turns, fh, fv);
+                    let o = orient(view(3, 2, &d), turns, fh, fv);
+                    assert_eq!(
+                        (v.width, v.height),
+                        (o.width, o.height),
+                        "{turns} {fh} {fv}"
+                    );
+                    assert_eq!(&*v.data, &o.rgba[..], "{turns} {fh} {fv}");
+                    let owned = turns != 0 || fh || fv;
+                    assert_eq!(matches!(v.data, Cow::Owned(_)), owned, "{turns} {fh} {fv}");
+                }
+            }
         }
     }
 }

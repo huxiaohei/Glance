@@ -323,6 +323,29 @@ fn crop_keeps_png_icc() {
 }
 
 #[test]
+fn crop_without_orientation_takes_pixels_straight_from_source() {
+    let d = gradient(8, 6);
+    let p = EditParams::Crop {
+        rect: glance_imaging::CropRect {
+            x: 2,
+            y: 1,
+            w: 4,
+            h: 3,
+        },
+        quarter_turns: 0,
+        flip_h: false,
+        flip_v: false,
+    };
+    let e = apply(view(8, 6, &d), SrcFormat::Png, None, &p).unwrap();
+    assert_eq!((e.width, e.height), (4, 3));
+    let back = glance_imaging::decode_rgba_icc(&e.bytes, 1 << 20).unwrap();
+    let exp: Vec<u8> = (1..4u8)
+        .flat_map(|y| (2..6u8).flat_map(move |x| [x, y, 128, 255]))
+        .collect();
+    assert_eq!(back.decoded.rgba, exp);
+}
+
+#[test]
 fn crop_serde_round_trip() {
     let json = r#"{"op":"crop","rect":{"x":0,"y":0,"w":10,"h":10},"quarterTurns":1,"flipH":false,"flipV":true}"#;
     let p: EditParams = serde_json::from_str(json).unwrap();

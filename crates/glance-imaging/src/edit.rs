@@ -2,7 +2,7 @@ use fast_image_resize::images::Image;
 use fast_image_resize::{FilterType, MulDiv, PixelType, ResizeAlg, ResizeOptions, Resizer};
 use serde::{Deserialize, Serialize};
 
-use crate::crop::{CropRect, crop_rgba, orient};
+use crate::crop::{CropRect, crop_rgba, orient_view};
 use crate::encode::{RgbaView, encode_jpeg, encode_png_lossless, encode_png_lossy, encode_webp};
 use crate::error::ImagingError;
 use crate::removebg::{RemoveBg, remove_bg};
@@ -245,15 +245,9 @@ pub fn apply(
             if quarter_turns > 3 {
                 return Err(ImagingError::InvalidParams("旋转圈数必须在 0 到 3 之间"));
             }
-            let oriented = orient(src, quarter_turns, flip_h, flip_v);
-            let cropped = crop_rgba(
-                RgbaView {
-                    width: oriented.width,
-                    height: oriented.height,
-                    data: &oriented.rgba,
-                },
-                rect,
-            )?;
+            // 不转不翻时直接从输入截取，不先复制整张图
+            let oriented = orient_view(src, quarter_turns, flip_h, flip_v);
+            let cropped = crop_rgba(oriented.view(), rect)?;
             let view = RgbaView {
                 width: cropped.width,
                 height: cropped.height,
