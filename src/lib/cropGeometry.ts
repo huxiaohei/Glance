@@ -19,7 +19,9 @@ export function ratioOf(mem: CropMemory): number | null {
     case "1:1": return 1;
     case "4:3": r = 4 / 3; break;
     case "16:9": r = 16 / 9; break;
-    default: r = mem.customW / mem.customH;
+    default:
+      if (!Number.isFinite(mem.customW) || !Number.isFinite(mem.customH) || mem.customW < 1 || mem.customH < 1) return null;
+      r = mem.customW / mem.customH;
   }
   return mem.portrait ? 1 / r : r;
 }

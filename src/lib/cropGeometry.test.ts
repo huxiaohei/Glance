@@ -36,6 +36,12 @@ describe("orientedSize / ratioOf", () => {
     expect(ratioOf({ ...m, ratio: "custom" })).toBeCloseTo(2.5);
     expect(ratioOf({ ...m, ratio: "custom", portrait: true })).toBeCloseTo(0.4);
   });
+  it("自定义比例非法时视为自由", () => {
+    const m = { ratio: "custom" as const, customW: 5, customH: 2, portrait: false };
+    for (const bad of [{ customW: 0 }, { customH: 0 }, { customW: -3 }, { customH: 0.5 }, { customW: NaN }, { customH: Infinity }]) {
+      expect(ratioOf({ ...m, ...bad })).toBeNull();
+    }
+  });
 });
 
 describe("dragRect", () => {
@@ -70,6 +76,9 @@ describe("dragRect", () => {
       const ratio = [null, 1, 4 / 3, 9 / 16][i % 4];
       const r = dragRect(start, handles[i % 9], Math.round(rnd() * 800 - 400), Math.round(rnd() * 800 - 400), b, ratio);
       inside(r, b);
+      if (ratio !== null && handles[i % 9] !== "move" && r.w >= 20 && r.h >= 20) {
+        expect(Math.min(Math.abs(r.w - r.h * ratio), Math.abs(r.h - r.w / ratio))).toBeLessThanOrEqual(1);
+      }
     }
   });
 });
@@ -168,11 +177,44 @@ describe("cssTransform 与后端语义一致", () => {
       }
     }
   });
-  it("rect 跟着内容：整图框的四角经同一变换后仍是整图", () => {
-    const dims = { w: 2, h: 3 };
-    let s = st({ x: 0, y: 0, w: 2, h: 3 });
-    s = flip(rotate(flip(s, "v", dims), 1, dims), "h", dims);
-    const o = orientedSize(2, 3, s.quarterTurns);
-    expect(s.rect).toEqual({ x: 0, y: 0, w: o.w, h: o.h });
+  it("每一步用户操作后，状态与独立的像素参照一致（含非整图 rect）", () => {
+    const W = 2; const H = 3;
+    const dims = { w: W, h: H };
+    type Grid = number[][]; // grid[y][x] = 源像素编号（用户当前看到的画面）
+    const rotCw = (g: Grid): Grid => {
+      const h = g.length; const w = g[0].length;
+      const n: Grid = Array.from({ length: w }, () => Array(h).fill(-1));
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) n[x][h - 1 - y] = g[y][x];
+      return n;
+    };
+    const rotCcw = (g: Grid): Grid => rotCw(rotCw(rotCw(g)));
+    const flipHg = (g: Grid): Grid => g.map((r) => [...r].reverse());
+    const flipVg = (g: Grid): Grid => [...g].reverse();
+    const start = (): Grid => Array.from({ length: H }, (_, y) => Array.from({ length: W }, (_, x) => y * W + x));
+    const rects: Rect[] = [{ x: 0, y: 0, w: 1, h: 1 }, { x: 0, y: 1, w: 1, h: 2 }, { x: 0, y: 0, w: 2, h: 3 }];
+    let seed = 99;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    for (const r0 of rects) {
+      const ids = (g: Grid, r: Rect) => g.slice(r.y, r.y + r.h).flatMap((row) => row.slice(r.x, r.x + r.w)).sort((a, b) => a - b);
+      const expected = ids(start(), r0);
+      for (let trial = 0; trial < 30; trial++) {
+        let s = st(r0);
+        let g = start();
+        for (let i = 0; i < 14; i++) {
+          const k = Math.floor(rnd() * 4);
+          if (k === 0) { s = rotate(s, 1, dims); g = rotCw(g); }
+          else if (k === 1) { s = rotate(s, -1, dims); g = rotCcw(g); }
+          else if (k === 2) { s = flip(s, "h", dims); g = flipHg(g); }
+          else { s = flip(s, "v", dims); g = flipVg(g); }
+          for (let y = 0; y < g.length; y++) {
+            for (let x = 0; x < g[0].length; x++) {
+              const src = g[y][x];
+              expect(backend([src % W, Math.floor(src / W)], s, W, H)).toEqual([x, y]);
+            }
+          }
+          expect(ids(g, s.rect)).toEqual(expected);
+        }
+      }
+    }
   });
 });
