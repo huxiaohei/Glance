@@ -222,6 +222,27 @@ describe("crop and removeBg state", () => {
     useEditUi.getState().close();
   });
 
+  it("result_in_flight_before_tab_change_is_not_shown", async () => {
+    await openOn("compress");
+    await vi.advanceTimersByTimeAsync(300);
+    const before = useEditUi.getState().result!.rev;
+    const pending = new Map<number, (r: PreviewResult) => void>();
+    editPreview.mockImplementation((_s, rev) => new Promise((r) => pending.set(rev, r)));
+    useEditUi.getState().patch("compress", { quality: 40 }); // 压缩页的代理请求在途
+    const old = Math.max(...pending.keys());
+    useEditUi.getState().setTab("removeBg");
+    const fresh = Math.max(...pending.keys());
+    expect(fresh).toBeGreaterThan(old);
+    pending.get(old)!(prev(old));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useEditUi.getState().result!.rev).toBe(before);
+    expect(useEditUi.getState().resultUrl).toBe(`u/3/${before}`);
+    pending.get(fresh)!(prev(fresh));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useEditUi.getState().result!.rev).toBe(fresh);
+    useEditUi.getState().close();
+  });
+
   it("pick_updates_color_and_previews_once", async () => {
     await openOn("removeBg");
     editPick.mockResolvedValue([10, 20, 30]);

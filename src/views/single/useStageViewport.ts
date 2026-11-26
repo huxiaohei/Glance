@@ -48,6 +48,11 @@ export function useStageViewport(args: {
   imageKey: string;                 // 换图时变化 → 回到适应窗口
   /** 跟随图片的叠层（编辑结果）：写上与图片相同的宽高与 transform，结果图因此按原图尺寸铺放。 */
   overlay?: HTMLElement | null;
+  /**
+   * 单击（主键按下到抬起移动 < CLICK_SLOP）落在图片上时回调，坐标为 size（图片像素）下的位置；
+   * 拖动平移与双击照常。
+   */
+  onTap?(ix: number, iy: number): void;
 }): { api: StageApi; percent: number } {
   const { box, img, size, imageKey } = args;
   const overlay = args.overlay ?? null;
@@ -64,7 +69,13 @@ export function useStageViewport(args: {
     vp: null as Viewport | null,
     dragging: false,
     frame: null as number | null,
+    onTap: undefined as ((ix: number, iy: number) => void) | undefined,
   }).current;
+  // 监听器在事件发生时读最新的回调
+  const onTap = args.onTap;
+  useLayoutEffect(() => {
+    st.onTap = onTap;
+  }, [st, onTap]);
 
   const ctl = useMemo(() => {
     const imgSize = (): Size | null => (validSize(st.size) ? st.size : st.natural);
@@ -109,6 +120,8 @@ export function useStageViewport(args: {
           ov.style.width = `${i.w}px`;
           ov.style.height = `${i.h}px`;
           ov.style.transform = transform;
+          // 叠层里按屏幕像素画的图案（去背景的棋盘格）据此抵消缩放
+          ov.style.setProperty("--view-scale", String(st.vp.scale));
         } else {
           ov.style.transform = "";
         }
@@ -144,6 +157,16 @@ export function useStageViewport(args: {
       paint();
     };
 
+    /** 容器内坐标换成图片像素坐标；没有视口或落在图片之外时为 null。 */
+    const toImage = (px: number, py: number): [number, number] | null => {
+      const i = imgSize();
+      const v = st.vp;
+      if (!v || !i) return null;
+      const ix = (px - v.x) / v.scale;
+      const iy = (py - v.y) / v.scale;
+      return ix >= 0 && iy >= 0 && ix < i.w && iy < i.h ? [ix, iy] : null;
+    };
+
     const center = (): [number, number] => {
       const b = boxSize();
       return b ? [b.w / 2, b.h / 2] : [0, 0];
@@ -160,7 +183,7 @@ export function useStageViewport(args: {
         update((v, i, b) => actualSize(v, cx, cy, i, b));
       },
     };
-    return { api, update, relayout, paint, canPan };
+    return { api, update, relayout, paint, canPan, toImage };
   }, [st]);
 
   // 换图：清掉旧视口与自然尺寸，回到适应窗口；同一张图的尺寸变化（例如尺寸后补到达）走 resizeViewport。
@@ -275,11 +298,18 @@ export function useStageViewport(args: {
       ctl.update((v, i, b) => panBy(v, dx, dy, i, b));
     };
     const onPointerEnd = (e: PointerEvent) => {
+      let tap = false;
       if (start && e.type === "pointerup") {
         moved = Math.max(moved, Math.hypot(e.clientX - start.x, e.clientY - start.y));
+        tap = moved < CLICK_SLOP;
       }
       start = null;
       if (drag && e.pointerId === drag.id) endDrag();
+      if (tap && st.onTap) {
+        const [px, py] = local(e);
+        const at = ctl.toImage(px, py);
+        if (at) st.onTap(at[0], at[1]);
+      }
     };
     const onDblClick = (e: MouseEvent) => {
       if (moved >= CLICK_SLOP) return;

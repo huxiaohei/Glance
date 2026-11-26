@@ -120,4 +120,33 @@ describe("createPreviewScheduler", () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(onError).toHaveBeenCalledTimes(1);
   });
+  it("cut_drops_results_and_errors_of_requests_already_sent", async () => {
+    const pending = new Map<number, { ok(r: PreviewResult | null): void; fail(e: unknown): void }>();
+    const run = vi.fn(
+      (rev: number) => new Promise<PreviewResult | null>((ok, fail) => pending.set(rev, { ok, fail })),
+    );
+    const shown: number[] = [];
+    const onError = vi.fn();
+    const s = createPreviewScheduler({ run, onResult: (r) => shown.push(r.rev), onError, proxy: () => false });
+    s.change();
+    vi.advanceTimersByTime(200); // rev 1（全尺寸）在途
+    s.cut();
+    s.change();
+    pending.get(1)!.ok(res(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(shown).toEqual([]);
+    // 新请求发出前旧请求的失败也不报
+    s.cut();
+    vi.advanceTimersByTime(200); // rev 2
+    s.cut();
+    pending.get(2)!.fail("encode");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onError).not.toHaveBeenCalled();
+    s.change();
+    vi.advanceTimersByTime(200); // rev 3
+    pending.get(3)!.ok(res(3));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(shown).toEqual([3]);
+    s.dispose();
+  });
 });

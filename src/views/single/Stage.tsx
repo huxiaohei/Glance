@@ -61,6 +61,10 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
   // 裁剪页：CropStage 盖住画面，固定适应窗口
   const cropping = useEditUi((s) => s.status !== "idle" && s.id === id && s.tab === "crop" && s.opened !== null);
   const [overlay, setOverlay] = useState<HTMLDivElement | null>(null);
+  // 去背景“按颜色”：单击画面取背景色（吸管）
+  const picking = useEditUi(
+    (s) => s.status !== "idle" && s.id === id && s.opened !== null && s.tab === "removeBg" && s.removeBg.mode === "color",
+  );
 
   const w = entry?.width;
   const h = entry?.height;
@@ -106,12 +110,28 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
   const nw = display?.naturalWidth ?? 0;
   const nh = display?.naturalHeight ?? 0;
   const natural = useMemo<Size | null>(() => (nw > 0 && nh > 0 ? { w: nw, h: nh } : null), [nw, nh]);
+  const vpSize = natural ?? (hold ? hold.size : size);
+  // 单击取色：视口给出的是显示尺寸（vpSize）下的坐标，按后端转正后的全尺寸换算，向下取整并夹到范围内
+  const onTap = useCallback(
+    (ix: number, iy: number) => {
+      const s = useEditUi.getState();
+      const o = s.opened;
+      if (s.status === "idle" || s.id !== id || !o || s.tab !== "removeBg" || s.removeBg.mode !== "color") return;
+      const w = vpSize?.w ?? shown?.naturalWidth ?? 0;
+      const h = vpSize?.h ?? shown?.naturalHeight ?? 0;
+      if (w <= 0 || h <= 0) return;
+      const clamp = (v: number, n: number) => Math.min(n - 1, Math.max(0, Math.floor(v)));
+      void s.pick(clamp((ix * o.width) / w, o.width), clamp((iy * o.height) / h, o.height));
+    },
+    [id, vpSize, shown],
+  );
   const { api, percent } = useStageViewport({
     box,
     img: shown,
-    size: natural ?? (hold ? hold.size : size),
+    size: vpSize,
     imageKey: hold ? hold.url : (url ?? ""),
     overlay: editing ? overlay : null,
+    onTap,
   });
 
   useEffect(() => {
@@ -145,7 +165,7 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
 
   return (
     <div
-      className="stage"
+      className={`stage${picking ? " is-picking" : ""}`}
       ref={setBox}
       onContextMenu={(e) => {
         e.preventDefault();

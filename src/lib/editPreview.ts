@@ -14,11 +14,14 @@ export interface PreviewSchedulerOpts {
 /**
  * 两段式预览：每次参数变化立即请求代理图（full=false），停手 delayMs 后再请求全尺寸。
  * rev 严格递增；回包只有 rev 不小于已显示的才交出去，迟到的旧结果丢弃。
+ * cut() 之后，之前发出的请求的结果与失败一概丢弃（换页时上一页还在途的请求不再上画面）。
  */
-export function createPreviewScheduler(opts: PreviewSchedulerOpts): { change(): void; dispose(): void } {
+export function createPreviewScheduler(opts: PreviewSchedulerOpts): { change(): void; cut(): void; dispose(): void } {
   const delay = opts.delayMs ?? 200;
   let rev = 0;
   let shown = 0;
+  /** 小于它的 rev 都已被 cut() 作废 */
+  let floor = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
 
@@ -27,12 +30,12 @@ export function createPreviewScheduler(opts: PreviewSchedulerOpts): { change(): 
     const mine = rev;
     opts.run(mine, full).then(
       (r) => {
-        if (disposed || r === null || r.rev < shown) return;
+        if (disposed || r === null || r.rev < shown || r.rev < floor) return;
         shown = r.rev;
         opts.onResult(r);
       },
       (err) => {
-        if (disposed || mine !== rev) return;
+        if (disposed || mine !== rev || mine < floor) return;
         opts.onError?.(err);
       },
     );
@@ -47,6 +50,9 @@ export function createPreviewScheduler(opts: PreviewSchedulerOpts): { change(): 
         timer = null;
         send(true);
       }, delay);
+    },
+    cut() {
+      floor = rev + 1;
     },
     dispose() {
       disposed = true;

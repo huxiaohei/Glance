@@ -28,6 +28,9 @@
   --crop-line: rgba(255, 255, 255, 0.5);
   --crop-handle: #FFFFFF;
   --crop-handle-border: rgba(0, 0, 0, 0.5);
+  /* 去背景结果背后的棋盘格：深色主题用深灰两档，浅色主题用浅灰与白 */
+  --edit-checker-a: #2E2E2E;
+  --edit-checker-b: #3C3C3C;
   --radius-thumb: 6px;
   --radius: 8px;
   --gap: 8px;
@@ -60,6 +63,8 @@
   --crop-line: rgba(255, 255, 255, 0.5);
   --crop-handle: #FFFFFF;
   --crop-handle-border: rgba(0, 0, 0, 0.5);
+  --edit-checker-a: #CCCCCC;
+  --edit-checker-b: #FFFFFF;
 }
 
 @media (prefers-color-scheme: light) {
@@ -89,6 +94,8 @@
     --crop-line: rgba(255, 255, 255, 0.5);
     --crop-handle: #FFFFFF;
     --crop-handle-border: rgba(0, 0, 0, 0.5);
+    --edit-checker-a: #CCCCCC;
+    --edit-checker-b: #FFFFFF;
   }
 }
 

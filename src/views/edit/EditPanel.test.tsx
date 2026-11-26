@@ -216,6 +216,19 @@ describe("编辑面板", () => {
     expect(footer()).toContain(t("edit.size.saved", { pct: 50 }));
   });
 
+  it("remove_bg_footer_shows_computing_while_approx", async () => {
+    const { container } = await editing({ srcFormat: "png", hasAlpha: true });
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.removeBg") }));
+    // 页签内容换成去背景
+    expect(screen.getByRole("radio", { name: t("edit.removeBg.mode.color") })).toBeTruthy();
+    const out = () => container.querySelector(".edit-size-out")!.textContent!;
+    act(() => useEditUi.setState({ result: result({ bytes: 512, approx: true, format: "png" }) }));
+    expect(out()).toBe(t("edit.size.computing"));
+    expect(container.querySelector(".edit-size")!.textContent).not.toContain("512 B");
+    act(() => useEditUi.setState({ result: result({ bytes: 800, approx: false, format: "png" }) }));
+    expect(out()).toBe("PNG · 800 B");
+  });
+
   it("footer_marks_larger", async () => {
     const { container } = await editing();
     act(() => useEditUi.setState({ result: result({ bytes: 1500, format: "png" }) }));

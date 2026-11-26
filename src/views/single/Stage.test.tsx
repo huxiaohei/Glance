@@ -8,11 +8,12 @@ import { wheelFactor } from "../../lib/viewport";
 import { useCatalog } from "../../stores/catalog";
 import { topView, useNav } from "../../stores/nav";
 import { DEFAULT_SETTINGS, useSettings } from "../../stores/settings";
+import { useEditUi } from "../../stores/editUi";
 import { useThumbs } from "../../stores/thumbs";
 import { Preloader } from "./preloader";
 import Stage, { useStageApi } from "./Stage";
 import { registerSingleCommands } from "./singleCommands";
-import { useStageViewport } from "./useStageViewport";
+import { useStageViewport, type StageApi } from "./useStageViewport";
 
 vi.mock("../../ipc/api");
 vi.mock("../../app/keys", async (importOriginal) => ({
@@ -452,5 +453,123 @@ describe("Stage", () => {
     expect(useStageApi.getState().api).not.toBeNull();
     unmount();
     expect(useStageApi.getState().api).toBeNull();
+  });
+});
+
+describe("useStageViewport 单击", () => {
+  // 2000×1000 的图在 800×600 里适应：0.4 倍，纵向偏移 100
+  function setup() {
+    const onTap = vi.fn();
+    const el = document.createElement("img");
+    let api: StageApi | null = null;
+    function Harness() {
+      const [b, setB] = useState<HTMLDivElement | null>(null);
+      useLayoutEffect(() => {
+        b?.replaceChildren(el);
+      }, [b]);
+      api = useStageViewport({ box: b, img: el, size: { w: 2000, h: 1000 }, imageKey: "a", onTap }).api;
+      return <div className="box" ref={setB} />;
+    }
+    const { container } = render(<Harness />);
+    const b = container.querySelector(".box") as HTMLElement;
+    const click = (x: number, y: number, to = { x, y }, button = 0) => {
+      fireEvent.pointerDown(b, { button, buttons: button === 0 ? 1 : 2, clientX: x, clientY: y });
+      fireEvent.pointerMove(b, { buttons: button === 0 ? 1 : 2, clientX: to.x, clientY: to.y });
+      fireEvent.pointerUp(b, { button, clientX: to.x, clientY: to.y });
+    };
+    return { onTap, el, b, click, api: () => api! };
+  }
+
+  it("按下到抬起移动不足 4 像素：以图片坐标回调", () => {
+    const { onTap, click } = setup();
+    click(LEFT + 40, TOP + 102, { x: LEFT + 42, y: TOP + 103 });
+    expect(onTap).toHaveBeenCalledTimes(1);
+    const [ix, iy] = onTap.mock.calls[0];
+    expect(ix).toBeCloseTo(105);
+    expect(iy).toBeCloseTo(7.5);
+  });
+
+  it("拖动 4 像素以上不回调，照常平移", () => {
+    const { onTap, el, click, api } = setup();
+    act(() => api().actual());
+    expect(el.style.transform).toBe("translate(-600px, -200px) scale(1)");
+    click(300, 300, { x: 310, y: 300 });
+    expect(onTap).not.toHaveBeenCalled();
+    expect(el.style.transform).toBe("translate(-590px, -200px) scale(1)");
+    // 放大后单击：仍回调，位置不变
+    click(LEFT + 10, TOP + 20);
+    expect(onTap).toHaveBeenCalledTimes(1);
+    expect(onTap.mock.calls[0][0]).toBeCloseTo(600);
+    expect(onTap.mock.calls[0][1]).toBeCloseTo(220);
+    expect(el.style.transform).toBe("translate(-590px, -200px) scale(1)");
+  });
+
+  it("点在图片之外、非主键、指针取消都不回调", () => {
+    const { onTap, b, click } = setup();
+    click(LEFT + 40, TOP + 50); // 图片上方的留白
+    click(LEFT + 40, TOP + 102, undefined, 2);
+    fireEvent.pointerDown(b, { button: 0, buttons: 1, clientX: LEFT + 40, clientY: TOP + 102 });
+    fireEvent.pointerCancel(b, {});
+    expect(onTap).not.toHaveBeenCalled();
+  });
+});
+
+describe("Stage 去背景吸管", () => {
+  const initial = useEditUi.getState();
+  const pick = vi.fn(async () => {});
+  const editing = (o: { tab?: "removeBg" | "compress"; mode?: "color" | "alpha" } = {}) => {
+    act(() =>
+      useEditUi.setState({
+        status: "ready",
+        id: 1,
+        tab: o.tab ?? "removeBg",
+        opened: { session: 1, width: 4000, height: 2000, proxyW: 2000, proxyH: 1000, srcFormat: "png", hasAlpha: true, fileSize: 1 },
+        removeBg: { ...initial.removeBg, mode: o.mode ?? "color" },
+        pick,
+      }),
+    );
+  };
+  // 图片坐标 (ix, iy) 在容器里的客户端坐标：0.4 倍，纵向偏移 100
+  const at = (ix: number, iy: number) => ({ clientX: LEFT + ix * 0.4, clientY: TOP + 100 + iy * 0.4 });
+  const tap = (c: HTMLElement, ix: number, iy: number) => {
+    const p = at(ix, iy);
+    fireEvent.pointerDown(box(c), { button: 0, buttons: 1, ...p });
+    fireEvent.pointerUp(box(c), { button: 0, ...p });
+  };
+  beforeEach(() => pick.mockClear());
+  afterEach(() => act(() => useEditUi.setState(initial, true)));
+
+  it("按颜色方式下单击舞台：按 opened 尺寸换算后取色", () => {
+    editing();
+    const { container } = render(<Stage id={1} preloader={preloader} />);
+    expect(box(container).classList.contains("is-picking")).toBe(true);
+    // 显示 2000×1000、opened 4000×2000：(10.6, 5.6) → (21.2, 11.2) → (21, 11)
+    tap(container, 10.6, 5.6);
+    expect(pick).toHaveBeenCalledWith(21, 11);
+    // 最后一个像素
+    tap(container, 1999.9, 999.9);
+    expect(pick).toHaveBeenLastCalledWith(3999, 1999);
+    // 图片之外不取
+    pick.mockClear();
+    tap(container, 100, -10);
+    expect(pick).not.toHaveBeenCalled();
+  });
+
+  it("alpha 方式与其他页签不取色，也不显示吸管", () => {
+    editing({ mode: "alpha" });
+    const { container } = render(<Stage id={1} preloader={preloader} />);
+    expect(box(container).classList.contains("is-picking")).toBe(false);
+    tap(container, 10, 5);
+    act(() => useEditUi.setState({ tab: "compress", removeBg: { ...initial.removeBg, mode: "color" } }));
+    expect(box(container).classList.contains("is-picking")).toBe(false);
+    tap(container, 10, 5);
+    expect(pick).not.toHaveBeenCalled();
+  });
+
+  it("不在编辑中不取色", () => {
+    const { container } = render(<Stage id={1} preloader={preloader} />);
+    tap(container, 10, 5);
+    expect(box(container).classList.contains("is-picking")).toBe(false);
+    expect(pick).not.toHaveBeenCalled();
   });
 });

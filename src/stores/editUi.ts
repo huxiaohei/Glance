@@ -216,6 +216,8 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
     // 换页一并松开“按住查看原图”（裁剪页没有这个按钮，按下中切过去会卡住）
     const crossCrop = prev === "crop" || tab === "crop";
     set({ tab, saveError: null, showOriginal: false, ...(crossCrop ? { result: null, resultUrl: null } : {}) });
+    // 上一页还在途的请求作废：它的结果晚于换页到达也不上画面
+    scheduler?.cut();
     scheduler?.change();
   },
 

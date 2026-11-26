@@ -7,6 +7,7 @@ import { closeConfirmOverwrite } from "../../stores/confirmOverwrite";
 import ConfirmOverwrite from "./ConfirmOverwrite";
 import ConvertTab from "./ConvertTab";
 import CropTab from "./CropTab";
+import RemoveBgTab from "./RemoveBgTab";
 import SaveBar from "./SaveBar";
 import SizeFooter from "./SizeFooter";
 import "./edit.css";
@@ -25,7 +26,7 @@ function TabBody({ tab }: { tab: EditTab }) {
   switch (tab) {
     case "compress": return <CompressTab />;
     case "crop": return <CropTab />;
-    case "removeBg": return null;
+    case "removeBg": return <RemoveBgTab />;
     case "convert": return <ConvertTab />;
   }
 }

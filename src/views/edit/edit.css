@@ -18,6 +18,14 @@
   max-width: none;
   max-height: none;
 }
+/* 去背景页：结果图层背后衬棋盘格，透明区域露出它。方格按屏幕 16 px，--view-scale 由视口写入以抵消缩放 */
+.edit-layer.is-checker {
+  background-color: var(--edit-checker-a);
+  background-image: conic-gradient(
+    var(--edit-checker-b) 25%, var(--edit-checker-a) 0 50%, var(--edit-checker-b) 0 75%, var(--edit-checker-a) 0
+  );
+  background-size: calc(32px / var(--view-scale, 1)) calc(32px / var(--view-scale, 1));
+}
 /* 还在加载的新结果：不显示，加载完成后换成当前结果 */
 .edit-pending {
   visibility: hidden;
@@ -125,6 +133,18 @@
 }
 .edit-custom.is-active input[type="color"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .edit-note { margin: 0; color: var(--text-dim); line-height: 1.5; }
+.edit-row > .edit-note { flex-basis: 100%; }
+.edit-choice.is-disabled { opacity: 0.4; cursor: default; }
+/* 去背景“按颜色”：当前背景色的色块与十六进制值 */
+.edit-bg-color { display: inline-flex; align-items: center; gap: 6px; }
+.edit-swatch {
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.edit-hex { font-variant-numeric: tabular-nums; }
 .edit-loading {
   margin: 24px 12px;
   color: var(--text-dim);
