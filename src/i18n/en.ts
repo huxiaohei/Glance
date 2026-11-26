@@ -376,6 +376,7 @@ export const en: Record<MessageKey, string> = {
   "hint.key.wheel": "Wheel",
   "hint.key.drag": "Drag",
   "hint.edit.save": "Save",
+  "hint.edit.batchRun": "Process",
   "hint.edit.cancel": "Cancel",
   "update.available": "Version {v} is available",
   "update.install": "Update and restart",

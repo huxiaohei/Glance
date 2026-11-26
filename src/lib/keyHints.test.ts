@@ -117,4 +117,9 @@ describe("editHints", () => {
   it("hints_in_edit_mode：编辑中只提示保存与取消", () => {
     expect(editHints()).toEqual([{ id: "edit.save" }, { id: "edit.cancel" }]);
   });
+
+  it("batch_mode_enter_is_process：批量模式下回车是开始处理", () => {
+    expect(editHints({ batch: true })).toEqual([{ id: "edit.batchRun" }, { id: "edit.cancel" }]);
+    expect(editHints({ batch: false })).toEqual([{ id: "edit.save" }, { id: "edit.cancel" }]);
+  });
 });

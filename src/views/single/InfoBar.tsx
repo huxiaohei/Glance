@@ -25,6 +25,7 @@ export default function InfoBar({ id }: { id: FileId }) {
   const showHints = useSettings((s) => s.settings.showKeyHints);
   const basket = useBasket((s) => s.order.length);
   const editing = useEditUi(isEditing);
+  const batch = useEditUi((s) => s.batch !== null);
   const inBasket = useBasket((s) => s.order.includes(id));
 
   return (
@@ -41,7 +42,7 @@ export default function InfoBar({ id }: { id: FileId }) {
           {format && <span className="info-format">{format}</span>}
         </>
       )}
-      {showHints && <KeyHints hints={editing ? editHints() : singleHints({ currentInBasket: inBasket, basket })} />}
+      {showHints && <KeyHints hints={editing ? editHints({ batch }) : singleHints({ currentInBasket: inBasket, basket })} />}
       {index >= 0 && <span className="info-index">{`${index + 1} / ${list.ids.length}`}</span>}
     </div>
   );

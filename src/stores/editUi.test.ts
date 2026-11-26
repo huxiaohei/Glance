@@ -361,6 +361,35 @@ describe("crop and removeBg state", () => {
     useEditUi.getState().close();
   });
 
+  it("fixed_tab_outside_batch_applies_open_adjustments", async () => {
+    // 网格选中一张按“压缩”进入：GIF 不能压缩，同普通打开一样落到转格式页
+    editParamsGet.mockResolvedValue({ ...memory("crop"), removeBg: { ...memory().removeBg, mode: "alpha" } });
+    editOpen.mockResolvedValue(opened(1, "gif"));
+    await useEditUi.getState().open(7, { tab: "compress" });
+    expect(useEditUi.getState().tab).toBe("convert");
+    useEditUi.getState().close();
+    // 按“去背景”进入一张不透明的图：记忆里的“按透明度”改成“按颜色”，记忆仍写回原方式
+    editOpen.mockResolvedValue(opened(2));
+    await useEditUi.getState().open(8, { tab: "removeBg" });
+    const s = useEditUi.getState();
+    expect(s.tab).toBe("removeBg");
+    expect(s.removeBg.mode).toBe("color");
+    await s.commitMemory();
+    expect(editParamsSet.mock.calls[0][0].removeBg.mode).toBe("alpha");
+    useEditUi.getState().close();
+  });
+
+  it("fixed_tab_in_batch_keeps_tab_for_gif", async () => {
+    // 批量模式的页签是整批的操作，不因这一张是 GIF 而换
+    useEditUi.setState({ batch: { ids: [7, 8], plan: null } });
+    editParamsGet.mockResolvedValue(memory("crop"));
+    editOpen.mockResolvedValue(opened(1, "gif"));
+    await useEditUi.getState().open(7, { tab: "compress" });
+    expect(useEditUi.getState().tab).toBe("compress");
+    useEditUi.getState().close();
+    useEditUi.setState({ batch: null });
+  });
+
   it("crop_is_identity", () => {
     const o = { width: 100, height: 50 };
     const id = { rect: full, quarterTurns: 0 as const, flipH: false, flipV: false };

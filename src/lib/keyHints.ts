@@ -14,6 +14,7 @@ export type HintId =
   | "panel.toggle"
   | "panel.back"
   | "edit.save"
+  | "edit.batchRun"
   | "edit.cancel";
 /** solo：只用于 compare.zoom，同步关时为真（文字不带“同步”）。 */
 export interface Hint { id: HintId; n?: number; solo?: boolean }
@@ -55,7 +56,7 @@ export function compareHints(s: { zoomed: boolean; sync?: boolean; panelOpen?: b
   return out.slice(0, MAX_HINTS);
 }
 
-/** 编辑模式：保存与取消（左右切图在编辑中不可用，不提示）。 */
-export function editHints(): Hint[] {
-  return [{ id: "edit.save" }, { id: "edit.cancel" }];
+/** 编辑模式：保存（批量模式下回车是开始处理）与取消（左右切图在单张编辑中不可用，不提示）。 */
+export function editHints(s: { batch?: boolean } = {}): Hint[] {
+  return [{ id: s.batch ? "edit.batchRun" : "edit.save" }, { id: "edit.cancel" }];
 }

@@ -101,6 +101,8 @@ export async function runBatch(): Promise<void> {
   try {
     const params = currentParams(ui);
     await ui.commitMemory();
+    // 记参数期间退出了批量模式（Esc）或换了一批：不再开始
+    if (useEditUi.getState().batch !== ui.batch) return;
     const ok = await startBatch(plan.process, params);
     if (ok) exitBatch();
   } finally {

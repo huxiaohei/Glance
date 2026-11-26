@@ -58,7 +58,8 @@ function hintKeys(id: HintId): string[] | null {
       const k = commandKey("compare.back");
       return k ? [k] : null;
     }
-    case "edit.save": {
+    case "edit.save":
+    case "edit.batchRun": {
       const k = commandKey("edit.save");
       return k ? [k] : null;
     }

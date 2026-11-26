@@ -82,6 +82,12 @@ beforeEach(() => {
 });
 afterEach(() => {
   act(() => exitBatch());
+  // 本测试开始的任务收尾，不让“进行中”带到下一个测试
+  act(() => {
+    for (const c of vi.mocked(batchStart).mock.calls) {
+      c[2]({ kind: "finished", processed: 0, failed: [], skipped: [], savedBytes: 0, token: null, cancelled: false });
+    }
+  });
   useEditUi.getState().close();
   vi.mocked(editOpen).mockClear();
   vi.mocked(editClose).mockClear();
@@ -305,6 +311,23 @@ describe("批量模式", () => {
     expect(batchStart).not.toHaveBeenCalled();
     expect([...useSelection.getState().ids]).toEqual([1, 3, 5]);
     expect(useSelection.getState().focus).toBe(3);
+  });
+
+  it("esc_during_commit_memory_does_not_start", async () => {
+    await startBatchMode();
+    const commit = deferred<void>();
+    vi.mocked(editParamsSet).mockImplementationOnce(() => commit.promise);
+    key("Enter");
+    await settle();
+    expect(editParamsSet).toHaveBeenCalled();
+    // 记参数在途时按 Esc：退出批量模式，之后不应再开始任务
+    key("Escape");
+    await settle();
+    expect(useEditUi.getState().batch).toBeNull();
+    await act(async () => commit.resolve());
+    await settle();
+    expect(batchStart).not.toHaveBeenCalled();
+    expect(topView()).toEqual({ kind: "grid" });
   });
 
   it("focus_outside_ids_falls_back_to_first", async () => {

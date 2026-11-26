@@ -33,7 +33,7 @@ export interface EditUiState {
    */
   batch: { ids: FileId[]; plan: BatchPlan | null } | null;
   /**
-   * 打开一张图的编辑会话。给了 tab 就用它（批量模式），否则按记忆的页签；
+   * 打开一张图的编辑会话。给了 tab 就用它（批量模式、网格里选一张按页签进入），否则按记忆的页签；
    * keepParams 为真时不读记忆，沿用当前参数（批量模式里切图）。
    * 返回这一次打开自己的结果：被关闭或被更新的打开取代时为 superseded（此时 store 里的状态属于别的打开）。
    */
@@ -229,18 +229,21 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
     const cropState: CropState = {
       rect: { x: 0, y: 0, w: opened.width, h: opened.height }, quarterTurns: 0, flipH: false, flipV: false,
     };
-    if (fixedTab !== undefined) {
-      // 页签在开始时已设好（打开期间用户可能又换过页，以当前为准）；参数已在上面换好或沿用当前的
+    if (fixedTab !== undefined && get().batch !== null) {
+      // 批量模式：页签是整批的操作，在开始时已设好（打开期间用户可能又换过页，以当前为准），不因这一张换页；
+      // 参数已在上面换好或沿用当前的
       rememberedBgMode = null;
       set({ status: "ready", opened, cropState, bgColor });
     } else {
+      // 普通打开用记忆的页签，网格里给了页签的用给定的；其余调整（GIF / BMP 压缩落到转格式、不透明图强制按颜色）相同
+      const wantedTab = fixedTab ?? rememberedTab;
       const removeBg = memory?.removeBg ?? DEFAULT_REMOVE_BG;
       const forceColor = removeBg.mode === "alpha" && !opened.hasAlpha;
       rememberedBgMode = forceColor ? removeBg.mode : null;
       set({
         status: "ready",
         opened,
-        tab: unavailable && rememberedTab === "compress" ? "convert" : rememberedTab,
+        tab: unavailable && wantedTab === "compress" ? "convert" : wantedTab,
         compress: memory?.compress ?? DEFAULT_COMPRESS,
         crop: memory?.crop ?? DEFAULT_CROP,
         removeBg: forceColor ? { ...removeBg, mode: "color" } : removeBg,

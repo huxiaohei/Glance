@@ -375,6 +375,7 @@ export const zhCN = {
   "hint.key.wheel": "滚轮",
   "hint.key.drag": "拖动",
   "hint.edit.save": "保存",
+  "hint.edit.batchRun": "处理",
   "hint.edit.cancel": "取消",
   "update.available": "发现新版本 {v}",
   "update.install": "更新并重启",
