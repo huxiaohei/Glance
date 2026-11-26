@@ -666,10 +666,13 @@ mod tests {
         assert!(h.out("a_2.webp").is_file());
     }
 
-    #[test]
-    fn nested_dirs_created_and_removed_on_undo() {
-        let t = tempfile::tempdir().unwrap();
-        let h = Harness::new(t.path(), None);
+    /// 跑一张 `x/y/c.png` 的压缩，返回撤销记录。`pre_existing` 时输出目录事先就有 `keep.txt`。
+    fn nested_run(root: &Path, pre_existing: bool) -> (Harness, crate::fileops::undo::UndoEntry) {
+        let h = Harness::new(root, None);
+        if pre_existing {
+            fs::create_dir(root.join(OUT)).unwrap();
+            fs::write(h.out("keep.txt"), b"k").unwrap();
+        }
         let c = h.put("x/y/c.png", &png(8, 8));
         let st = BatchState::default();
         let (r, rx) = h.start(&st, vec![c], compress());
@@ -679,23 +682,72 @@ mod tests {
         let entry = h.env.undo.take().unwrap();
         assert_eq!(Some(entry.token), s.token);
         assert_eq!(entry.kind, OpKind::Batch);
+        (h, entry)
+    }
+
+    /// 只执行删空目录的步骤（不碰废纸篓）：先手动删掉产出。
+    fn remove_dirs_only(steps: &[Step]) {
+        for st in steps {
+            if let Step::Trash(p) = st {
+                fs::remove_file(p).unwrap();
+            }
+        }
+        let dirs: Vec<Step> = steps
+            .iter()
+            .filter(|s| matches!(s, Step::RemoveEmptyDir(_)))
+            .cloned()
+            .collect();
+        let undone = ops::undo(&dirs);
+        assert!(undone.failed.is_empty(), "{:?}", undone.failed);
+    }
+
+    #[test]
+    fn nested_dirs_recorded_and_removed() {
+        // 撤销按倒序执行：目录浅→深在前，产出在后，执行时先移走文件、再由深到浅删目录。
+        let t = tempfile::tempdir().unwrap();
+        let (h, entry) = nested_run(t.path(), false);
+        assert_eq!(
+            entry.steps,
+            vec![
+                Step::RemoveEmptyDir(t.path().join(OUT)),
+                Step::RemoveEmptyDir(h.out("x")),
+                Step::RemoveEmptyDir(h.out("x/y")),
+                Step::Trash(h.out("x/y/c.png")),
+            ]
+        );
+        remove_dirs_only(&entry.steps);
+        assert!(!t.path().join(OUT).exists());
+        assert!(t.path().join("x/y/c.png").is_file());
+
+        // 输出目录事先就有别的文件：步骤里没有它，只删本次新建的。
+        let t2 = tempfile::tempdir().unwrap();
+        let (h2, entry) = nested_run(t2.path(), true);
+        assert_eq!(
+            entry.steps,
+            vec![
+                Step::RemoveEmptyDir(h2.out("x")),
+                Step::RemoveEmptyDir(h2.out("x/y")),
+                Step::Trash(h2.out("x/y/c.png")),
+            ]
+        );
+        remove_dirs_only(&entry.steps);
+        assert!(!h2.out("x").exists());
+        assert!(h2.out("keep.txt").is_file());
+    }
+
+    #[test]
+    #[ignore = "撤销会把产出移进真实废纸篓（只动本测试临时目录里的文件）"]
+    fn nested_dirs_created_and_removed_on_undo() {
+        let t = tempfile::tempdir().unwrap();
+        let (h, entry) = nested_run(t.path(), false);
         let undone = ops::undo(&entry.steps);
         assert!(undone.failed.is_empty(), "{:?}", undone.failed);
-        assert!(!h.out("x/y").exists());
         assert!(!h.out("x").exists());
         assert!(!t.path().join(OUT).exists());
         assert!(t.path().join("x/y/c.png").is_file());
 
-        // 输出目录事先就有别的文件：只删本次新建的。
         let t2 = tempfile::tempdir().unwrap();
-        let h2 = Harness::new(t2.path(), None);
-        fs::create_dir(t2.path().join(OUT)).unwrap();
-        fs::write(h2.out("keep.txt"), b"k").unwrap();
-        let c2 = h2.put("x/y/c.png", &png(8, 8));
-        let (r, rx) = h2.start(&st, vec![c2], compress());
-        r.unwrap();
-        finish(&rx);
-        let entry = h2.env.undo.take().unwrap();
+        let (h2, entry) = nested_run(t2.path(), true);
         assert!(ops::undo(&entry.steps).failed.is_empty());
         assert!(!h2.out("x").exists());
         assert!(h2.out("keep.txt").is_file());
