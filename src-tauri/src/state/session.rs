@@ -20,7 +20,50 @@ pub struct SessionFile {
 #[serde(rename_all = "camelCase")]
 pub enum EditTab {
     Compress,
+    Crop,
+    RemoveBg,
     Convert,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CropRatio {
+    #[serde(rename = "free")]
+    Free,
+    #[serde(rename = "1:1")]
+    Square,
+    #[serde(rename = "4:3")]
+    FourThree,
+    #[serde(rename = "16:9")]
+    SixteenNine,
+    #[serde(rename = "custom")]
+    Custom,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BgMode {
+    Alpha,
+    Color,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CropMemory {
+    pub ratio: CropRatio,
+    pub custom_w: u32,
+    pub custom_h: u32,
+    pub portrait: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveBgMemory {
+    pub mode: BgMode,
+    pub threshold: u8,
+    pub below: bool,
+    pub tolerance: u8,
+    pub softness: u8,
+    pub edge_connected: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -46,6 +89,8 @@ pub struct ConvertMemory {
 pub struct EditParamsMemory {
     pub tab: EditTab,
     pub compress: CompressMemory,
+    pub crop: CropMemory,
+    pub remove_bg: RemoveBgMemory,
     pub convert: ConvertMemory,
 }
 
@@ -70,11 +115,37 @@ impl Default for ConvertMemory {
     }
 }
 
+impl Default for CropMemory {
+    fn default() -> Self {
+        Self {
+            ratio: CropRatio::Free,
+            custom_w: 3,
+            custom_h: 2,
+            portrait: false,
+        }
+    }
+}
+
+impl Default for RemoveBgMemory {
+    fn default() -> Self {
+        Self {
+            mode: BgMode::Color,
+            threshold: 16,
+            below: true,
+            tolerance: 10,
+            softness: 10,
+            edge_connected: true,
+        }
+    }
+}
+
 impl Default for EditParamsMemory {
     fn default() -> Self {
         Self {
             tab: EditTab::Compress,
             compress: CompressMemory::default(),
+            crop: CropMemory::default(),
+            remove_bg: RemoveBgMemory::default(),
             convert: ConvertMemory::default(),
         }
     }
@@ -111,6 +182,38 @@ impl<'de> Deserialize<'de> for CompressMemory {
     }
 }
 
+impl<'de> Deserialize<'de> for CropMemory {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = Value::deserialize(d)?;
+        let o = Some(&v);
+        let def = Self::default();
+        let dim = |n: &u32| (1..=10000).contains(n);
+        Ok(Self {
+            ratio: field(o, "ratio", def.ratio, |_| true),
+            custom_w: field(o, "customW", def.custom_w, dim),
+            custom_h: field(o, "customH", def.custom_h, dim),
+            portrait: field(o, "portrait", def.portrait, |_| true),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for RemoveBgMemory {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = Value::deserialize(d)?;
+        let o = Some(&v);
+        let def = Self::default();
+        let pct = |n: &u8| *n <= 100;
+        Ok(Self {
+            mode: field(o, "mode", def.mode, |_| true),
+            threshold: field(o, "threshold", def.threshold, |_| true),
+            below: field(o, "below", def.below, |_| true),
+            tolerance: field(o, "tolerance", def.tolerance, pct),
+            softness: field(o, "softness", def.softness, pct),
+            edge_connected: field(o, "edgeConnected", def.edge_connected, |_| true),
+        })
+    }
+}
+
 impl<'de> Deserialize<'de> for ConvertMemory {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let v = Value::deserialize(d)?;
@@ -132,6 +235,8 @@ impl<'de> Deserialize<'de> for EditParamsMemory {
         Ok(Self {
             tab: field(o, "tab", def.tab, |_| true),
             compress: field(o, "compress", def.compress, |_| true),
+            crop: field(o, "crop", def.crop, |_| true),
+            remove_bg: field(o, "removeBg", def.remove_bg, |_| true),
             convert: field(o, "convert", def.convert, |_| true),
         })
     }
@@ -239,6 +344,20 @@ mod tests {
         let s = SessionStore::load(dir.path());
         let p = EditParamsMemory {
             tab: EditTab::Convert,
+            crop: CropMemory {
+                ratio: CropRatio::Custom,
+                custom_w: 5,
+                custom_h: 4,
+                portrait: true,
+            },
+            remove_bg: RemoveBgMemory {
+                mode: BgMode::Alpha,
+                threshold: 30,
+                below: false,
+                tolerance: 20,
+                softness: 5,
+                edge_connected: false,
+            },
             compress: CompressMemory {
                 quality: 55,
                 max_edge_on: true,
@@ -315,7 +434,28 @@ mod tests {
         let v = serde_json::to_value(EditParamsMemory::default()).unwrap();
         assert_eq!(
             v,
-            serde_json::json!({"tab":"compress","compress":{"quality":80,"maxEdgeOn":false,"maxEdge":2048,"pngMode":"lossy"},"convert":{"format":"jpeg","quality":85,"fill":[255,255,255]}})
+            serde_json::json!({"tab":"compress","compress":{"quality":80,"maxEdgeOn":false,"maxEdge":2048,"pngMode":"lossy"},"crop":{"ratio":"free","customW":3,"customH":2,"portrait":false},"removeBg":{"mode":"color","threshold":16,"below":true,"tolerance":10,"softness":10,"edgeConnected":true},"convert":{"format":"jpeg","quality":85,"fill":[255,255,255]}})
         );
+    }
+
+    #[test]
+    fn crop_and_remove_bg_fall_back_individually() {
+        let p: EditParamsMemory = serde_json::from_str(
+            r#"{"tab":"removeBg","crop":{"ratio":"5:4","customW":0,"customH":7,"portrait":true},
+              "removeBg":{"mode":"alpha","tolerance":101,"softness":20,"threshold":9}}"#,
+        )
+        .unwrap();
+        assert_eq!(p.tab, EditTab::RemoveBg);
+        assert_eq!(p.crop.ratio, CropRatio::Free);
+        assert_eq!(p.crop.custom_w, 3);
+        assert_eq!(p.crop.custom_h, 7);
+        assert!(p.crop.portrait);
+        assert_eq!(p.remove_bg.mode, BgMode::Alpha);
+        assert_eq!(p.remove_bg.tolerance, 10);
+        assert_eq!(p.remove_bg.softness, 20);
+        assert_eq!(p.remove_bg.threshold, 9);
+        let c: EditParamsMemory = serde_json::from_str(r#"{"tab":"crop"}"#).unwrap();
+        assert_eq!(c.tab, EditTab::Crop);
+        assert_eq!(c.crop, CropMemory::default());
     }
 }

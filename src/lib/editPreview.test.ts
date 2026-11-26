@@ -22,6 +22,17 @@ describe("createPreviewScheduler", () => {
     s.dispose();
   });
 
+  it("proxy_false_sends_only_full_after_delay", () => {
+    const run = vi.fn(async (rev: number, _full: boolean) => res(rev));
+    const s = createPreviewScheduler({ run, onResult: () => {}, proxy: () => false });
+    s.change();
+    expect(run).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenLastCalledWith(1, true);
+    s.dispose();
+  });
+
   it("full_restarts_on_each_change", () => {
     const run = vi.fn(async (rev: number, _full: boolean) => res(rev));
     const s = createPreviewScheduler({ run, onResult: () => {} });

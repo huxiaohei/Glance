@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { editClose, editOpen, editParamsGet, editParamsSet, editPreview, editResultUrl } from "../ipc/api";
+import { editClose, editOpen, editParamsGet, editParamsSet, editPick, editPreview, editResultUrl } from "../ipc/api";
 import type {
-  CompressMemory, ConvertMemory, EditOpened, EditParams, EditParamsMemory, EditTab, FileId, PreviewResult,
+  CompressMemory, ConvertMemory, CropMemory, CropState, EditOpened, EditParams, EditParamsMemory, EditTab, FileId,
+  PreviewResult, RemoveBgMemory,
 } from "../ipc/types";
 import { createPreviewScheduler } from "../lib/editPreview";
 
@@ -11,7 +12,13 @@ export interface EditUiState {
   opened: EditOpened | null;
   tab: EditTab;
   compress: CompressMemory;
+  crop: CropMemory;
+  removeBg: RemoveBgMemory;
   convert: ConvertMemory;
+  /** 裁剪页的当前状态（每张图重新开始，不记忆）；未打开时为 null */
+  cropState: CropState | null;
+  /** 去背景“按颜色”的目标色（每张图重新取左上角像素，不记忆） */
+  bgColor: [number, number, number] | null;
   result: PreviewResult | null;
   resultUrl: string | null;
   showOriginal: boolean;
@@ -23,12 +30,22 @@ export interface EditUiState {
   open(id: FileId): Promise<void>;
   close(): void;
   setTab(t: EditTab): void;
-  patch<T extends EditTab>(tab: T, partial: Partial<T extends "compress" ? CompressMemory : ConvertMemory>): void;
+  patch<T extends keyof PatchMap>(tab: T, partial: Partial<PatchMap[T]>): void;
+  setCropState(next: CropState): void;
+  /** 取源图 (x, y) 的颜色作为去背景的目标色，并刷新预览。 */
+  pick(x: number, y: number): Promise<void>;
   setShowOriginal(b: boolean): void;
   /** 保存成功后调用：记住这次保存用的页与参数（取消不记）。 */
   commitMemory(): Promise<void>;
 }
 
+interface PatchMap { compress: CompressMemory; crop: CropMemory; removeBg: RemoveBgMemory; convert: ConvertMemory }
+
+const DEFAULT_CROP: CropMemory = { ratio: "free", customW: 3, customH: 2, portrait: false };
+const DEFAULT_REMOVE_BG: RemoveBgMemory = {
+  mode: "color", threshold: 16, below: true, tolerance: 10, softness: 10, edgeConnected: true,
+};
+const WHITE: [number, number, number] = [255, 255, 255];
 const DEFAULT_COMPRESS: CompressMemory = { quality: 80, maxEdgeOn: false, maxEdge: 2048, pngMode: "lossy" };
 const DEFAULT_CONVERT: ConvertMemory = { format: "jpeg", quality: 85, fill: [255, 255, 255] };
 
@@ -47,7 +64,21 @@ export function compressUnsupported(s: Pick<EditUiState, "tab" | "opened">): boo
 const clampQuality = (q: number) => (Number.isFinite(q) ? Math.min(100, Math.max(1, Math.round(q))) : 85);
 
 /** 由当前页与记忆参数拼出发给后端的参数。 */
-export function currentParams(s: Pick<EditUiState, "tab" | "compress" | "convert">): EditParams {
+export function currentParams(
+  s: Pick<EditUiState, "tab" | "compress" | "convert" | "crop" | "removeBg" | "cropState" | "bgColor">,
+): EditParams {
+  if (s.tab === "crop" && s.cropState) {
+    const c = s.cropState;
+    return { op: "crop", rect: c.rect, quarterTurns: c.quarterTurns, flipH: c.flipH, flipV: c.flipV };
+  }
+  if (s.tab === "removeBg") {
+    const r = s.removeBg;
+    if (r.mode === "alpha") return { op: "removeBg", mode: "alpha", threshold: r.threshold, below: r.below };
+    return {
+      op: "removeBg", mode: "color", color: s.bgColor ?? WHITE,
+      tolerance: r.tolerance, softness: r.softness, edgeConnected: r.edgeConnected,
+    };
+  }
   if (s.tab === "compress") {
     const c = s.compress;
     return { op: "compress", quality: clampQuality(c.quality), maxEdge: c.maxEdgeOn ? c.maxEdge : null, pngMode: c.pngMode };
@@ -56,10 +87,18 @@ export function currentParams(s: Pick<EditUiState, "tab" | "compress" | "convert
   return { op: "convert", format: v.format, quality: clampQuality(v.quality), fill: v.fill };
 }
 
+/** 裁剪状态是否等于“没改”：整图、不旋转、不翻转。 */
+export function cropIsIdentity(s: CropState, o: Pick<EditOpened, "width" | "height">): boolean {
+  const r = s.rect;
+  return r.x === 0 && r.y === 0 && r.w === o.width && r.h === o.height && s.quarterTurns === 0 && !s.flipH && !s.flipV;
+}
+
 const idle = {
   status: "idle" as const,
   id: null,
   opened: null,
+  cropState: null,
+  bgColor: null,
   result: null,
   resultUrl: null,
   showOriginal: false,
@@ -72,13 +111,15 @@ let scheduler: ReturnType<typeof createPreviewScheduler> | null = null;
 let epoch = 0;
 
 function memoryOf(s: EditUiState): EditParamsMemory {
-  return { tab: s.tab, compress: s.compress, convert: s.convert };
+  return { tab: s.tab, compress: s.compress, crop: s.crop, removeBg: s.removeBg, convert: s.convert };
 }
 
 export const useEditUi = create<EditUiState>()((set, get) => ({
   ...idle,
   tab: "compress",
   compress: DEFAULT_COMPRESS,
+  crop: DEFAULT_CROP,
+  removeBg: DEFAULT_REMOVE_BG,
   convert: DEFAULT_CONVERT,
   error: null,
 
@@ -109,14 +150,30 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
     const unavailable = opened.srcFormat === "gif" || opened.srcFormat === "bmp";
     const rememberedTab = memory?.tab ?? "compress";
     const session = opened.session;
+    let bgColor = WHITE;
+    try {
+      bgColor = await editPick(session, 0, 0);
+    } catch {
+      bgColor = WHITE;
+    }
+    if (mine !== epoch) {
+      void editClose(session).catch(() => {});
+      return;
+    }
+    const removeBg = memory?.removeBg ?? DEFAULT_REMOVE_BG;
     set({
       status: "ready",
       opened,
       tab: unavailable && rememberedTab === "compress" ? "convert" : rememberedTab,
       compress: memory?.compress ?? DEFAULT_COMPRESS,
+      crop: memory?.crop ?? DEFAULT_CROP,
+      removeBg: removeBg.mode === "alpha" && !opened.hasAlpha ? { ...removeBg, mode: "color" } : removeBg,
       convert: memory?.convert ?? DEFAULT_CONVERT,
+      cropState: { rect: { x: 0, y: 0, w: opened.width, h: opened.height }, quarterTurns: 0, flipH: false, flipV: false },
+      bgColor,
     });
     scheduler = createPreviewScheduler({
+      proxy: () => get().tab !== "crop",
       run: (rev, full) => editPreview(session, rev, currentParams(get()), full),
       onResult: (r) => {
         if (get().opened?.session !== session) return;
@@ -149,9 +206,28 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
   },
 
   patch(tab, partial) {
-    if (tab === "compress") set((s) => ({ compress: { ...s.compress, ...partial }, saveError: null }));
-    else set((s) => ({ convert: { ...s.convert, ...partial }, saveError: null }));
+    // 各页的记忆各存一份；PatchMap 保证 partial 与 tab 对得上。
+    set((s) => ({ [tab]: { ...s[tab], ...partial }, saveError: null }) as Partial<EditUiState>);
     if (get().tab === tab) scheduler?.change();
+  },
+
+  setCropState(cropState) {
+    set({ cropState, saveError: null });
+    if (get().tab === "crop") scheduler?.change();
+  },
+
+  async pick(x, y) {
+    const session = get().opened?.session;
+    if (session === undefined) return;
+    let c: [number, number, number];
+    try {
+      c = await editPick(session, x, y);
+    } catch {
+      return;
+    }
+    if (get().opened?.session !== session) return;
+    set({ bgColor: c, saveError: null });
+    if (get().tab === "removeBg") scheduler?.change();
   },
 
   setShowOriginal(showOriginal) {

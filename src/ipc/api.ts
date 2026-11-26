@@ -204,3 +204,13 @@ export function editParamsSet(p: EditParamsMemory): Promise<void> {
 export function editResultUrl(session: number, rev: number): string {
   return glanceUrl(`edit/${session}/${rev}`);
 }
+
+/** 取源图（转正后）一个像素的颜色；越界为 "invalid"。 */
+export function editPick(session: number, x: number, y: number): Promise<[number, number, number]> {
+  return invoke<[number, number, number]>("edit_pick", { session, x, y });
+}
+
+/** 裁剪页显示的转正源图地址。 */
+export function editSourceUrl(session: number): string {
+  return glanceUrl(`edit/${session}/source`);
+}

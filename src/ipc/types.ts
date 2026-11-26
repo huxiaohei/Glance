@@ -111,11 +111,16 @@ export type DragEnd = "dropped" | "cancelled";
 export type SrcFormat = "png" | "jpeg" | "webp" | "gif" | "bmp";
 export type OutFormat = "png" | "jpeg" | "webp";
 export type PngMode = "lossy" | "lossless";
-export type EditTab = "compress" | "convert";
-export type EditError = "notFound" | "animated" | "tooLarge" | "decode" | "unsupported" | "noSession" | "encode";
+export type EditTab = "compress" | "crop" | "removeBg" | "convert";
+export type EditError = "notFound" | "animated" | "tooLarge" | "decode" | "unsupported" | "noSession" | "encode" | "invalid";
 export type EditParams =
   | { op: "compress"; quality: number; maxEdge: number | null; pngMode: PngMode }
-  | { op: "convert"; format: OutFormat; quality: number; fill: [number, number, number] };
+  | { op: "convert"; format: OutFormat; quality: number; fill: [number, number, number] }
+  | { op: "crop"; rect: CropRect; quarterTurns: 0 | 1 | 2 | 3; flipH: boolean; flipV: boolean }
+  | { op: "removeBg"; mode: "alpha"; threshold: number; below: boolean }
+  | { op: "removeBg"; mode: "color"; color: [number, number, number]; tolerance: number; softness: number; edgeConnected: boolean };
+export interface CropRect { x: number; y: number; w: number; h: number }
+export interface CropState { rect: CropRect; quarterTurns: 0 | 1 | 2 | 3; flipH: boolean; flipV: boolean }
 export interface EditOpened {
   session: number; width: number; height: number; proxyW: number; proxyH: number;
   srcFormat: SrcFormat; hasAlpha: boolean; fileSize: number;
@@ -125,4 +130,11 @@ export type SaveMode = { kind: "copy" } | { kind: "overwrite" } | { kind: "saveA
 export interface SaveReport { id: FileId; name: string; bytes: number; token: number | null; outside: boolean }
 export interface CompressMemory { quality: number; maxEdgeOn: boolean; maxEdge: number; pngMode: PngMode }
 export interface ConvertMemory { format: OutFormat; quality: number; fill: [number, number, number] }
-export interface EditParamsMemory { tab: EditTab; compress: CompressMemory; convert: ConvertMemory }
+export type CropRatio = "free" | "1:1" | "4:3" | "16:9" | "custom";
+export interface CropMemory { ratio: CropRatio; customW: number; customH: number; portrait: boolean }
+export interface RemoveBgMemory {
+  mode: "alpha" | "color"; threshold: number; below: boolean; tolerance: number; softness: number; edgeConnected: boolean;
+}
+export interface EditParamsMemory {
+  tab: EditTab; compress: CompressMemory; crop: CropMemory; removeBg: RemoveBgMemory; convert: ConvertMemory;
+}

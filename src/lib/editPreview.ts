@@ -7,6 +7,8 @@ export interface PreviewSchedulerOpts {
   /** 最新一次请求失败（错误码原样交出）；被更新的请求取代的失败不报。 */
   onError?(err: unknown): void;
   delayMs?: number;
+  /** 是否先发代理图；返回 false 时 change() 只排全尺寸（裁剪页：预览不依赖代理）。 */
+  proxy?: () => boolean;
 }
 
 /**
@@ -39,7 +41,7 @@ export function createPreviewScheduler(opts: PreviewSchedulerOpts): { change(): 
   return {
     change() {
       if (disposed) return;
-      send(false);
+      if (opts.proxy?.() !== false) send(false);
       if (timer !== null) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
