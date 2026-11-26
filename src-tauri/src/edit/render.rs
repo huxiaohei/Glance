@@ -37,6 +37,7 @@ pub fn read_source(path: &Path) -> Result<Source, EditError> {
     })
 }
 
+/// 批量只支持 Compress / Convert：不经会话的 RemoveBg 透明度闸门。
 /// 读文件、按参数编码；返回编码结果、源格式与原文件大小。压缩 GIF / BMP 是 `Unsupported`；
 /// 编码时 panic 记作 `Encode`。
 #[allow(dead_code)] // 批量任务接入前暂无调用方，接入后去掉

@@ -178,6 +178,11 @@ pub fn write_new(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<WriteOutco
         }
     };
     for d in missing.iter().rev() {
+        #[cfg(test)]
+        if wfault::take_create() {
+            cleanup(&new_dirs);
+            return Err(FsError::Denied);
+        }
         match std::fs::create_dir(d) {
             Ok(()) => new_dirs.insert(0, d.clone()),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -197,6 +202,12 @@ pub fn write_new(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<WriteOutco
     let base = dir.join(file_name);
     for n in 1..=MAX_COPY_N {
         let to = fsx::suffixed(&base, "", n);
+        #[cfg(test)]
+        if wfault::take_rename() {
+            fsx::discard_temp(&tmp);
+            cleanup(&new_dirs);
+            return Err(FsError::DiskFull);
+        }
         match fsx::rename_noreplace(&tmp, &to) {
             Ok(()) => return Ok(WriteOutcome { path: to, new_dirs }),
             Err(FsError::Exists) => continue,
@@ -224,6 +235,42 @@ mod fault {
     }
 
     pub fn take() -> bool {
+        FAIL_RENAME.with(|f| f.replace(false))
+    }
+}
+
+/// 测试用的故障注入：`write_new` 在第 N 次建目录前失败，或第一次改名失败（只作用于当前线程）。
+#[cfg(test)]
+mod wfault {
+    use std::cell::Cell;
+
+    thread_local!(static CREATE_AFTER: Cell<Option<usize>> = const { Cell::new(None) });
+    thread_local!(static FAIL_RENAME: Cell<bool> = const { Cell::new(false) });
+
+    /// 前 n 次建目录成功，第 n+1 次失败。
+    pub fn arm_create_after(n: usize) {
+        CREATE_AFTER.with(|c| c.set(Some(n)));
+    }
+
+    pub fn arm_rename() {
+        FAIL_RENAME.with(|f| f.set(true));
+    }
+
+    pub fn take_create() -> bool {
+        CREATE_AFTER.with(|c| match c.get() {
+            Some(0) => {
+                c.set(None);
+                true
+            }
+            Some(n) => {
+                c.set(Some(n - 1));
+                false
+            }
+            None => false,
+        })
+    }
+
+    pub fn take_rename() -> bool {
         FAIL_RENAME.with(|f| f.replace(false))
     }
 }
@@ -274,6 +321,27 @@ mod tests {
         let out = write_new(d.path(), "x.webp", b"new").unwrap();
         assert_eq!(out.path, d.path().join("x_3.webp"));
         assert_eq!(fs::read(d.path().join("x.webp")).unwrap(), b"1");
+    }
+
+    #[test]
+    fn write_new_removes_new_dirs_when_rename_fails() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("a/b");
+        wfault::arm_rename();
+        let r = write_new(&dir, "x.png", b"data");
+        assert!(matches!(r, Err(FsError::DiskFull)));
+        assert!(!root.path().join("a").exists());
+        assert!(names(root.path()).is_empty());
+    }
+
+    #[test]
+    fn write_new_removes_created_dirs_when_creation_fails_midway() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("a/b");
+        wfault::arm_create_after(1); // a 建成，a/b 失败
+        let r = write_new(&dir, "x.png", b"data");
+        assert!(matches!(r, Err(FsError::Denied)));
+        assert!(names(root.path()).is_empty());
     }
 
     #[cfg(unix)]
