@@ -321,6 +321,8 @@ export const zhCN = {
   "settings.showKeyHints": "显示快捷键提示",
   "settings.group.edit": "编辑",
   "settings.editSaveMode": "默认保存方式",
+  "settings.batchOutputDir": "批量输出目录名",
+  "settings.batchOutputDir.invalid": "不能为空，不能含 / \\ : 等字符",
   "hint.basket.add": "加入对比 · {n} 张",
   "hint.basket.add1": "加入对比",
   "hint.basket.remove": "移出对比",

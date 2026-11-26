@@ -322,6 +322,8 @@ export const en: Record<MessageKey, string> = {
   "settings.showKeyHints": "Show shortcut hints",
   "settings.group.edit": "Editing",
   "settings.editSaveMode": "Default save action",
+  "settings.batchOutputDir": "Batch output folder name",
+  "settings.batchOutputDir.invalid": "Can't be empty or contain / \\ : and similar characters",
   "hint.basket.add": "Add {n} to compare",
   "hint.basket.add1": "Add to compare",
   "hint.basket.remove": "Remove from compare",

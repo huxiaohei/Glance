@@ -62,6 +62,7 @@ describe("settings store", () => {
       compareBackground: "dark",
       showKeyHints: true,
       editSaveMode: "copy",
+      batchOutputDir: "_glance_output",
     });
   });
 

@@ -1,5 +1,6 @@
 //! 用户设置：`<配置目录>/settings.json`。
 use super::store;
+use crate::fileops::fsx;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -60,6 +61,29 @@ pub enum EditSaveMode {
     Overwrite,
 }
 
+/// 批量输出目录名的默认值。
+pub const DEFAULT_BATCH_DIR: &str = "_glance_output";
+#[allow(dead_code)] // 任务 3 起由批量压缩使用
+const BATCH_DIR_MAX_CHARS: usize = 64;
+
+#[allow(dead_code)]
+fn valid_batch_dir(name: &str) -> bool {
+    fsx::validate_name(name).is_ok()
+        && !name.contains(':')
+        && name.chars().count() <= BATCH_DIR_MAX_CHARS
+}
+
+/// 批量输出目录名：去首尾空白后合法就用它，否则退回默认值。
+#[allow(dead_code)]
+pub fn batch_dir_name(s: &Settings) -> String {
+    let name = s.batch_output_dir.trim();
+    if valid_batch_dir(name) {
+        name.to_string()
+    } else {
+        DEFAULT_BATCH_DIR.to_string()
+    }
+}
+
 pub const COMPARE_COLUMNS_MIN: u8 = 2;
 pub const COMPARE_COLUMNS_MAX: u8 = 8;
 
@@ -93,6 +117,8 @@ pub struct Settings {
     pub show_key_hints: bool,
     /// 编辑面板的默认保存方式。
     pub edit_save_mode: EditSaveMode,
+    /// 批量压缩 / 转格式的输出子目录名。
+    pub batch_output_dir: String,
 }
 
 impl Default for Settings {
@@ -110,6 +136,7 @@ impl Default for Settings {
             compare_background: CompareBackground::Dark,
             show_key_hints: true,
             edit_save_mode: EditSaveMode::Copy,
+            batch_output_dir: DEFAULT_BATCH_DIR.to_string(),
         }
     }
 }
@@ -193,6 +220,23 @@ mod tests {
     }
 
     #[test]
+    fn batch_dir_defaults_and_sanitizes() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"light"}"#).unwrap();
+        assert_eq!(old.batch_output_dir, "_glance_output");
+        assert_eq!(batch_dir_name(&old), "_glance_output");
+        let with = |n: &str| Settings {
+            batch_output_dir: n.to_string(),
+            ..Settings::default()
+        };
+        assert_eq!(batch_dir_name(&with("  out  ")), "out");
+        let long = "a".repeat(65);
+        for bad in ["a/b", "..", "", "   ", "con", "a:b", long.as_str()] {
+            assert_eq!(batch_dir_name(&with(bad)), DEFAULT_BATCH_DIR, "{bad:?}");
+        }
+        assert_eq!(batch_dir_name(&with(&"a".repeat(64))), "a".repeat(64));
+    }
+
+    #[test]
     fn defaults_match_the_spec() {
         let d = Settings::default();
         assert_eq!(d.theme, Theme::Dark);
@@ -240,7 +284,8 @@ mod tests {
             json!({"theme":"dark","language":"system","includeSubdirs":true,
                    "defaultSort":"name","loopAtEnd":false,"wheel":"zoom","checkUpdates":true,
                    "compareColumns":4,"compareSyncOnEnter":true,"compareBackground":"dark",
-                   "showKeyHints":true,"editSaveMode":"copy"})
+                   "showKeyHints":true,"editSaveMode":"copy",
+                   "batchOutputDir":"_glance_output"})
         );
     }
 

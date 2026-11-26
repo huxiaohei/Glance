@@ -61,7 +61,7 @@ describe("SettingsDialog", () => {
 
   it("各控件显示当前设置的值", () => {
     useSettings.setState({
-      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch", checkUpdates: true, compareColumns: 3, compareSyncOnEnter: false, compareBackground: "dark", showKeyHints: false, editSaveMode: "copy" },
+      settings: { theme: "light", language: "en", includeSubdirs: false, defaultSort: "size", loopAtEnd: true, wheel: "switch", checkUpdates: true, compareColumns: 3, compareSyncOnEnter: false, compareBackground: "dark", showKeyHints: false, editSaveMode: "copy", batchOutputDir: "_glance_output" },
     });
     render(<SettingsDialog />);
     expect(control("settings.theme").value).toBe("light");
@@ -159,5 +159,20 @@ describe("SettingsDialog", () => {
     expect(updateSettings).toHaveBeenCalledWith({ editSaveMode: "overwrite" });
     act(() => useSettings.setState({ settings: { ...DEFAULT_SETTINGS, editSaveMode: "overwrite" } }));
     expect(over.checked).toBe(true);
+  });
+
+  it("batch_output_dir_validates_on_blur_and_saves_on_enter", () => {
+    render(<SettingsDialog />);
+    const input = control("settings.batchOutputDir") as HTMLInputElement;
+    expect(input.value).toBe("_glance_output");
+    fireEvent.change(input, { target: { value: "a/b" } });
+    fireEvent.blur(input);
+    expect(screen.getByText(t("settings.batchOutputDir.invalid"))).toBeTruthy();
+    expect(updateSettings).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: " out " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledWith({ batchOutputDir: "out" });
+    expect(screen.queryByText(t("settings.batchOutputDir.invalid"))).toBeNull();
   });
 });

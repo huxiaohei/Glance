@@ -1,6 +1,7 @@
-import { useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { t, type MessageKey } from "../../i18n";
 import type { Language, Settings, Theme, WheelAction } from "../../ipc/types";
+import { validBatchDirName } from "../../lib/batchDirName";
 import type { SortKey } from "../../lib/deriveList";
 import { updateSettings, useSettings } from "../../stores/settings";
 import { useTip } from "../../stores/tip";
@@ -80,6 +81,46 @@ function EditSaveMode() {
           </label>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** 批量输出目录名：失焦或回车时校验并保存；不合法显示错误、不保存，输入框保留所填内容。 */
+function BatchDirInput() {
+  const saved = useSettings((s) => s.settings.batchOutputDir);
+  const [text, setText] = useState(saved);
+  const [invalid, setInvalid] = useState(false);
+  useEffect(() => setText(saved), [saved]);
+  const commit = () => {
+    if (!validBatchDirName(text)) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    const name = text.trim();
+    setText(name);
+    if (name !== saved) updateSettings({ batchOutputDir: name });
+  };
+  return (
+    <div className="settings-field">
+      <Row id="settings-batch-dir" label="settings.batchOutputDir">
+        <input
+          id="settings-batch-dir"
+          type="text"
+          value={text}
+          aria-invalid={invalid}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+          }}
+        />
+      </Row>
+      {invalid && (
+        <div className="settings-error" role="alert">
+          {t("settings.batchOutputDir.invalid")}
+        </div>
+      )}
     </div>
   );
 }
@@ -164,6 +205,7 @@ export default function SettingsDialog() {
         <section className="settings-group">
           <h3 className="settings-cat">{t("settings.group.edit")}</h3>
           <EditSaveMode />
+          <BatchDirInput />
         </section>
         <section className="settings-group">
           <h3 className="settings-cat">{t("settings.group.update")}</h3>

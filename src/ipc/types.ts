@@ -89,6 +89,8 @@ export interface Settings {
   showKeyHints: boolean;
   /** 编辑面板的默认保存方式 */
   editSaveMode: "copy" | "overwrite";
+  /** 批量压缩 / 转格式的输出子目录名 */
+  batchOutputDir: string;
 }
 
 /** 最近目录的一项。path 只用于显示和原样传回 open_path / recents_pin / recents_remove（“前端只见 FileId”的明确例外）。

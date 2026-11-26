@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   compareBackground: "dark",
   showKeyHints: true,
   editSaveMode: "copy",
+  batchOutputDir: "_glance_output",
 };
 
 export const useSettings = create<{ settings: Settings; open: boolean }>(() => ({
