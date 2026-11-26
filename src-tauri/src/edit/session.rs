@@ -3,11 +3,12 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 use glance_imaging::{
-    Decoded, EditParams, Encoded, ImagingError, OutFormat, RgbaView, SrcFormat, apply,
-    decode_rgba_icc, downscale, out_dims, src_format_of,
+    Decoded, EditParams, Encoded, ImagingError, OutFormat, RemoveBg, RgbaView, SrcFormat, apply,
+    decode_rgba_icc, downscale, encode_jpeg, encode_png_fast, out_dims, pick, remove_bg,
+    src_format_of,
 };
 use serde::Serialize;
 
@@ -30,6 +31,8 @@ pub enum EditError {
     Unsupported,
     NoSession,
     Encode,
+    /// 参数不合法（区域越界、取色位置超出图片等）。
+    Invalid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -62,7 +65,7 @@ impl From<ImagingError> for EditError {
             ImagingError::TooLarge => EditError::TooLarge,
             ImagingError::Decode(_) => EditError::Decode,
             ImagingError::Unsupported => EditError::Unsupported,
-            ImagingError::InvalidParams(_) => EditError::Encode,
+            ImagingError::InvalidParams(_) => EditError::Invalid,
             _ => EditError::Encode,
         }
     }
@@ -174,6 +177,10 @@ pub(crate) struct Session {
     icc: Option<Vec<u8>>,
     orig: Arc<Decoded>,
     proxy: Arc<Decoded>,
+    /// 原图是否有半透明或透明像素（“按透明度去背景”只对它有意义）。
+    has_alpha: bool,
+    /// 代理图编码后的字节（给前端当画布底图），首次请求时编码。
+    source_cache: OnceLock<(Arc<Vec<u8>>, &'static str)>,
     /// 拖动预览用的更小代理图，按长边上限各算一次。
     drag: Mutex<Vec<(u32, Arc<Decoded>)>>,
     results: Mutex<Results>,
@@ -216,9 +223,38 @@ impl Session {
             .map(|(_, e)| e.clone())
     }
 
+    /// 参数与这张图不相容时的统一闸门：不透明的图没有可按透明度去除的像素。
+    /// 预览（两条通道）与保存都经过 `approx` 或 `full`，都从这里过。
+    fn gate(&self, params: &EditParams) -> Result<(), EditError> {
+        if matches!(params, EditParams::RemoveBg(RemoveBg::Alpha { .. })) && !self.has_alpha {
+            return Err(EditError::Unsupported);
+        }
+        Ok(())
+    }
+
+    /// 代理图（已转正、长边 ≤2048）的编码：有透明用快速 PNG，否则 JPEG q90。
+    fn source_image(&self) -> Option<(Arc<Vec<u8>>, &'static str)> {
+        if let Some(c) = self.source_cache.get() {
+            return Some(c.clone());
+        }
+        let v = view(&self.proxy);
+        let made = if self.has_alpha {
+            encode_png_fast(v).map(|b| (b, "image/png"))
+        } else {
+            encode_jpeg(v, 90, [255; 3], None).map(|b| (b, "image/jpeg"))
+        }
+        .ok()?;
+        Some(
+            self.source_cache
+                .get_or_init(|| (Arc::new(made.0), made.1))
+                .clone(),
+        )
+    }
+
     /// 全尺寸结果：参数与最近一份相同则复用；同参数正在算（全尺寸通道或另一次保存）则等它算完；
     /// 否则在调用方线程上算。
     fn full(&self, params: &EditParams) -> Result<Arc<Encoded>, EditError> {
+        self.gate(params)?;
         let mut cache = lock(&self.full_cache);
         loop {
             if let Some((_, e)) = cache.last.as_ref().filter(|(p, _)| p == params) {
@@ -265,11 +301,37 @@ impl Session {
 
     /// 在缩小的代理图上算，体积按像素比例换算到全尺寸输出。
     fn approx(&self, params: &EditParams) -> Result<Computed, EditError> {
+        self.gate(params)?;
         let fmt = out_format(self.src_format, params)?;
-        let src = self.drag_proxy(drag_edge(fmt))?;
+        // 裁剪没有代理预览：前端用画布叠框，不发这种请求。
+        if matches!(params, EditParams::Crop { .. }) {
+            return Err(EditError::Unsupported);
+        }
+        let edge = match params {
+            EditParams::RemoveBg(_) => 1024,
+            _ => drag_edge(fmt),
+        };
+        let src = self.drag_proxy(edge)?;
         let orig_long = self.orig.width.max(self.orig.height);
         let p = scale_params(params, src.width.max(src.height), orig_long);
-        let enc = apply(view(&src), self.src_format, self.icc(), &p)?;
+        let enc = match &p {
+            // 去背景预览只要抠得对：不带 ICC，用快速 PNG 编码。
+            EditParams::RemoveBg(rb) => {
+                let out = remove_bg(view(&src), rb)?;
+                let bytes = encode_png_fast(RgbaView {
+                    width: src.width,
+                    height: src.height,
+                    data: &out,
+                })?;
+                Encoded {
+                    bytes,
+                    format: OutFormat::Png,
+                    width: src.width,
+                    height: src.height,
+                }
+            }
+            _ => apply(view(&src), self.src_format, self.icc(), &p)?,
+        };
         let (width, height) = out_dims(self.orig.width, self.orig.height, params);
         // ICC 是固定开销，不随像素数放大（WebP 输出不带 ICC）。
         let fixed = match fmt {
@@ -437,6 +499,8 @@ impl EditState {
             icc: l.icc,
             orig: l.orig,
             proxy: l.proxy,
+            has_alpha: l.has_alpha,
+            source_cache: OnceLock::new(),
             drag: Mutex::default(),
             results: Mutex::default(),
             full_cache: Mutex::default(),
@@ -521,6 +585,17 @@ impl EditState {
     pub fn source(&self, session: u32) -> Result<(FileId, SrcFormat), EditError> {
         let s = self.session(session)?;
         Ok((s.source, s.src_format))
+    }
+
+    /// 会话代理图的编码字节与 MIME；会话不符为 None（协议 404）。
+    pub fn source_image(&self, session: u32) -> Option<(Arc<Vec<u8>>, &'static str)> {
+        self.session(session).ok()?.source_image()
+    }
+
+    /// 在转正后的原图上取色。坐标为全尺寸像素；越界为 `Invalid`。
+    pub fn pick(&self, session: u32, x: u32, y: u32) -> Result<[u8; 3], EditError> {
+        let s = self.session(session)?;
+        Ok(pick(view(&s.orig), x, y)?)
     }
 
     /// 最近一份全尺寸结果，参数相同才返回。
@@ -958,5 +1033,308 @@ mod tests {
             Err(EditError::Unsupported)
         );
         assert!(st.preview(s, 2, jpeg(80), false).unwrap().is_some());
+    }
+
+    // ---- V0.3-B：裁剪、去背景、取色、源图 ----
+
+    use glance_imaging::{CropRect, RemoveBg, encode_jpeg, encode_png_fast, remove_bg};
+
+    fn crop(w: u32, h: u32) -> EditParams {
+        EditParams::Crop {
+            rect: CropRect { x: 0, y: 0, w, h },
+            quarter_turns: 0,
+            flip_h: false,
+            flip_v: false,
+        }
+    }
+
+    fn rm_color() -> EditParams {
+        EditParams::RemoveBg(RemoveBg::Color {
+            color: [0, 0, 0],
+            tolerance: 40,
+            softness: 10,
+            edge_connected: false,
+        })
+    }
+
+    fn rm_alpha() -> EditParams {
+        EditParams::RemoveBg(RemoveBg::Alpha {
+            threshold: 128,
+            below: true,
+        })
+    }
+
+    /// 带半透明像素的 PNG：左半不透明，右半 alpha=100。
+    fn alpha_png(path: &Path, w: u32, h: u32) {
+        let data: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let a = if (i % w) < w / 2 { 255 } else { 100 };
+                [(i % w) as u8, (i / w) as u8, 50, a]
+            })
+            .collect();
+        let bytes = encode_png_lossless(
+            RgbaView {
+                width: w,
+                height: h,
+                data: &data,
+            },
+            None,
+        )
+        .unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    /// 在 JPEG 的 SOI 之后插入一个只含“方向”标签的 EXIF 段。
+    fn with_exif_orientation(jpeg: &[u8], orientation: u8) -> Vec<u8> {
+        let mut seg = vec![0xFF, 0xE1, 0x00, 0x22];
+        seg.extend_from_slice(b"Exif\0\0");
+        seg.extend_from_slice(&[0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08]);
+        seg.extend_from_slice(&[0x00, 0x01]);
+        seg.extend_from_slice(&[
+            0x01,
+            0x12,
+            0x00,
+            0x03,
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            orientation,
+            0x00,
+            0x00,
+        ]);
+        seg.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        let mut out = jpeg[..2].to_vec();
+        out.extend_from_slice(&seg);
+        out.extend_from_slice(&jpeg[2..]);
+        out
+    }
+
+    #[test]
+    fn out_format_for_crop_and_remove_bg() {
+        let c = crop(1, 1);
+        assert_eq!(out_format(SrcFormat::Jpeg, &c), Ok(OutFormat::Jpeg));
+        assert_eq!(out_format(SrcFormat::Webp, &c), Ok(OutFormat::Webp));
+        assert_eq!(out_format(SrcFormat::Png, &c), Ok(OutFormat::Png));
+        assert_eq!(out_format(SrcFormat::Gif, &c), Ok(OutFormat::Png));
+        assert_eq!(out_format(SrcFormat::Bmp, &c), Ok(OutFormat::Png));
+        for f in [SrcFormat::Jpeg, SrcFormat::Gif, SrcFormat::Webp] {
+            assert_eq!(out_format(f, &rm_color()), Ok(OutFormat::Png));
+        }
+    }
+
+    #[test]
+    fn invalid_params_map_to_invalid() {
+        assert_eq!(
+            EditError::from(ImagingError::InvalidParams("x")),
+            EditError::Invalid
+        );
+        assert_eq!(serde_json::to_value(EditError::Invalid).unwrap(), "invalid");
+        // 区域越界：保存与全尺寸预览都报 invalid。
+        let f = fx(300, 100);
+        let st = EditState::default();
+        let s = st.open(&f.reg, f.a).unwrap().session;
+        assert_eq!(
+            st.preview(s, 1, crop(400, 100), true),
+            Err(EditError::Invalid)
+        );
+        assert_eq!(
+            st.compute_full(s, &crop(400, 100)).err(),
+            Some(EditError::Invalid)
+        );
+    }
+
+    #[test]
+    fn remove_bg_proxy_preview_uses_1024_proxy_and_fast_png() {
+        let f = fx(3000, 1000);
+        let st = EditState::default();
+        let s = st.open(&f.reg, f.a).unwrap().session;
+        let r = st.preview(s, 1, rm_color(), false).unwrap().unwrap();
+        assert!(r.approx);
+        assert_eq!(r.format, OutFormat::Png);
+        assert_eq!((r.width, r.height), (3000, 1000));
+        let (b, mime) = st.bytes(s, 1).unwrap();
+        assert_eq!(mime, "image/png");
+        let d = decode_rgba(&b.bytes, u64::MAX).unwrap();
+        assert_eq!((d.width, d.height), (1024, 342));
+        // 对同一张 1024 代理直接调用 remove_bg 的结果。
+        let sess = st.session(s).unwrap();
+        let proxy = sess.drag_proxy(1024).unwrap();
+        let want = remove_bg(
+            view(&proxy),
+            &match rm_color() {
+                EditParams::RemoveBg(p) => p,
+                _ => unreachable!(),
+            },
+        )
+        .unwrap();
+        assert_eq!(d.rgba, want);
+        let fast = encode_png_fast(RgbaView {
+            width: proxy.width,
+            height: proxy.height,
+            data: &want,
+        })
+        .unwrap();
+        assert_eq!(b.bytes, fast);
+        // 全尺寸：精确值。
+        let r = st.preview(s, 2, rm_color(), true).unwrap().unwrap();
+        assert!(!r.approx);
+        assert_eq!(r.bytes, st.bytes(s, 2).unwrap().0.bytes.len() as u64);
+    }
+
+    #[test]
+    fn crop_previews() {
+        let f = fx(300, 100);
+        let st = EditState::default();
+        let s = st.open(&f.reg, f.a).unwrap().session;
+        assert_eq!(
+            st.preview(s, 1, crop(10, 10), false),
+            Err(EditError::Unsupported)
+        );
+        let r = st.preview(s, 2, crop(120, 40), true).unwrap().unwrap();
+        assert!(!r.approx);
+        assert_eq!((r.width, r.height), (120, 40));
+        assert_eq!(r.format, OutFormat::Png);
+        assert_eq!(r.bytes, st.bytes(s, 2).unwrap().0.bytes.len() as u64);
+    }
+
+    #[test]
+    fn alpha_gate_blocks_opaque_sessions_on_every_path() {
+        let (_d, _r, st, s) = {
+            let dir = tempfile::tempdir().unwrap();
+            let reg = Registry::default();
+            let p = dir.path().join("o.png");
+            png(&p, 300, 100);
+            let st = EditState::default();
+            let s = st.open(&reg, reg.register(&p)).unwrap().session;
+            (dir, reg, st, s)
+        };
+        assert_eq!(
+            st.preview(s, 1, rm_alpha(), false),
+            Err(EditError::Unsupported)
+        );
+        assert_eq!(
+            st.preview(s, 2, rm_alpha(), true),
+            Err(EditError::Unsupported)
+        );
+        assert_eq!(
+            st.compute_full(s, &rm_alpha()).err(),
+            Some(EditError::Unsupported)
+        );
+        // 颜色模式不受影响。
+        assert!(st.preview(s, 3, rm_color(), false).unwrap().is_some());
+
+        let dir = tempfile::tempdir().unwrap();
+        let reg = Registry::default();
+        let p = dir.path().join("t.png");
+        alpha_png(&p, 300, 100);
+        let st = EditState::default();
+        let o = st.open(&reg, reg.register(&p)).unwrap();
+        assert!(o.has_alpha);
+        assert!(
+            st.preview(o.session, 1, rm_alpha(), false)
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            st.preview(o.session, 2, rm_alpha(), true)
+                .unwrap()
+                .is_some()
+        );
+        assert!(st.compute_full(o.session, &rm_alpha()).is_ok());
+    }
+
+    #[test]
+    fn pick_reads_original_pixels() {
+        let f = fx(300, 100);
+        let st = EditState::default();
+        let s = st.open(&f.reg, f.a).unwrap().session;
+        // png() 的像素：[(i % w) as u8, (i / w) as u8, ((i * 7) % 251) as u8]
+        let i = 5 * 300 + 17;
+        assert_eq!(st.pick(s, 17, 5), Ok([17, 5, ((i * 7) % 251) as u8]));
+        assert_eq!(st.pick(s, 300, 0), Err(EditError::Invalid));
+        assert_eq!(st.pick(s, 0, 100), Err(EditError::Invalid));
+        assert_eq!(st.pick(s + 1, 0, 0), Err(EditError::NoSession));
+    }
+
+    #[test]
+    fn source_image_encodes_once_and_picks_format_by_alpha() {
+        let f = fx(3000, 1000);
+        let st = EditState::default();
+        let s = st.open(&f.reg, f.a).unwrap().session;
+        let (b, mime) = st.source_image(s).unwrap();
+        assert_eq!(mime, "image/jpeg");
+        let d = decode_rgba(&b, u64::MAX).unwrap();
+        assert_eq!((d.width, d.height), (2048, 683));
+        let (b2, _) = st.source_image(s).unwrap();
+        assert!(Arc::ptr_eq(&b, &b2));
+        assert!(st.source_image(s + 1).is_none());
+
+        let dir = tempfile::tempdir().unwrap();
+        let reg = Registry::default();
+        let p = dir.path().join("t.png");
+        alpha_png(&p, 300, 100);
+        let st = EditState::default();
+        let s = st.open(&reg, reg.register(&p)).unwrap().session;
+        let (b, mime) = st.source_image(s).unwrap();
+        assert_eq!(mime, "image/png");
+        assert!(b.starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn exif_oriented_jpeg_edits_in_display_coordinates() {
+        // 40×20：左下 10×10 红，其余蓝；方向 6（顺时针 90°）后是 20×40，红块在左上。
+        let mut data = vec![0u8; 40 * 20 * 4];
+        for y in 0..20u32 {
+            for x in 0..40u32 {
+                let i = ((y * 40 + x) * 4) as usize;
+                let red = x < 10 && y >= 10;
+                data[i..i + 4].copy_from_slice(if red {
+                    &[255, 0, 0, 255]
+                } else {
+                    &[0, 0, 255, 255]
+                });
+            }
+        }
+        let jpg = encode_jpeg(
+            RgbaView {
+                width: 40,
+                height: 20,
+                data: &data,
+            },
+            95,
+            [255; 3],
+            None,
+        )
+        .unwrap();
+        let oriented = with_exif_orientation(&jpg, 6);
+        let want = decode_rgba(&oriented, u64::MAX).unwrap();
+        assert_eq!((want.width, want.height), (20, 40));
+        let top_left = [want.rgba[0], want.rgba[1], want.rgba[2]];
+        assert!(top_left[0] > 200 && top_left[2] < 60, "{top_left:?}");
+
+        let dir = tempfile::tempdir().unwrap();
+        let reg = Registry::default();
+        let p = dir.path().join("o.jpg");
+        std::fs::write(&p, &oriented).unwrap();
+        let st = EditState::default();
+        let o = st.open(&reg, reg.register(&p)).unwrap();
+        assert_eq!((o.width, o.height), (20, 40));
+        let (src, _) = st.source_image(o.session).unwrap();
+        let sd = decode_rgba(&src, u64::MAX).unwrap();
+        assert_eq!((sd.width, sd.height), (20, 40));
+        assert_eq!(st.pick(o.session, 0, 0), Ok(top_left));
+        // 裁剪左上角 1×1：颜色与转正后左上角一致（JPEG 重编码有损，容差）。
+        let enc = st.compute_full(o.session, &crop(1, 1)).unwrap();
+        assert_eq!((enc.width, enc.height), (1, 1));
+        let c = decode_rgba(&enc.bytes, u64::MAX).unwrap();
+        for k in 0..3 {
+            assert!(
+                (i32::from(c.rgba[k]) - i32::from(top_left[k])).abs() <= 24,
+                "{:?} vs {top_left:?}",
+                &c.rgba[..3]
+            );
+        }
     }
 }

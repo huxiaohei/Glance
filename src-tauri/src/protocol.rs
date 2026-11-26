@@ -16,6 +16,8 @@ pub enum Route {
     ThumbKey(String),
     /// 编辑预览：会话号与版本号。
     Edit(u32, u32),
+    /// 编辑会话的代理图（已转正）。
+    EditSource(u32),
 }
 
 /// 协议处理所需的共享状态。
@@ -37,6 +39,9 @@ fn parse_u32(s: &str) -> Option<u32> {
 pub fn parse_route(path: &str) -> Option<Route> {
     if let Some(rest) = path.strip_prefix("/edit/") {
         let (session, rev) = rest.split_once('/')?;
+        if rev == "source" {
+            return Some(Route::EditSource(parse_u32(session)?));
+        }
         return Some(Route::Edit(parse_u32(session)?, parse_u32(rev)?));
     }
     if let Some(key) = path.strip_prefix("/thumb-key/") {
@@ -96,6 +101,18 @@ fn serve_edit(ctx: &Ctx, session: u32, rev: u32) -> Option<http::Response<Vec<u8
         .ok()
 }
 
+/// 编辑会话的代理图，同样不得缓存。
+fn serve_edit_source(ctx: &Ctx, session: u32) -> Option<http::Response<Vec<u8>>> {
+    let (bytes, mime) = ctx.edit.source_image(session)?;
+    http::Response::builder()
+        .status(200)
+        .header("content-type", mime)
+        .header("cache-control", "no-store")
+        .header("access-control-allow-origin", "*")
+        .body(bytes.to_vec())
+        .ok()
+}
+
 fn serve_image(ctx: &Ctx, id: FileId) -> Option<http::Response<Vec<u8>>> {
     let file = ctx.registry.path(id)?;
     let mime = content_type(&file)?;
@@ -118,6 +135,7 @@ pub fn respond(ctx: &Ctx, path: &str) -> http::Response<Vec<u8>> {
         Some(Route::Thumb(id, tier)) => serve_thumb(ctx, id, tier),
         Some(Route::ThumbKey(key)) => ctx.thumbs.get(&key).map(|b| ok("image/webp", b)),
         Some(Route::Edit(session, rev)) => serve_edit(ctx, session, rev),
+        Some(Route::EditSource(session)) => serve_edit_source(ctx, session),
         None => None,
     };
     response.unwrap_or_else(not_found)
@@ -246,9 +264,43 @@ mod tests {
             "/edit/3/",
             "/edit//7",
             "/edit/-1/2",
+            "/edit/3/sourcex",
+            "/edit//source",
+            "/edit/3/source/x",
+            "/edit/3/Source",
         ] {
             assert_eq!(parse_route(bad), None, "{bad}");
         }
+        assert_eq!(parse_route("/edit/3/source"), Some(Route::EditSource(3)));
+    }
+
+    #[test]
+    fn edit_source_route_serves_proxy_while_session_lives() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.png");
+        real_png(&file);
+        let r = Registry::default();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let edit = EditState::default();
+        let ctx = Ctx {
+            registry: &r,
+            thumbs: &cache,
+            edit: &edit,
+        };
+        let s = edit.open(&r, r.register(&file)).unwrap().session;
+        let resp = respond(&ctx, &format!("/edit/{s}/source"));
+        assert_eq!(resp.status(), 200);
+        assert_eq!(resp.headers()["content-type"], "image/jpeg");
+        assert_eq!(resp.headers()["cache-control"], "no-store");
+        assert_eq!(resp.headers()["access-control-allow-origin"], "*");
+        assert_eq!(resp.body(), &edit.source_image(s).unwrap().0.to_vec());
+        assert_eq!(
+            respond(&ctx, &format!("/edit/{}/source", s + 1)).status(),
+            404
+        );
+        edit.close(s);
+        assert_eq!(respond(&ctx, &format!("/edit/{s}/source")).status(), 404);
     }
 
     #[test]

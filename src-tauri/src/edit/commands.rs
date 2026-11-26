@@ -44,6 +44,20 @@ pub async fn edit_preview(
         .map_err(|_| EditError::Encode)?
 }
 
+/// 取色：坐标为转正后的全尺寸像素，在原图上取。读像素不重，但仍放进阻塞线程池，不占异步工作线程。
+#[tauri::command]
+pub async fn edit_pick(
+    session: u32,
+    x: u32,
+    y: u32,
+    edit: State<'_, Arc<EditState>>,
+) -> Result<[u8; 3], EditError> {
+    let edit = edit.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || edit.pick(session, x, y))
+        .await
+        .map_err(|_| EditError::Encode)?
+}
+
 /// 关闭编辑会话；会话号不是当前会话时什么也不做。释放大块内存，不在主线程上做。
 #[tauri::command(async)]
 pub fn edit_close(session: u32, edit: State<'_, Arc<EditState>>) {
@@ -231,6 +245,10 @@ mod tests {
 
     /// 以临时目录为根（不含子目录）的目录会话，根下一张 hero.png，并打开编辑会话。
     fn world() -> World {
+        world_with("hero.png", &png_bytes(64, 48))
+    }
+
+    fn world_with(name: &str, bytes: &[u8]) -> World {
         let dir = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(dir.path()).unwrap();
         let sessions = Sessions::default();
@@ -239,8 +257,8 @@ mod tests {
         let (g, _) = sessions.begin(1).unwrap();
         sessions.attach_scoped(g, root.clone(), false, tx);
         let registry = Registry::default();
-        let path = root.join("hero.png");
-        fs::write(&path, png_bytes(64, 48)).unwrap();
+        let path = root.join(name);
+        fs::write(&path, bytes).unwrap();
         let edit = EditState::default();
         let session = edit
             .open(&registry, registry.register(&path))
@@ -457,6 +475,117 @@ mod tests {
                 path: "/x/a.png".into()
             }
         );
+    }
+    fn crop_params() -> EditParams {
+        EditParams::Crop {
+            rect: glance_imaging::CropRect {
+                x: 0,
+                y: 0,
+                w: 10,
+                h: 10,
+            },
+            quarter_turns: 0,
+            flip_h: false,
+            flip_v: false,
+        }
+    }
+
+    fn crop_1x1() -> EditParams {
+        EditParams::Crop {
+            rect: glance_imaging::CropRect {
+                x: 0,
+                y: 0,
+                w: 1,
+                h: 1,
+            },
+            quarter_turns: 0,
+            flip_h: false,
+            flip_v: false,
+        }
+    }
+
+    fn nobg() -> EditParams {
+        EditParams::RemoveBg(glance_imaging::RemoveBg::Color {
+            color: [0, 0, 0],
+            tolerance: 30,
+            softness: 0,
+            edge_connected: false,
+        })
+    }
+
+    fn jpeg_bytes() -> Vec<u8> {
+        let data = vec![200u8; 32 * 32 * 4];
+        glance_imaging::encode_jpeg(
+            RgbaView {
+                width: 32,
+                height: 32,
+                data: &data,
+            },
+            90,
+            [255; 3],
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn crop_and_nobg_copy_names() {
+        let w = world();
+        assert_eq!(
+            w.save(&crop_params(), SaveMode::Copy).unwrap().name,
+            "hero_cropped.png"
+        );
+        assert_eq!(
+            w.save(&crop_params(), SaveMode::Copy).unwrap().name,
+            "hero_cropped_2.png"
+        );
+        let c = decode_size(&fs::read(w.root.join("hero_cropped.png")).unwrap());
+        assert_eq!(c, (10, 10));
+
+        let w = world_with("photo.jpg", &jpeg_bytes());
+        assert_eq!(
+            w.save(&nobg(), SaveMode::Copy).unwrap().name,
+            "photo_nobg.png"
+        );
+
+        // 静态 GIF 裁剪：输出 PNG。
+        let w = world_with("anim.gif", &crate::catalog::details::testimg::gif(1));
+        assert_eq!(
+            w.save(&crop_1x1(), SaveMode::Copy).unwrap().name,
+            "anim_cropped.png"
+        );
+    }
+
+    fn decode_size(b: &[u8]) -> (u32, u32) {
+        let d = glance_imaging::decode_rgba(b, u64::MAX).unwrap();
+        (d.width, d.height)
+    }
+
+    #[test]
+    fn alpha_remove_bg_save_on_opaque_source_is_refused() {
+        let w = world();
+        let p = EditParams::RemoveBg(glance_imaging::RemoveBg::Alpha {
+            threshold: 10,
+            below: true,
+        });
+        assert_eq!(w.save(&p, SaveMode::Copy), Err(FsError::Other));
+        assert_eq!(fs::read_dir(&w.root).unwrap().count(), 1);
+    }
+
+    #[test]
+    #[ignore = "覆盖原图会把文件移进真实废纸篓（只动本测试临时目录里的文件）"]
+    fn nobg_overwrite_jpg_source_writes_png_and_undo_restores() {
+        let w = world_with("photo.jpg", &jpeg_bytes());
+        let orig = fs::read(w.root.join("photo.jpg")).unwrap();
+        let r = w.save(&nobg(), SaveMode::Overwrite).unwrap();
+        assert_eq!(r.name, "photo.png");
+        assert!(!w.root.join("photo.jpg").exists());
+        assert!(w.root.join("photo.png").exists());
+        let entry = w.undo.take().unwrap();
+        let undone = crate::fileops::ops::undo(&entry.steps);
+        assert!(undone.failed.is_empty(), "{:?}", undone.failed);
+        assert_eq!(fs::read(w.root.join("photo.jpg")).unwrap(), orig);
+        assert!(!w.root.join("photo.png").exists());
     }
 }
 
