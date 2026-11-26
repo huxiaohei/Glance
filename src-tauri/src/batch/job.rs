@@ -89,6 +89,12 @@ pub trait JobEnv: Send + Sync + 'static {
     /// 测试钩子：工作线程每次取下一张之前调用（在查取消标志之前）。
     #[cfg(test)]
     fn before_item(&self) {}
+    /// 测试钩子：任务线程算清单之前调用。
+    #[cfg(test)]
+    fn before_plan(&self) {}
+    /// 测试钩子：一张成功产出、提示与登记之后调用（记账之前）。
+    #[cfg(test)]
+    fn after_item(&self) {}
 }
 
 pub struct JobCtx {
@@ -185,12 +191,15 @@ impl BatchState {
         let root = ctx.root.clone().ok_or(BatchError::NoRoot)?;
         let job = self.last_job.fetch_add(1, Ordering::Relaxed) + 1;
         let cancel = Arc::new(AtomicBool::new(false));
+        let sink: Sink = Arc::new(sink);
+        let finished = Arc::new(AtomicBool::new(false));
         let run = Job {
             ctx,
             root,
             params,
             cancel: Arc::clone(&cancel),
-            sink: Arc::new(sink),
+            sink: Arc::clone(&sink),
+            finished: Arc::clone(&finished),
         };
         let current = Arc::clone(&self.current);
         std::thread::Builder::new()
@@ -198,7 +207,20 @@ impl BatchState {
             .spawn(move || {
                 // 线程里才建：起线程失败时闭包在持锁处被丢弃，不能在那里再去拿锁。
                 let _release = Release { current, job };
-                run.execute(ids, op);
+                // 兜底：任务里任何地方 panic，前端也必须收到 Finished，否则一直显示“进行中”。
+                let ok = std::panic::catch_unwind(AssertUnwindSafe(|| run.execute(ids, op)));
+                if ok.is_err() && !finished.load(Ordering::Acquire) {
+                    let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                        sink(BatchEvent::Finished(BatchSummary {
+                            processed: 0,
+                            failed: Vec::new(),
+                            skipped: Vec::new(),
+                            saved_bytes: 0,
+                            token: None,
+                            cancelled: true,
+                        }))
+                    }));
+                }
             })
             // 起不了线程：按“忙”处理，前端提示稍后再试。
             .map_err(|_| BatchError::Busy)?;
@@ -237,6 +259,8 @@ struct Job {
     params: EditParams,
     cancel: Arc<AtomicBool>,
     sink: Sink,
+    /// 已发出 Finished（兜底不再补发）。
+    finished: Arc<AtomicBool>,
 }
 
 /// 一张成功的产出。
@@ -257,6 +281,8 @@ struct Tally {
 
 impl Job {
     fn execute(self, ids: Vec<FileId>, op: BatchOp) {
+        #[cfg(test)]
+        self.ctx.env.before_plan();
         let BatchPlan { process, skipped } =
             plan(&self.ctx.registry, &self.root, &ids, op, &self.ctx.out_dir);
         let total = process.len() as u32;
@@ -264,28 +290,37 @@ impl Job {
             Mutex::new(process.into_iter().map(FileId).enumerate().collect());
         let tally = Mutex::new(Tally::default());
         let n = worker_count(total as usize);
-        std::thread::scope(|s| {
-            let mut spawned = 0;
-            for i in 0..n {
-                let ok = std::thread::Builder::new()
-                    .name(format!("glance-batch-{}", i + 1))
-                    .spawn_scoped(s, || self.work(&queue, &tally, total))
-                    .is_ok();
-                spawned += usize::from(ok);
-            }
-            // 一个工作线程都起不来：在任务线程上自己做（它也不是主线程）。
-            if spawned == 0 && n > 0 {
-                self.work(&queue, &tally, total);
-            }
-        });
+        // 工作线程 panic 时 scope 结束后会重新抛出：接住，已记的账照常收尾（含已写产出的撤销）。
+        let scoped = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            std::thread::scope(|s| {
+                let mut spawned = 0;
+                for i in 0..n {
+                    let ok = std::thread::Builder::new()
+                        .name(format!("glance-batch-{}", i + 1))
+                        .spawn_scoped(s, || self.work(&queue, &tally, total))
+                        .is_ok();
+                    spawned += usize::from(ok);
+                }
+                // 一个工作线程都起不来：在任务线程上自己做（它也不是主线程）。
+                if spawned == 0 && n > 0 {
+                    self.work(&queue, &tally, total);
+                }
+            })
+        }));
         let mut t = tally.into_inner().unwrap_or_else(|e| e.into_inner());
         t.outputs.sort_by_key(|o| o.index);
         t.failed.sort_by_key(|(i, _)| *i);
         let token = if t.outputs.is_empty() {
             None
         } else {
-            self.ctx.env.record(OpKind::Batch, undo_steps(&t.outputs))
+            std::panic::catch_unwind(AssertUnwindSafe(|| {
+                self.ctx.env.record(OpKind::Batch, undo_steps(&t.outputs))
+            }))
+            .unwrap_or(None)
         };
+        // 取消（或中途 panic 中止）确实让一些张没做才算取消；全部做完后才按的取消不算。
+        let stopped = self.cancel.load(Ordering::Acquire) || scoped.is_err();
+        let cancelled = stopped && t.done < total;
         let failed: Vec<Failure> = t.failed.into_iter().map(|(_, f)| f).collect();
         (self.sink)(BatchEvent::Progress {
             done: t.done,
@@ -293,13 +328,14 @@ impl Job {
             failed: failed.len() as u32,
             saved_bytes: t.saved_bytes,
         });
+        self.finished.store(true, Ordering::Release);
         (self.sink)(BatchEvent::Finished(BatchSummary {
             processed: t.outputs.len() as u32,
             failed,
             skipped,
             saved_bytes: t.saved_bytes,
             token,
-            cancelled: self.cancel.load(Ordering::Acquire),
+            cancelled,
         }));
     }
 
@@ -317,19 +353,27 @@ impl Job {
             let result = std::panic::catch_unwind(AssertUnwindSafe(|| self.one(id)))
                 .unwrap_or(Err(FailReason::Encode));
             // 提示、登记与取名都在锁外做，锁里只记账。
+            // 这里的 panic 也接住：产出已写好，照常记账、进撤销，不让整个工作线程退出。
             let entry = match result {
                 Ok(done) => {
-                    self.ctx.env.hint(vec![FsHint::Touched(done.path.clone())]);
-                    self.ctx.registry.register(&done.path);
+                    let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                        self.ctx.env.hint(vec![FsHint::Touched(done.path.clone())]);
+                        self.ctx.registry.register(&done.path);
+                        #[cfg(test)]
+                        self.ctx.env.after_item();
+                    }));
                     Ok(done)
                 }
                 Err(reason) => {
-                    let name = self
-                        .ctx
-                        .registry
-                        .path(id)
-                        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-                        .unwrap_or_default();
+                    let name = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                        self.ctx
+                            .registry
+                            .path(id)
+                            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    }))
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                     Err(Failure {
                         id: id.0,
                         name,
@@ -492,6 +536,24 @@ mod tests {
         calls: AtomicUsize,
         gate: Gate,
         blocked: Sender<()>,
+        /// 在哪个出口上 panic（模拟任务里意外的 panic）。
+        panic_at: Option<Hook>,
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Hook {
+        Plan,
+        BeforeItem,
+        AfterItem,
+        Record,
+    }
+
+    impl TestEnv {
+        fn maybe_panic(&self, at: Hook) {
+            if self.panic_at == Some(at) {
+                panic!("测试注入的 panic");
+            }
+        }
     }
 
     impl JobEnv for TestEnv {
@@ -504,10 +566,20 @@ mod tests {
         }
 
         fn record(&self, kind: OpKind, steps: Vec<Step>) -> Option<u64> {
+            self.maybe_panic(Hook::Record);
             self.undo.record(kind, steps)
         }
 
+        fn before_plan(&self) {
+            self.maybe_panic(Hook::Plan);
+        }
+
+        fn after_item(&self) {
+            self.maybe_panic(Hook::AfterItem);
+        }
+
         fn before_item(&self) {
+            self.maybe_panic(Hook::BeforeItem);
             if let Some(pass) = self.pass
                 && self.calls.fetch_add(1, Ordering::SeqCst) >= pass
             {
@@ -527,6 +599,10 @@ mod tests {
 
     impl Harness {
         fn new(root: &Path, pass: Option<usize>) -> Self {
+            Self::with_panic(root, pass, None)
+        }
+
+        fn with_panic(root: &Path, pass: Option<usize>, panic_at: Option<Hook>) -> Self {
             let (ttx, touched) = mpsc::channel();
             let (btx, blocked) = mpsc::channel();
             Harness {
@@ -537,6 +613,7 @@ mod tests {
                     calls: AtomicUsize::new(0),
                     gate: Gate::default(),
                     blocked: btx,
+                    panic_at,
                 }),
                 touched,
                 blocked,
@@ -946,6 +1023,102 @@ mod tests {
             assert!(*done >= last);
             last = *done;
         }
+    }
+
+    /// 等任务线程放下“当前任务”（Finished 先于释放发出）。
+    fn wait_idle(st: &BatchState) {
+        let until = Instant::now() + Duration::from_secs(10);
+        while lock(&st.current).is_some() {
+            assert!(Instant::now() < until, "任务没有释放");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// 注入 panic 的任务：必须收到 Finished，且之后能再开始一个任务。
+    /// 返回第一次的汇总与它记下的撤销。
+    fn run_panicking(
+        at: Hook,
+        n: usize,
+    ) -> (
+        tempfile::TempDir,
+        BatchSummary,
+        Option<crate::fileops::undo::UndoEntry>,
+    ) {
+        let t = tempfile::tempdir().unwrap();
+        let h = Harness::with_panic(t.path(), None, Some(at));
+        let ids: Vec<FileId> = (0..n)
+            .map(|i| h.put(&format!("{i}.png"), &png(8, 8)))
+            .collect();
+        let st = BatchState::default();
+        let (r, rx) = h.start(&st, ids.clone(), compress());
+        r.unwrap();
+        let (_, s) = finish(&rx);
+        let undo = h.env.undo.take();
+        wait_idle(&st);
+        let (r2, rx2) = h.start(&st, ids, compress());
+        r2.unwrap();
+        finish(&rx2);
+        (t, s, undo)
+    }
+
+    #[test]
+    fn panic_in_plan_still_finishes() {
+        let (_t, s, undo) = run_panicking(Hook::Plan, 2);
+        assert_eq!(s.processed, 0);
+        assert_eq!(s.token, None);
+        assert!(s.cancelled);
+        assert!(undo.is_none());
+    }
+
+    #[test]
+    fn panic_after_item_keeps_outputs_and_undo() {
+        let (t, s, undo) = run_panicking(Hook::AfterItem, 3);
+        // 产出都已写好：照常记账、记撤销
+        assert_eq!(s.processed, 3);
+        assert!(s.failed.is_empty());
+        assert!(!s.cancelled);
+        let entry = undo.unwrap();
+        assert_eq!(Some(entry.token), s.token);
+        for i in 0..3 {
+            let out = t.path().join(OUT).join(format!("{i}.png"));
+            assert!(out.is_file());
+            assert!(entry.steps.contains(&Step::Trash(out)));
+        }
+    }
+
+    #[test]
+    fn panic_in_record_finishes_without_token() {
+        let (_t, s, _) = run_panicking(Hook::Record, 2);
+        assert_eq!(s.processed, 2);
+        assert_eq!(s.token, None);
+        assert!(!s.cancelled);
+    }
+
+    #[test]
+    fn panic_in_worker_finishes_as_stopped() {
+        // 工作线程在取第一张前就 panic：一张都没处理，按“已中止”报告
+        let (_t, s, undo) = run_panicking(Hook::BeforeItem, 2);
+        assert_eq!(s.processed, 0);
+        assert!(s.cancelled);
+        assert_eq!(s.token, None);
+        assert!(undo.is_none());
+    }
+
+    #[test]
+    fn cancel_after_all_done_is_not_cancelled() {
+        // 一张、一个工作线程：做完后停在下一次取张前，此时才取消——没有因取消少做任何一张，不算取消
+        let t = tempfile::tempdir().unwrap();
+        let h = Harness::new(t.path(), Some(1));
+        let a = h.put("a.png", &png(8, 8));
+        let st = BatchState::default();
+        let (r, rx) = h.start(&st, vec![a], compress());
+        let job = r.unwrap();
+        h.blocked.recv().unwrap();
+        st.cancel(job);
+        h.env.gate.open();
+        let (_, s) = finish(&rx);
+        assert_eq!(s.processed, 1);
+        assert!(!s.cancelled);
     }
 
     #[test]
