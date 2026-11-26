@@ -28,7 +28,11 @@ fn dist_pct(px: &[u8], b: [u8; 3]) -> f32 {
 }
 
 /// 不透明系数 f：0 全透明，1 不动，介于其间为过渡带。
+/// 已全透明的像素一律算受影响（f = 0）：它们的隐藏 RGB 无意义，透明边要能把“仅边缘连通”接到真正的底色上。
 fn factor(px: &[u8], b: [u8; 3], tol: u8, soft: u8) -> f32 {
+    if px[3] == 0 {
+        return 0.0;
+    }
     let d = dist_pct(px, b);
     let t = f32::from(tol);
     if soft == 0 {
@@ -288,6 +292,48 @@ mod tests {
         assert_eq!(off[(2 * 5 + 2) * 4 + 3], 0);
         // 红框两种情况都不动
         assert_eq!(&on[(5 + 1) * 4..(5 + 1) * 4 + 4], &[255, 0, 0, 255]);
+    }
+
+    /// 7x7：最外一圈全透明（隐藏色黑，离白底很远），第二圈不透明白底，中间 3x3 红色主体。
+    fn transparent_border() -> Vec<u8> {
+        let mut d = Vec::new();
+        for y in 0..7i32 {
+            for x in 0..7i32 {
+                let ring = x.min(y).min(6 - x).min(6 - y);
+                d.extend_from_slice(match ring {
+                    0 => &[0, 0, 0, 0],
+                    1 => &[255; 4],
+                    _ => &[255, 0, 0, 255],
+                });
+            }
+        }
+        d
+    }
+
+    #[test]
+    fn transparent_border_connects_flood_to_background() {
+        let d = transparent_border();
+        let out = remove_bg(view(7, 7, &d), &color([255; 3], 5, 0, true)).unwrap();
+        let px = |x: usize, y: usize| &out[(y * 7 + x) * 4..(y * 7 + x) * 4 + 4];
+        // 透明边保持全透明
+        assert_eq!(px(0, 0)[3], 0);
+        assert_eq!(px(3, 0)[3], 0);
+        // 白底圈被去掉
+        for (x, y) in [(1, 1), (3, 1), (1, 3), (5, 5)] {
+            assert_eq!(px(x, y)[3], 0, "({x}, {y})");
+        }
+        // 主体不动
+        for (x, y) in [(2, 2), (3, 3), (4, 4)] {
+            assert_eq!(px(x, y), &[255, 0, 0, 255], "({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn transparent_pixels_stay_transparent_without_edge_connection() {
+        let d = [0, 0, 0, 0, 255, 0, 0, 255];
+        let out = remove_bg(view(2, 1, &d), &color([255; 3], 5, 20, false)).unwrap();
+        assert_eq!(out[3], 0);
+        assert_eq!(&out[4..8], &d[4..8]);
     }
 
     #[test]
