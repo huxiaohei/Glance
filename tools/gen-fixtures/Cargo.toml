@@ -3,6 +3,7 @@ name = "gen-fixtures"
 version = "0.0.1"
 edition = "2021"
 publish = false
+license = "GPL-3.0-only"
 
 [dependencies]
 anyhow = "1.0"

@@ -1,10 +1,11 @@
 [package]
 name = "glance"
-version = "0.1.0"
+version = "1.0.0"
 description = "Glance"
 authors = ["Glance"]
 edition = "2024"
 publish = false
+license = "GPL-3.0-only"
 
 [features]
 default = ["updater"]

@@ -3,6 +3,7 @@ name = "glance-imaging"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "GPL-3.0-only"
 
 [dependencies]
 color_quant = "1.1.0"
