@@ -4,6 +4,7 @@ import { pickAndTransfer, trashTargets } from "../../app/fileOps";
 import { IS_MAC, formatKey } from "../../app/keys";
 import { t } from "../../i18n";
 import { useBasket } from "../../stores/basket";
+import { useBatch } from "../../stores/batch";
 import { useCatalog } from "../../stores/catalog";
 import { gridHints } from "../../lib/keyHints";
 import { useSelection } from "../../stores/selection";
@@ -21,6 +22,23 @@ function deleteTitle(): string {
 function moveTitle(): string {
   const cmd = allCommands().find((c) => c.id === "file.moveTo");
   return cmd ? t(cmd.title) : t("status.move");
+}
+
+/** 批量按钮：直接执行命令表里的命令；批量进行中禁用。 */
+function BatchButton({ id, label, busy }: { id: string; label: string; busy: boolean }) {
+  const cmd = allCommands().find((c) => c.id === id);
+  if (!cmd) return null;
+  return (
+    <button
+      type="button"
+      className="status-action"
+      disabled={busy}
+      title={busy ? t("batch.running") : t(cmd.title)}
+      onClick={() => cmd.run({ shift: false, repeat: false })}
+    >
+      {label}
+    </button>
+  );
 }
 
 /** 选中的图里有几张还不在对比篮里。 */
@@ -42,6 +60,7 @@ export default function StatusBar({ total }: { total: number }) {
   const inBasket = useBasket((s) => s.order.length);
   const showHints = useSettings((s) => s.settings.showKeyHints);
   const notInBasket = useSelectedNotInBasket();
+  const busy = useBatch((s) => s.progress !== null);
   return (
     <div className="status-bar">
       <span className="status-counts">
@@ -53,6 +72,8 @@ export default function StatusBar({ total }: { total: number }) {
       </span>
       {watchFailed && <span className="status-warn">{t("status.watchFailed")}</span>}
       {showHints && <KeyHints hints={gridHints({ selected, selectedNotInBasket: notInBasket, basket: inBasket })} />}
+      {selected > 0 && <BatchButton id="grid.batchCompress" label={t("status.compress")} busy={busy} />}
+      {selected > 0 && <BatchButton id="grid.batchConvert" label={t("status.convert")} busy={busy} />}
       {selected > 0 && (
         <button type="button" className="status-action" title={moveTitle()} onClick={() => void pickAndTransfer("move")}>
           {t("status.move")}

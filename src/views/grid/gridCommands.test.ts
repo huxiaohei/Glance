@@ -7,8 +7,16 @@ import { useGridCtx } from "../../stores/gridCtx";
 import { topView, useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
 import { registerGridCommands } from "./gridCommands";
+import { enterBatch } from "../../app/batchMode";
+import { enterEdit } from "../edit/editCommands";
+import { useBatch } from "../../stores/batch";
 
 vi.mock("../../ipc/api");
+vi.mock("../../app/batchMode", () => ({ enterBatch: vi.fn() }));
+vi.mock("../../app/fileOps", () => ({
+  opTargets: () => useGridCtx.getState().list.ids.filter((id) => useSelection.getState().ids.has(id)),
+}));
+vi.mock("../edit/editCommands", () => ({ enterEdit: vi.fn() }));
 
 // 两组各三张；两列：[1 2] [3] | [4 5] [6]
 const list: ImageList = {
@@ -150,5 +158,58 @@ describe("gridCommands", () => {
     run("grid.open");
     expect(topView()).toEqual({ kind: "single", source: "folder", id: 2 });
     useNav.getState().reset();
+  });
+});
+
+describe("gridCommands：批量入口", () => {
+  const sel = (...ids: number[]) => {
+    let s = selectOnly(ids[0]);
+    for (const id of ids.slice(1)) s = { ...s, ids: new Set([...s.ids, id]) };
+    useSelection.getState().set({ ...s, focus: ids[0] });
+  };
+  afterEach(() => {
+    useBatch.setState({ job: null, progress: null });
+    vi.mocked(enterBatch).mockClear();
+    vi.mocked(enterEdit).mockClear();
+    useNav.getState().reset();
+  });
+
+  it("grid.edit 绑定 E；选中 ≥ 2 张时等同批量压缩，ids 按网格顺序，焦点取网格焦点", () => {
+    expect(allCommands().find((c) => c.id === "grid.edit")!.keys).toEqual(["E"]);
+    useSelection.getState().set({ ...selectOnly(5), ids: new Set([5, 2]), focus: 5 });
+    run("grid.edit");
+    expect(enterBatch).toHaveBeenCalledWith([2, 5], 5, "compress");
+    expect(enterEdit).not.toHaveBeenCalled();
+  });
+
+  it("grid.batchConvert：转格式页签", () => {
+    useSelection.getState().set({ ...selectOnly(3), ids: new Set([3, 1]), focus: 3 });
+    run("grid.batchConvert");
+    expect(enterBatch).toHaveBeenCalledWith([1, 3], 3, "convert");
+  });
+
+  it("选中 1 张：进入单张视图并在对应页签编辑", () => {
+    sel(4);
+    run("grid.edit");
+    expect(enterBatch).not.toHaveBeenCalled();
+    expect(topView()).toEqual({ kind: "single", source: "folder", id: 4 });
+    expect(enterEdit).toHaveBeenCalledWith(4, undefined);
+    run("grid.batchConvert");
+    expect(enterEdit).toHaveBeenLastCalledWith(4, "convert");
+  });
+
+  it("批量进行中批量命令不执行", () => {
+    sel(1, 2);
+    useBatch.setState({ job: 1, progress: { done: 0, total: 2, failed: 0 } });
+    run("grid.edit");
+    run("grid.batchCompress");
+    run("grid.batchConvert");
+    expect(enterBatch).not.toHaveBeenCalled();
+  });
+
+  it("没有选中时不做事；批量命令没有快捷键", () => {
+    run("grid.batchCompress");
+    expect(enterBatch).not.toHaveBeenCalled();
+    expect(allCommands().find((c) => c.id === "grid.batchCompress")!.keys).toEqual([]);
   });
 });

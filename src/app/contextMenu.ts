@@ -4,6 +4,7 @@ import { lastSegment } from "../lib/lastSegment";
 import { useAnimated } from "../stores/animated";
 import { useBasket } from "../stores/basket";
 import { useCompareUi } from "../stores/compareUi";
+import { batchRunning } from "../stores/batch";
 import { topView } from "../stores/nav";
 import { activeView, allCommands } from "./commands";
 import { opTargets, pickAndTransfer, readTargets, transferTo, transferToNewChild, type TransferKind } from "./fileOps";
@@ -27,6 +28,8 @@ export interface MenuCtx {
   readOnly?: boolean;
   removable?: boolean;
   animated?: boolean;
+  /** 批量任务进行中：批量项置灰。 */
+  batchBusy?: boolean;
 }
 
 /** 命令表里的一条命令做成菜单项：标签与快捷键取自命令表，点击即命令的 run。命令未注册时没有这一项。 */
@@ -68,7 +71,14 @@ export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
   if (ctx.count === 0 && !(compare && ctx.removable)) return [];
   const single = ctx.count === 1;
   const groups: MenuNode[][] = [
-    ctx.view === "grid" ? [...commandItem("grid.open", single), ...commandItem("grid.edit", single && !ctx.animated)] : [],
+    ctx.view === "grid"
+      ? [
+          ...commandItem("grid.open", single),
+          ...(ctx.count >= 2
+            ? [...commandItem("grid.batchCompress", !ctx.batchBusy), ...commandItem("grid.batchConvert", !ctx.batchBusy)]
+            : commandItem("grid.edit", single && !ctx.animated)),
+        ]
+      : [],
     ctx.view === "single" ? commandItem("edit.open", single && !ctx.animated) : [],
     compare ? commandItem("compare.remove", true) : [],
     ctx.readOnly || compare || ctx.view === "edit" ? [] : [
@@ -103,7 +113,7 @@ export async function showImageMenu(): Promise<void> {
   const recent = await fsRecentTargets().catch(() => [] as string[]);
   const focus = useCompareUi.getState().focus;
   const removable = view === "compare" && focus !== null && useBasket.getState().order.includes(focus);
-  const nodes = buildImageMenu({ view, count, recent, readOnly: singleSource() === "basket", removable, animated });
+  const nodes = buildImageMenu({ view, count, recent, readOnly: singleSource() === "basket", removable, animated, batchBusy: batchRunning() });
   if (nodes.length === 0) return;
   try {
     await popup(nodes);

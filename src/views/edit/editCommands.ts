@@ -2,7 +2,7 @@ import { exitBatch, runBatch } from "../../app/batchMode";
 import { registerCommands, type Command } from "../../app/commands";
 import { saveEdit } from "../../app/editSave";
 import { t, type MessageKey } from "../../i18n";
-import type { EditError, FileId } from "../../ipc/types";
+import type { EditError, EditTab, FileId } from "../../ipc/types";
 import { noteAnimated } from "../../stores/animated";
 import { useCatalog } from "../../stores/catalog";
 import { inBatch, useEditUi } from "../../stores/editUi";
@@ -22,8 +22,8 @@ export function editErrorText(error: string): string {
 }
 
 /** 对这张图进入编辑模式；不可编辑（动图、超大、读不了）时不进入，给提示条。 */
-export async function enterEdit(id: FileId): Promise<void> {
-  const outcome = await useEditUi.getState().open(id);
+export async function enterEdit(id: FileId, tab?: EditTab): Promise<void> {
+  const outcome = await useEditUi.getState().open(id, tab ? { tab } : undefined);
   // 只看这一次打开自己的结果：被更新的打开取代时不提示
   if (outcome.kind === "failed") {
     if (outcome.error === "animated") noteAnimated(id, true);

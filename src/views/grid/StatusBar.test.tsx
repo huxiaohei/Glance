@@ -12,8 +12,14 @@ import { useBasket } from "../../stores/basket";
 import { registerBasketCommands } from "../../app/basketCommands";
 import { DEFAULT_SETTINGS, useSettings } from "../../stores/settings";
 import StatusBar from "./StatusBar";
+import { enterBatch } from "../../app/batchMode";
+import { registerGridCommands } from "./gridCommands";
+import { useBatch } from "../../stores/batch";
+import { useGridCtx } from "../../stores/gridCtx";
 
-vi.mock("../../app/fileOps", () => ({ trashTargets: vi.fn(), undoLast: vi.fn(), pickAndTransfer: vi.fn(), transferToNewChild: vi.fn() }));
+vi.mock("../../app/fileOps", () => ({ opTargets: () => [1, 2, 3].filter((id) => useSelection.getState().ids.has(id)), trashTargets: vi.fn(), undoLast: vi.fn(), pickAndTransfer: vi.fn(), transferToNewChild: vi.fn() }));
+vi.mock("../../app/batchMode", () => ({ enterBatch: vi.fn() }));
+vi.mock("../edit/editCommands", () => ({ enterEdit: vi.fn() }));
 vi.mock("../../app/keys", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../app/keys")>()),
   IS_MAC: true,
@@ -128,5 +134,39 @@ describe("StatusBar", () => {
     const text = container.querySelector(".key-hints")!.textContent;
     expect(text).toContain(t("hint.basket.remove"));
     expect(text).toContain(t("hint.compare.open", { n: 2 }));
+  });
+
+  describe("批量入口", () => {
+    beforeEach(() => {
+      off = registerGridCommands();
+      useGridCtx.setState({ list: { ids: [1, 2, 3], groups: [{ dir: "", start: 0, count: 3, total: 3 }] } });
+    });
+    afterEach(() => useBatch.setState({ job: null, progress: null }));
+
+    it("没有选中：没有压缩 / 转格式按钮", () => {
+      render(<StatusBar total={3} />);
+      expect(screen.queryByRole("button", { name: t("status.compress") })).toBeNull();
+      expect(screen.queryByRole("button", { name: t("status.convert") })).toBeNull();
+    });
+
+    it("选中 2 张：点“压缩”进入批量压缩，点“转格式”进入批量转格式", () => {
+      useSelection.getState().set({ ...selectOnly(1), ids: new Set([1, 2]), focus: 2 });
+      render(<StatusBar total={3} />);
+      fireEvent.click(screen.getByRole("button", { name: t("status.compress") }));
+      expect(enterBatch).toHaveBeenLastCalledWith([1, 2], 2, "compress");
+      fireEvent.click(screen.getByRole("button", { name: t("status.convert") }));
+      expect(enterBatch).toHaveBeenLastCalledWith([1, 2], 2, "convert");
+    });
+
+    it("批量进行中按钮禁用并提示；任务结束后恢复", () => {
+      useSelection.getState().set({ ...selectOnly(1), ids: new Set([1, 2]), focus: 1 });
+      render(<StatusBar total={3} />);
+      act(() => useBatch.setState({ job: 1, progress: { done: 0, total: 2, failed: 0 } }));
+      const btn = screen.getByRole("button", { name: t("status.compress") }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      expect(btn.getAttribute("title")).toBe(t("batch.running"));
+      act(() => useBatch.setState({ job: null, progress: null }));
+      expect(btn.disabled).toBe(false);
+    });
   });
 });

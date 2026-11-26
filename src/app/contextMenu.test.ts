@@ -52,8 +52,7 @@ describe("buildImageMenu", () => {
       T("cmd.grid.open"), T("cmd.grid.edit"), "-", T("cmd.file.rename"), T("menu.moveTo"), T("menu.copyTo"), T("cmd.file.trash"), "-", T("cmd.file.copyImage"), T("cmd.file.copyPath"), T("cmd.file.revealMac"),
     ]);
     expect((find(m, T("cmd.grid.open")) as Item).accelerator).toBe("Enter");
-    // “编辑”只供右键菜单，没有快捷键
-    expect((find(m, T("cmd.grid.edit")) as Item).accelerator).toBeUndefined();
+    expect((find(m, T("cmd.grid.edit")) as Item).accelerator).toBe("E");
     expect((find(m, T("cmd.file.rename")) as Item).accelerator).toBe("F2");
     expect((find(m, T("cmd.file.trash")) as Item).accelerator).toBe("Mod+Backspace");
     expect((find(m, T("cmd.file.copyImage")) as Item).accelerator).toBe("Mod+C");
@@ -218,5 +217,23 @@ describe("showImageMenu", () => {
     expect((find(nodes, T("cmd.file.copyPath")) as Item).enabled).toBe(false);
     useBasket.setState({ order: [], items: new Map(), missing: new Set() });
     useCompareUi.setState({ focus: null });
+  });
+
+  describe("批量项", () => {
+    it("网格多选：有“批量压缩… / 批量转格式…”，没有“编辑”，进行中置灰", () => {
+      const m = buildImageMenu({ view: "grid", count: 2, recent: [] });
+      expect((find(m, T("cmd.grid.batchCompress")) as Item).enabled).toBe(true);
+      expect((find(m, T("cmd.grid.batchConvert")) as Item).enabled).toBe(true);
+      expect(m.some((n) => n.kind === "item" && n.label === T("cmd.grid.edit"))).toBe(false);
+      const busy = buildImageMenu({ view: "grid", count: 2, recent: [], batchBusy: true });
+      expect((find(busy, T("cmd.grid.batchCompress")) as Item).enabled).toBe(false);
+      expect((find(busy, T("cmd.grid.batchConvert")) as Item).enabled).toBe(false);
+    });
+
+    it("网格单选：保留“编辑”，没有批量项", () => {
+      const m = buildImageMenu({ view: "grid", count: 1, recent: [] });
+      expect(m.some((n) => n.kind === "item" && n.label === T("cmd.grid.batchCompress"))).toBe(false);
+      expect(find(m, T("cmd.grid.edit"))).toBeTruthy();
+    });
   });
 });

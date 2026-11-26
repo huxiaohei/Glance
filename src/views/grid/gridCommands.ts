@@ -1,10 +1,13 @@
+import { enterBatch } from "../../app/batchMode";
 import { registerCommands, type Command, type CommandCtx } from "../../app/commands";
 import { opTargets } from "../../app/fileOps";
 import { moveInLayout, type Move } from "../../lib/gridLayout";
 import { moveTo, selectAll } from "../../lib/selection";
+import { useBatch } from "../../stores/batch";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
+import type { EditTab } from "../../ipc/types";
 import { enterEdit } from "../edit/editCommands";
 
 /** 没有焦点（或焦点不在当前布局里）时落到第一张；否则按布局移动。extend 时从锚点扩展选中。 */
@@ -26,6 +29,20 @@ const navCommand = (move: Move, key: string): Command => ({
   views: ["grid"],
   run: (ctx) => navigate(move, ctx),
 });
+
+/** 选中 ≥ 2 张：批量（进行中不做事）；1 张：单张编辑（tab 为空时用上次的页签）。 */
+function startEdit(tab: EditTab | undefined): void {
+  const targets = opTargets();
+  if (targets.length >= 2) {
+    if (useBatch.getState().progress !== null) return;
+    const { focus } = useSelection.getState();
+    void enterBatch(targets, focus ?? targets[0], tab === "convert" ? "convert" : "compress");
+    return;
+  }
+  if (targets.length !== 1) return;
+  useNav.getState().openSingle(targets[0], "folder");
+  void enterEdit(targets[0], tab);
+}
 
 const gridCommands: Command[] = [
   navCommand("left", "ArrowLeft"),
@@ -69,18 +86,32 @@ const gridCommands: Command[] = [
     },
   },
   {
-    // 只供右键菜单：先切到单张视图并定位这张图，再进入编辑
+    // E 键与右键菜单：多张等同批量压缩；一张先切到单张视图并定位这张图，再进入编辑
     id: "grid.edit",
     title: "cmd.grid.edit",
     category: "cmd.cat.edit",
+    keys: ["E"],
+    views: ["grid"],
+    run: ({ repeat }) => {
+      if (repeat) return;
+      startEdit(undefined);
+    },
+  },
+  {
+    id: "grid.batchCompress",
+    title: "cmd.grid.batchCompress",
+    category: "cmd.cat.edit",
     keys: [],
     views: ["grid"],
-    run: () => {
-      const targets = opTargets();
-      if (targets.length !== 1) return;
-      useNav.getState().openSingle(targets[0], "folder");
-      void enterEdit(targets[0]);
-    },
+    run: () => startEdit("compress"),
+  },
+  {
+    id: "grid.batchConvert",
+    title: "cmd.grid.batchConvert",
+    category: "cmd.cat.edit",
+    keys: [],
+    views: ["grid"],
+    run: () => startEdit("convert"),
   },
 ];
 
