@@ -62,6 +62,7 @@ impl From<ImagingError> for EditError {
             ImagingError::TooLarge => EditError::TooLarge,
             ImagingError::Decode(_) => EditError::Decode,
             ImagingError::Unsupported => EditError::Unsupported,
+            ImagingError::InvalidParams(_) => EditError::Encode,
             _ => EditError::Encode,
         }
     }
@@ -96,6 +97,11 @@ fn out_format(src: SrcFormat, p: &EditParams) -> Result<OutFormat, EditError> {
             SrcFormat::Jpeg => Ok(OutFormat::Jpeg),
             SrcFormat::Webp => Ok(OutFormat::Webp),
             SrcFormat::Gif | SrcFormat::Bmp => Err(EditError::Unsupported),
+        },
+        EditParams::Crop { .. } => match src {
+            SrcFormat::Jpeg => Ok(OutFormat::Jpeg),
+            SrcFormat::Webp => Ok(OutFormat::Webp),
+            SrcFormat::Png | SrcFormat::Gif | SrcFormat::Bmp => Ok(OutFormat::Png),
         },
     }
 }

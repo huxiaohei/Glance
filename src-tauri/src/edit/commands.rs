@@ -113,6 +113,7 @@ fn naming(
     );
     let suffix = match params {
         EditParams::Compress { .. } => "_compressed",
+        EditParams::Crop { .. } => "_cropped",
         EditParams::Convert { .. } if same_format => "_converted",
         EditParams::Convert { .. } => "",
     };

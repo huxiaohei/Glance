@@ -243,3 +243,89 @@ fn out_dims_matches_apply() {
         assert_eq!(out_dims(300, 100, &p), (e.width, e.height), "{p:?}");
     }
 }
+
+fn crop(rect: (u32, u32, u32, u32), turns: u8) -> EditParams {
+    EditParams::Crop {
+        rect: glance_imaging::CropRect {
+            x: rect.0,
+            y: rect.1,
+            w: rect.2,
+            h: rect.3,
+        },
+        quarter_turns: turns,
+        flip_h: false,
+        flip_v: true,
+    }
+}
+
+#[test]
+fn crop_output_format_follows_source() {
+    let d = gradient(8, 6);
+    for (src, out) in [
+        (SrcFormat::Jpeg, OutFormat::Jpeg),
+        (SrcFormat::Png, OutFormat::Png),
+        (SrcFormat::Webp, OutFormat::Webp),
+        (SrcFormat::Gif, OutFormat::Png),
+        (SrcFormat::Bmp, OutFormat::Png),
+    ] {
+        let e = apply(view(8, 6, &d), src, None, &crop((1, 1, 3, 2), 0)).unwrap();
+        assert_eq!(e.format, out);
+        assert_eq!((e.width, e.height), (3, 2));
+        assert_eq!(out_dims(8, 6, &crop((1, 1, 3, 2), 0)), (3, 2));
+    }
+}
+
+#[test]
+fn crop_after_rotation_uses_rotated_frame() {
+    let d = gradient(8, 6);
+    // 转 1 圈后画面是 6×8，可取 6×8 的整幅
+    let e = apply(view(8, 6, &d), SrcFormat::Png, None, &crop((0, 0, 6, 8), 1)).unwrap();
+    assert_eq!((e.width, e.height), (6, 8));
+    assert!(matches!(
+        apply(view(8, 6, &d), SrcFormat::Png, None, &crop((0, 0, 8, 6), 1)),
+        Err(ImagingError::InvalidParams(_))
+    ));
+}
+
+#[test]
+fn crop_rejects_bad_turns() {
+    let d = gradient(8, 6);
+    assert!(matches!(
+        apply(view(8, 6, &d), SrcFormat::Png, None, &crop((0, 0, 2, 2), 4)),
+        Err(ImagingError::InvalidParams(_))
+    ));
+}
+
+#[test]
+fn crop_is_deterministic() {
+    let d = gradient(8, 6);
+    for src in [SrcFormat::Jpeg, SrcFormat::Png, SrcFormat::Webp] {
+        let p = crop((1, 0, 5, 4), 1);
+        let a = apply(view(8, 6, &d), src, None, &p).unwrap();
+        let b = apply(view(8, 6, &d), src, None, &p).unwrap();
+        assert_eq!(a.bytes, b.bytes);
+    }
+}
+
+#[test]
+fn crop_keeps_png_icc() {
+    let d = gradient(8, 6);
+    let icc: Vec<u8> = (0..200u32).map(|i| (i * 7) as u8).collect();
+    let e = apply(
+        view(8, 6, &d),
+        SrcFormat::Png,
+        Some(&icc),
+        &crop((0, 0, 4, 4), 0),
+    )
+    .unwrap();
+    let back = glance_imaging::decode_rgba_icc(&e.bytes, 1 << 20).unwrap();
+    assert_eq!(back.icc.as_deref(), Some(icc.as_slice()));
+}
+
+#[test]
+fn crop_serde_round_trip() {
+    let json = r#"{"op":"crop","rect":{"x":0,"y":0,"w":10,"h":10},"quarterTurns":1,"flipH":false,"flipV":true}"#;
+    let p: EditParams = serde_json::from_str(json).unwrap();
+    assert_eq!(p, crop((0, 0, 10, 10), 1));
+    assert_eq!(serde_json::to_string(&p).unwrap(), json);
+}

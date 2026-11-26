@@ -15,4 +15,6 @@ pub enum ImagingError {
     Unsupported,
     #[error("图片像素数超过上限")]
     TooLarge,
+    #[error("参数无效：{0}")]
+    InvalidParams(&'static str),
 }

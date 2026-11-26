@@ -2,6 +2,7 @@ use fast_image_resize::images::Image;
 use fast_image_resize::{FilterType, MulDiv, PixelType, ResizeAlg, ResizeOptions, Resizer};
 use serde::{Deserialize, Serialize};
 
+use crate::crop::{CropRect, crop_rgba, orient};
 use crate::encode::{RgbaView, encode_jpeg, encode_png_lossless, encode_png_lossy, encode_webp};
 use crate::error::ImagingError;
 use crate::thumb::Decoded;
@@ -45,6 +46,13 @@ pub enum EditParams {
         format: OutFormat,
         quality: u8,
         fill: [u8; 3],
+    },
+    #[serde(rename_all = "camelCase")]
+    Crop {
+        rect: CropRect,
+        quarter_turns: u8,
+        flip_h: bool,
+        flip_v: bool,
     },
 }
 
@@ -143,6 +151,7 @@ pub fn out_dims(width: u32, height: u32, p: &EditParams) -> (u32, u32) {
         EditParams::Compress {
             max_edge: Some(m), ..
         } if m > 0 && width.max(height) > m => scaled(width, height, m),
+        EditParams::Crop { rect, .. } => (rect.w, rect.h),
         _ => (width, height),
     }
 }
@@ -223,6 +232,43 @@ pub fn apply(
                 format,
                 width: w,
                 height: h,
+            })
+        }
+        EditParams::Crop {
+            rect,
+            quarter_turns,
+            flip_h,
+            flip_v,
+        } => {
+            if quarter_turns > 3 {
+                return Err(ImagingError::InvalidParams("旋转圈数必须在 0 到 3 之间"));
+            }
+            let oriented = orient(src, quarter_turns, flip_h, flip_v);
+            let cropped = crop_rgba(
+                RgbaView {
+                    width: oriented.width,
+                    height: oriented.height,
+                    data: &oriented.rgba,
+                },
+                rect,
+            )?;
+            let view = RgbaView {
+                width: cropped.width,
+                height: cropped.height,
+                data: &cropped.rgba,
+            };
+            let (format, bytes) = match src_format {
+                SrcFormat::Jpeg => (OutFormat::Jpeg, encode_jpeg(view, 95, [255; 3], icc)?),
+                SrcFormat::Webp => (OutFormat::Webp, encode_webp(view, 95)?),
+                SrcFormat::Png | SrcFormat::Gif | SrcFormat::Bmp => {
+                    (OutFormat::Png, encode_png_lossless(view, icc)?)
+                }
+            };
+            Ok(Encoded {
+                bytes,
+                format,
+                width: cropped.width,
+                height: cropped.height,
             })
         }
     }
