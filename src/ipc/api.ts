@@ -16,6 +16,8 @@ import type {
   DragEnd,
   FileId,
   BasketEntry,
+  BatchOp,
+  BatchPlan,
   BrowseResult,
   RestoredItem,
   ImageDetails,
@@ -58,6 +60,10 @@ export function imageDetails(id: FileId): Promise<ImageDetails> {
 
 export function basketCheck(ids: FileId[]): Promise<(BasketEntry | null)[]> {
   return invoke<(BasketEntry | null)[]>("basket_check", { ids });
+}
+
+export function batchPlan(ids: FileId[], op: BatchOp): Promise<BatchPlan> {
+  return invoke<BatchPlan>("batch_plan", { ids, op });
 }
 
 export function basketSave(ids: FileId[]): Promise<void> {

@@ -140,3 +140,17 @@ export interface RemoveBgMemory {
 export interface EditParamsMemory {
   tab: EditTab; compress: CompressMemory; crop: CropMemory; removeBg: RemoveBgMemory; convert: ConvertMemory;
 }
+
+export type BatchOp = "compress" | "convert";
+export type SkipReason = "unsupported" | "animated" | "inOutput" | "notFound";
+
+export interface SkipItem {
+  id: FileId;
+  name: string;
+  reason: SkipReason;
+}
+
+export interface BatchPlan {
+  process: FileId[];
+  skipped: SkipItem[];
+}

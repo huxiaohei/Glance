@@ -1,5 +1,6 @@
 pub mod catalog;
 mod basket;
+mod batch;
 mod commands;
 mod dragout;
 mod edit;
@@ -119,6 +120,7 @@ pub fn run() {
         basket::basket_save,
         basket::basket_restore,
         basket::browse_dir,
+        batch::plan::batch_plan,
         commands::recents_list,
         commands::recents_pin,
         commands::recents_remove,
@@ -161,6 +163,7 @@ pub fn run() {
         basket::basket_save,
         basket::basket_restore,
         basket::browse_dir,
+        batch::plan::batch_plan,
         commands::recents_list,
         commands::recents_pin,
         commands::recents_remove,

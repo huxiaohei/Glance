@@ -63,10 +63,8 @@ pub enum EditSaveMode {
 
 /// 批量输出目录名的默认值。
 pub const DEFAULT_BATCH_DIR: &str = "_glance_output";
-#[allow(dead_code)] // 任务 3 起由批量压缩使用
 const BATCH_DIR_MAX_CHARS: usize = 64;
 
-#[allow(dead_code)]
 fn valid_batch_dir(name: &str) -> bool {
     fsx::validate_name(name).is_ok()
         && !name.contains(':')
@@ -74,7 +72,6 @@ fn valid_batch_dir(name: &str) -> bool {
 }
 
 /// 批量输出目录名：去首尾空白后合法就用它，否则退回默认值。
-#[allow(dead_code)]
 pub fn batch_dir_name(s: &Settings) -> String {
     let name = s.batch_output_dir.trim();
     if valid_batch_dir(name) {
