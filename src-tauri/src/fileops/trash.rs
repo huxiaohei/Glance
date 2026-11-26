@@ -8,7 +8,8 @@ use super::fsx::FsError;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TrashHandle {
     pub original: PathBuf,
-    /// macOS：文件在废纸篓里的位置。Windows：None（按 original 在回收站里查找）。
+    /// macOS：文件在废纸篓里的位置。Windows：回收站项的标识（`TrashItem::id`），
+    /// 没找到时为 None，放回时退回按 original 查找。
     pub trashed_at: Option<PathBuf>,
 }
 
@@ -60,6 +61,14 @@ pub fn move_to_trash(path: &Path) -> Result<TrashHandle, TrashError> {
     platform::move_to_trash(path)
 }
 
+/// 移入废纸篓且不需要放回（撤销步骤里把输出文件扔掉）。Windows 上省去两次列举回收站。
+pub fn discard(path: &Path) -> Result<(), TrashError> {
+    if !exists_no_follow(path) {
+        return Err(TrashError::NotFound(path.to_path_buf()));
+    }
+    platform::discard(path)
+}
+
 pub fn restore(handle: &TrashHandle) -> Result<(), TrashError> {
     if exists_no_follow(&handle.original) {
         return Err(TrashError::Occupied(handle.original.clone()));
@@ -102,6 +111,10 @@ mod platform {
         })
     }
 
+    pub fn discard(path: &Path) -> Result<(), TrashError> {
+        move_to_trash(path).map(|_| ())
+    }
+
     pub fn restore(handle: &TrashHandle) -> Result<(), TrashError> {
         let trashed = handle
             .trashed_at
@@ -122,11 +135,13 @@ mod platform {
     }
 }
 
-// 未在本机编译或测试过（本机为 macOS）。
+// 未在本机编译或测试过（本机为 macOS）；由 CI 的 Windows 任务跑 trash_roundtrip 验证。
 #[cfg(windows)]
 mod platform {
     use super::{TrashError, TrashHandle};
-    use std::path::Path;
+    use std::collections::HashSet;
+    use std::ffi::OsString;
+    use std::path::{Path, PathBuf};
 
     fn map(err: trash::Error) -> TrashError {
         match err {
@@ -135,21 +150,54 @@ mod platform {
         }
     }
 
+    /// 回收站里与该文件同名的项。
+    fn same_name(path: &Path) -> Result<Vec<trash::TrashItem>, TrashError> {
+        let name = path.file_name().unwrap_or_default();
+        Ok(trash::os_limited::list()
+            .map_err(map)?
+            .into_iter()
+            .filter(|item| item.name.as_os_str() == name)
+            .collect())
+    }
+
+    /// 移入回收站，并记下这一项在回收站里的标识（`TrashItem::id`）。
+    /// 同一路径先后进回收站多次时（覆盖保存：先原图、撤销时再进编辑后的版本），
+    /// 放回只认这个标识，不按原路径取最新一项。
     pub fn move_to_trash(path: &Path) -> Result<TrashHandle, TrashError> {
+        let before: HashSet<OsString> = same_name(path)?.into_iter().map(|i| i.id).collect();
         trash::delete(path).map_err(map)?;
+        let fresh: Vec<trash::TrashItem> = same_name(path)?
+            .into_iter()
+            .filter(|item| !before.contains(&item.id))
+            .collect();
+        let pick = fresh
+            .iter()
+            .filter(|item| item.original_path() == path)
+            .max_by_key(|item| item.time_deleted)
+            .or_else(|| fresh.iter().max_by_key(|item| item.time_deleted));
         Ok(TrashHandle {
             original: path.to_path_buf(),
-            trashed_at: None,
+            trashed_at: pick.map(|item| PathBuf::from(&item.id)),
         })
+    }
+
+    pub fn discard(path: &Path) -> Result<(), TrashError> {
+        trash::delete(path).map_err(map)
     }
 
     pub fn restore(handle: &TrashHandle) -> Result<(), TrashError> {
         let items = trash::os_limited::list().map_err(map)?;
-        let item = items
-            .into_iter()
-            .filter(|item| item.original_path() == handle.original)
-            .max_by_key(|item| item.time_deleted)
-            .ok_or_else(|| TrashError::NotInTrash(handle.original.clone()))?;
+        let item = match &handle.trashed_at {
+            Some(id) => items
+                .into_iter()
+                .find(|item| Path::new(&item.id) == id.as_path()),
+            // 没记到标识（移入后没在回收站里找到新项）：退回按原路径取最新一项。
+            None => items
+                .into_iter()
+                .filter(|item| item.original_path() == handle.original)
+                .max_by_key(|item| item.time_deleted),
+        }
+        .ok_or_else(|| TrashError::NotInTrash(handle.original.clone()))?;
         trash::os_limited::restore_all([item]).map_err(map)
     }
 }

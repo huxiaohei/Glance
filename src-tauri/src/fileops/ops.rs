@@ -214,7 +214,7 @@ fn undo_one(step: &Step) -> Result<Option<FsHint>, FsError> {
             }))
         }
         Step::Trash(path) => {
-            trash::move_to_trash(path)?;
+            trash::discard(path)?;
             Ok(Some(FsHint::Touched(path.clone())))
         }
         Step::RemoveEmptyDir(path) => match fs::remove_dir(path) {

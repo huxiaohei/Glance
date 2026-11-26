@@ -27,6 +27,24 @@ fn trash_then_restore_brings_file_back() {
     drop(dir);
 }
 
+/// 覆盖保存再撤销的情形：同一路径先后两次进废纸篓，放回第一次的句柄要拿回第一次的内容。
+#[test]
+#[ignore]
+fn same_path_trashed_twice_restores_the_right_one() {
+    let (dir, file) = scratch_file("覆盖.png", b"original");
+    let first = move_to_trash(&file).unwrap();
+    std::fs::write(&file, b"edited").unwrap();
+    let second = move_to_trash(&file).unwrap();
+    assert!(!file.exists());
+    restore(&first).unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), b"original");
+    // 清理：第二份也放回再随临时目录删掉，不留在废纸篓里。
+    std::fs::remove_file(&file).unwrap();
+    restore(&second).unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), b"edited");
+    drop(dir);
+}
+
 #[test]
 #[ignore]
 fn restore_refuses_to_overwrite() {

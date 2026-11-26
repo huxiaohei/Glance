@@ -50,6 +50,11 @@ jobs:
         if: runner.os == 'macOS'
         run: cargo test -p glance --test watch_live -- --ignored
 
+      # 回收站的放回只在 Windows 上走 trash 库，CI 运行环境是一次性的，可以动真实回收站
+      - name: 回收站往返测试
+        if: runner.os == 'Windows'
+        run: cargo test -p glance --test trash_roundtrip -- --ignored
+
       # cargo-deny-action 是 Docker 动作，macOS 运行环境不支持，改为安装工具后直接运行
       - name: 安装 cargo-deny
         if: runner.os == 'macOS'
