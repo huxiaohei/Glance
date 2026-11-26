@@ -15,8 +15,11 @@ export interface PreviewSchedulerOpts {
  * 两段式预览：每次参数变化立即请求代理图（full=false），停手 delayMs 后再请求全尺寸。
  * rev 严格递增；回包只有 rev 不小于已显示的才交出去，迟到的旧结果丢弃。
  * cut() 之后，之前发出的请求的结果与失败一概丢弃（换页时上一页还在途的请求不再上画面）。
+ * cancel() 在 cut() 之外再取消待发的全尺寸请求（参数回到“没改”、不需要预览时）。
  */
-export function createPreviewScheduler(opts: PreviewSchedulerOpts): { change(): void; cut(): void; dispose(): void } {
+export function createPreviewScheduler(
+  opts: PreviewSchedulerOpts,
+): { change(): void; cut(): void; cancel(): void; dispose(): void } {
   const delay = opts.delayMs ?? 200;
   let rev = 0;
   let shown = 0;
@@ -53,6 +56,11 @@ export function createPreviewScheduler(opts: PreviewSchedulerOpts): { change(): 
     },
     cut() {
       floor = rev + 1;
+    },
+    cancel() {
+      floor = rev + 1;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
     },
     dispose() {
       disposed = true;

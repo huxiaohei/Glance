@@ -1,24 +1,26 @@
 import { t } from "../../i18n";
 import { formatBytes } from "../../lib/formatBytes";
-import { compressUnsupported, useEditUi } from "../../stores/editUi";
+import { compressUnsupported, cropUnchanged, useEditUi } from "../../stores/editUi";
 import { FORMAT_LABEL } from "./ConvertTab";
 
 /**
  * 面板底部的体积对比：`原 格式 · 大小 → 新 格式 · （约）大小`；裁剪页两侧前面加 `宽×高`。压缩时加“节省 xx%”；
  * 结果比原图大时（压缩、转格式都算）标“变大 xx%”，整行加 is-larger。全尺寸结果到达前大小带“约”；
  * 去背景的拖动预览用快速 PNG 编码，体积与保存时差得远，全尺寸结果到达前只显示“计算中”。
+ * 裁剪页没改（整图）时不算结果：结果侧显示原尺寸与“—”。
  */
 export default function SizeFooter() {
   const opened = useEditUi((s) => s.opened);
   const result = useEditUi((s) => s.result);
   const tab = useEditUi((s) => s.tab);
   const unsupported = useEditUi(compressUnsupported);
+  const cropSame = useEditUi(cropUnchanged);
   if (!opened) return null;
 
   const crop = tab === "crop";
   const src = `${crop ? `${opened.width}×${opened.height} · ` : ""}${FORMAT_LABEL[opened.srcFormat]} · ${formatBytes(opened.fileSize)}`;
-  const r = unsupported || (tab === "removeBg" && result?.approx) ? null : result;
-  let out = t("edit.size.computing");
+  const r = unsupported || cropSame || (tab === "removeBg" && result?.approx) ? null : result;
+  let out = cropSame ? `${opened.width}×${opened.height} · —` : t("edit.size.computing");
   let delta: string | null = null;
   let larger = false;
   if (r) {

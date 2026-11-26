@@ -149,4 +149,22 @@ describe("createPreviewScheduler", () => {
     expect(shown).toEqual([3]);
     s.dispose();
   });
+  it("cancel_drops_pending_full_and_in_flight_results", async () => {
+    let resolve: (r: PreviewResult) => void = () => {};
+    const run = vi.fn((_rev: number, _full: boolean) => new Promise<PreviewResult>((r) => (resolve = r)));
+    const onResult = vi.fn();
+    const s = createPreviewScheduler({ run, onResult });
+    s.change();
+    expect(run).toHaveBeenCalledTimes(1);
+    s.cancel();
+    vi.advanceTimersByTime(500);
+    expect(run).toHaveBeenCalledTimes(1);
+    resolve(res(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onResult).not.toHaveBeenCalled();
+    // 之后的变化照常
+    s.change();
+    expect(run).toHaveBeenCalledTimes(2);
+    s.dispose();
+  });
 });

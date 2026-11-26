@@ -183,9 +183,13 @@ describe("编辑面板", () => {
   it("crop_footer_shows_dimensions", async () => {
     const { container } = await editing();
     fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.crop") }));
-    act(() => useEditUi.setState({ result: null }));
     const footer = () => container.querySelector(".edit-size")!.textContent!;
-    expect(footer()).toContain("100×50");
+    const out = () => container.querySelector(".edit-size-out")!.textContent!;
+    // 没改：两侧都是原尺寸，结果侧不显示“计算中”
+    expect(container.querySelector(".edit-size-src")!.textContent).toContain("100×50");
+    expect(out()).toBe("100×50 · —");
+    act(() => useEditUi.getState().setCropState({ ...useEditUi.getState().cropState!, flipH: true }));
+    act(() => useEditUi.setState({ result: null }));
     expect(footer()).toContain(t("edit.size.computing"));
     act(() => useEditUi.setState({ result: result({ width: 40, height: 30, bytes: 300 }) }));
     expect(footer()).toContain("40×30");
@@ -325,6 +329,17 @@ describe("编辑面板", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("unsupported_preview_error_does_not_follow_to_crop_tab", async () => {
+    await editing({ srcFormat: "gif" });
+    vi.mocked(editPreview).mockRejectedValue("unsupported");
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.compress") }));
+    await settle();
+    expect(useEditUi.getState().previewError).toBe("unsupported");
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.crop") }));
+    await settle();
+    expect(screen.queryByText(t("edit.err.preview"))).toBeNull();
+  });
+
   it("cancel_closes_edit", async () => {
     await editing();
     fireEvent.click(screen.getByRole("button", { name: t("edit.cancel") }));
@@ -338,8 +353,10 @@ describe("编辑面板", () => {
     fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.crop") }));
     expect(useEditUi.getState().result).toBeNull();
     expect(useEditUi.getState().resultUrl).toBeNull();
-    expect(footer()).toContain(t("edit.size.computing"));
+    expect(footer()).not.toContain(t("edit.size.computing"));
     expect(footer()).not.toContain("512 B");
+    act(() => useEditUi.getState().setCropState({ ...useEditUi.getState().cropState!, flipH: true }));
+    expect(footer()).toContain(t("edit.size.computing"));
     act(() => useEditUi.setState({ result: result({ bytes: 300, width: 40, height: 30 }), resultUrl: "glance://x/1" }));
     fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.compress") }));
     expect(footer()).toContain(t("edit.size.computing"));

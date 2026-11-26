@@ -119,9 +119,29 @@ const idle = {
 let scheduler: ReturnType<typeof createPreviewScheduler> | null = null;
 /** 每次 open / close 加一，用来丢弃过期的 open 应答。 */
 let epoch = 0;
+/**
+ * 记忆里是“按透明度”、但这张图不透明而本次改用“按颜色”时，记下原来的方式：
+ * 保存时记忆仍写回它；用户在本次编辑中自己改了方式则清掉。每次 open 重置。
+ */
+let rememberedBgMode: RemoveBgMemory["mode"] | null = null;
 
 function memoryOf(s: EditUiState): EditParamsMemory {
-  return { tab: s.tab, compress: s.compress, crop: s.crop, removeBg: s.removeBg, convert: s.convert };
+  const removeBg = rememberedBgMode !== null ? { ...s.removeBg, mode: rememberedBgMode } : s.removeBg;
+  return { tab: s.tab, compress: s.compress, crop: s.crop, removeBg, convert: s.convert };
+}
+
+/**
+ * 参数变了，按需刷新预览。裁剪页上裁剪状态等于“没改”时不发请求（整图裁剪不能保存，
+ * 全尺寸编码却要好几秒）：取消待发的请求、丢掉在途与已有的结果，底栏显示原尺寸。
+ */
+function refresh(get: () => EditUiState, set: (p: Partial<EditUiState>) => void): void {
+  if (scheduler === null) return;
+  if (cropUnchanged(get())) {
+    scheduler.cancel();
+    if (get().result !== null || get().resultUrl !== null) set({ result: null, resultUrl: null });
+    return;
+  }
+  scheduler.change();
 }
 
 export const useEditUi = create<EditUiState>()((set, get) => ({
@@ -171,13 +191,15 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
       return;
     }
     const removeBg = memory?.removeBg ?? DEFAULT_REMOVE_BG;
+    const forceColor = removeBg.mode === "alpha" && !opened.hasAlpha;
+    rememberedBgMode = forceColor ? removeBg.mode : null;
     set({
       status: "ready",
       opened,
       tab: unavailable && rememberedTab === "compress" ? "convert" : rememberedTab,
       compress: memory?.compress ?? DEFAULT_COMPRESS,
       crop: memory?.crop ?? DEFAULT_CROP,
-      removeBg: removeBg.mode === "alpha" && !opened.hasAlpha ? { ...removeBg, mode: "color" } : removeBg,
+      removeBg: forceColor ? { ...removeBg, mode: "color" } : removeBg,
       convert: memory?.convert ?? DEFAULT_CONVERT,
       cropState: { rect: { x: 0, y: 0, w: opened.width, h: opened.height }, quarterTurns: 0, flipH: false, flipV: false },
       bgColor,
@@ -194,11 +216,12 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
         set({ previewError: typeof err === "string" ? err : "encode" });
       },
     });
-    scheduler.change();
+    refresh(get, set);
   },
 
   close() {
     epoch += 1;
+    rememberedBgMode = null;
     scheduler?.dispose();
     scheduler = null;
     const s = get();
@@ -215,21 +238,27 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
     // 进出裁剪页：上一页的结果与新页的尺寸、画面都对不上，丢掉，等新结果（期间显示“计算中”）。
     // 换页一并松开“按住查看原图”（裁剪页没有这个按钮，按下中切过去会卡住）
     const crossCrop = prev === "crop" || tab === "crop";
-    set({ tab, saveError: null, showOriginal: false, ...(crossCrop ? { result: null, resultUrl: null } : {}) });
+    // 上一页的预览失败（如 GIF 在压缩页不支持）也一并清掉，不带到新页
+    set({
+      tab, saveError: null, previewError: null, showOriginal: false,
+      ...(crossCrop ? { result: null, resultUrl: null } : {}),
+    });
     // 上一页还在途的请求作废：它的结果晚于换页到达也不上画面
     scheduler?.cut();
-    scheduler?.change();
+    refresh(get, set);
   },
 
   patch(tab, partial) {
     // 各页的记忆各存一份；PatchMap 保证 partial 与 tab 对得上。
     set((s) => ({ [tab]: { ...s[tab], ...partial }, saveError: null }) as Partial<EditUiState>);
-    if (get().tab === tab) scheduler?.change();
+    if (tab === "removeBg" && "mode" in partial) rememberedBgMode = null;
+    // 裁剪的记忆（比例等）不进参数；框的变化都走 setCropState
+    if (tab !== "crop" && get().tab === tab) refresh(get, set);
   },
 
   setCropState(cropState) {
     set({ cropState, saveError: null });
-    if (get().tab === "crop") scheduler?.change();
+    if (get().tab === "crop") refresh(get, set);
   },
 
   async pick(x, y) {
@@ -243,7 +272,7 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
     }
     if (get().opened?.session !== session) return;
     set({ bgColor: c, saveError: null });
-    if (get().tab === "removeBg") scheduler?.change();
+    if (get().tab === "removeBg") refresh(get, set);
   },
 
   setShowOriginal(showOriginal) {

@@ -268,6 +268,99 @@ describe("crop and removeBg state", () => {
     useEditUi.getState().close();
   });
 
+  it("crop_identity_sends_no_preview_until_changed", async () => {
+    editPreview.mockClear();
+    await openOn("crop");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(editPreview).not.toHaveBeenCalled();
+    expect(useEditUi.getState().result).toBeNull();
+    const changed = { rect: { x: 1, y: 1, w: 10, h: 10 }, quarterTurns: 0 as const, flipH: false, flipV: false };
+    useEditUi.getState().setCropState(changed);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(editPreview).toHaveBeenCalledTimes(1);
+    expect(editPreview.mock.calls[0][2]).toMatchObject({ op: "crop", rect: changed.rect });
+    expect(useEditUi.getState().result).not.toBeNull();
+    // 改回“没改”：待发的全尺寸取消，旧结果丢掉
+    editPreview.mockClear();
+    useEditUi.getState().setCropState({ ...changed, rect: { x: 2, y: 2, w: 10, h: 10 } });
+    useEditUi.getState().setCropState({ rect: full, quarterTurns: 0, flipH: false, flipV: false });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(editPreview).not.toHaveBeenCalled();
+    expect(useEditUi.getState().result).toBeNull();
+    expect(useEditUi.getState().resultUrl).toBeNull();
+    useEditUi.getState().close();
+  });
+
+  it("entering_crop_tab_unchanged_sends_no_preview", async () => {
+    await openOn("compress");
+    editPreview.mockClear();
+    useEditUi.getState().setTab("crop");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(editPreview).not.toHaveBeenCalled();
+    useEditUi.getState().setTab("compress");
+    expect(editPreview).toHaveBeenCalledTimes(1);
+    useEditUi.getState().close();
+  });
+
+  it("crop_identity_drops_in_flight_result", async () => {
+    await openOn("crop");
+    const pending = new Map<number, (r: PreviewResult) => void>();
+    editPreview.mockImplementation((_s, rev) => new Promise((r) => pending.set(rev, r)));
+    useEditUi.getState().setCropState({ rect: { x: 1, y: 1, w: 10, h: 10 }, quarterTurns: 0, flipH: false, flipV: false });
+    await vi.advanceTimersByTimeAsync(250);
+    const rev = Math.max(...pending.keys());
+    useEditUi.getState().setCropState({ rect: full, quarterTurns: 0, flipH: false, flipV: false });
+    pending.get(rev)!(prev(rev));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useEditUi.getState().result).toBeNull();
+    useEditUi.getState().close();
+  });
+
+  it("patch_crop_memory_does_not_preview", async () => {
+    await openOn("crop");
+    useEditUi.getState().setCropState({ rect: { x: 1, y: 1, w: 10, h: 10 }, quarterTurns: 0, flipH: false, flipV: false });
+    await vi.advanceTimersByTimeAsync(300);
+    editPreview.mockClear();
+    useEditUi.getState().patch("crop", { ratio: "16:9" });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(editPreview).not.toHaveBeenCalled();
+    expect(useEditUi.getState().crop.ratio).toBe("16:9");
+    useEditUi.getState().close();
+  });
+
+  it("set_tab_clears_preview_error", async () => {
+    await openOn("compress");
+    useEditUi.setState({ previewError: "unsupported" });
+    useEditUi.getState().setTab("crop");
+    expect(useEditUi.getState().previewError).toBeNull();
+    useEditUi.getState().close();
+  });
+
+  it("forced_color_mode_keeps_remembered_alpha_in_memory", async () => {
+    await openOn("compress", { removeBg: { ...memory().removeBg, mode: "alpha", tolerance: 22 } });
+    expect(useEditUi.getState().removeBg.mode).toBe("color");
+    useEditUi.getState().patch("removeBg", { tolerance: 40 });
+    await useEditUi.getState().commitMemory();
+    const arg = editParamsSet.mock.calls[0][0];
+    expect(arg.removeBg.mode).toBe("alpha");
+    expect(arg.removeBg.tolerance).toBe(40);
+    useEditUi.getState().close();
+  });
+
+  it("mode_chosen_in_session_is_remembered", async () => {
+    await openOn("removeBg", { removeBg: { ...memory().removeBg, mode: "alpha" } });
+    useEditUi.getState().patch("removeBg", { mode: "color" });
+    await useEditUi.getState().commitMemory();
+    expect(editParamsSet.mock.calls[0][0].removeBg.mode).toBe("color");
+    useEditUi.getState().close();
+    // 下一次打开（不透明）不再沿用上一张的强制
+    editParamsSet.mockClear();
+    await openOn("compress", { removeBg: { ...memory().removeBg, mode: "color" } });
+    await useEditUi.getState().commitMemory();
+    expect(editParamsSet.mock.calls[0][0].removeBg.mode).toBe("color");
+    useEditUi.getState().close();
+  });
+
   it("crop_is_identity", () => {
     const o = { width: 100, height: 50 };
     const id = { rect: full, quarterTurns: 0 as const, flipH: false, flipV: false };
