@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::crop::{CropRect, crop_rgba, orient};
 use crate::encode::{RgbaView, encode_jpeg, encode_png_lossless, encode_png_lossy, encode_webp};
 use crate::error::ImagingError;
+use crate::removebg::{RemoveBg, remove_bg};
 use crate::thumb::Decoded;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +55,7 @@ pub enum EditParams {
         flip_h: bool,
         flip_v: bool,
     },
+    RemoveBg(RemoveBg),
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +271,30 @@ pub fn apply(
                 format,
                 width: cropped.width,
                 height: cropped.height,
+            })
+        }
+        EditParams::RemoveBg(ref p) => {
+            let out = remove_bg(
+                RgbaView {
+                    width: src.width,
+                    height: src.height,
+                    data: src.data,
+                },
+                p,
+            )?;
+            let bytes = encode_png_lossless(
+                RgbaView {
+                    width: src.width,
+                    height: src.height,
+                    data: &out,
+                },
+                icc,
+            )?;
+            Ok(Encoded {
+                bytes,
+                format: OutFormat::Png,
+                width: src.width,
+                height: src.height,
             })
         }
     }

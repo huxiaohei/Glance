@@ -98,6 +98,7 @@ fn out_format(src: SrcFormat, p: &EditParams) -> Result<OutFormat, EditError> {
             SrcFormat::Webp => Ok(OutFormat::Webp),
             SrcFormat::Gif | SrcFormat::Bmp => Err(EditError::Unsupported),
         },
+        EditParams::RemoveBg(_) => Ok(OutFormat::Png),
         EditParams::Crop { .. } => match src {
             SrcFormat::Jpeg => Ok(OutFormat::Jpeg),
             SrcFormat::Webp => Ok(OutFormat::Webp),

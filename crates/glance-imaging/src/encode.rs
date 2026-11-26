@@ -11,7 +11,7 @@ pub struct RgbaView<'a> {
 }
 
 /// 统一的输入校验：尺寸非零、长度恰好等于 width * height * 4（用 checked 运算防溢出）。
-fn validate(img: &RgbaView) -> Result<(), ImagingError> {
+pub(crate) fn validate(img: &RgbaView) -> Result<(), ImagingError> {
     let expected = (img.width as usize)
         .checked_mul(img.height as usize)
         .and_then(|px| px.checked_mul(4));
@@ -110,6 +110,23 @@ pub fn encode_png_lossless(img: RgbaView, icc: Option<&[u8]>) -> Result<Vec<u8>,
     add_icc(&mut raw, icc);
     raw.create_optimized_png(&oxipng::Options::from_preset(2))
         .map_err(encode_err)
+}
+
+/// 快速 PNG：`image` 的编码器（`CompressionType::Fast`），不过 oxipng、不写 ICC，供拖动预览用。
+pub fn encode_png_fast(img: RgbaView) -> Result<Vec<u8>, ImagingError> {
+    use image::ImageEncoder;
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    validate(&img)?;
+    let mut out = Vec::new();
+    PngEncoder::new_with_quality(&mut out, CompressionType::Fast, FilterType::Sub)
+        .write_image(
+            img.data,
+            img.width,
+            img.height,
+            image::ExtendedColorType::Rgba8,
+        )
+        .map_err(encode_err)?;
+    Ok(out)
 }
 
 /// 有损：先减色成索引图（保留透明通道），再走 oxipng 输出索引 PNG。
