@@ -324,7 +324,8 @@ mod tests {
             .unwrap();
         assert!(r.outside);
         assert_eq!(r.name, "out.webp");
-        let canonical = fs::canonicalize(&to).unwrap();
+        // 与保存时同一规则（Windows 上不规范化，fs::canonicalize 会加 \\?\ 前缀）
+        let canonical = canonical_dir(other.path()).unwrap().join("out.webp");
         assert_eq!(w.registry.path(FileId(r.id)), Some(canonical));
 
         // 另存到根的子目录：会话不含子目录 → 也算 outside。
