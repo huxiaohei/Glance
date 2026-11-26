@@ -128,6 +128,11 @@ export default function CropStage() {
     const onMove = (e: PointerEvent) => {
       const d = drag.current;
       if (!d) return;
+      // 主键已松开（pointerup 丢了，例如在窗口外松开）：按最后的位置收尾
+      if ((e.buttons & 1) === 0) {
+        onUp();
+        return;
+      }
       let ratio = ratioOf(useEditUi.getState().crop);
       // 自由比例时按住 Shift 锁定起始比例
       if (ratio === null && e.shiftKey && d.handle !== "move") ratio = d.start.w / d.start.h;

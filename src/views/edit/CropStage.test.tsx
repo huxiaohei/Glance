@@ -109,6 +109,19 @@ describe("CropStage", () => {
     expect(useEditUi.getState().cropState!.rect).toEqual({ x: 10, y: 10, w: 110, h: 60 });
   });
 
+  it("丢了 pointerup：主键已松开的移动结束拖动", () => {
+    const { container } = render(<CropStage />);
+    const h = handle(container, "se");
+    fireEvent.pointerDown(h, { button: 0, buttons: 1, clientX: 500, clientY: 300 });
+    fireEvent.pointerMove(h, { buttons: 1, clientX: 540, clientY: 340 });
+    fireEvent.pointerMove(h, { buttons: 0, clientX: 580, clientY: 380 });
+    // 按最后一次按住时的位置收尾
+    expect(useEditUi.getState().cropState!.rect).toEqual({ x: 10, y: 10, w: 110, h: 60 });
+    fireEvent.pointerMove(h, { buttons: 1, clientX: 400, clientY: 250 });
+    expect(cropBox(container).style.width).toBe(`${110 * 4}px`);
+    expect(useEditUi.getState().cropState!.rect).toEqual({ x: 10, y: 10, w: 110, h: 60 });
+  });
+
   it("拖框内移动，不能拖出图片", () => {
     const { container } = render(<CropStage />);
     const b = cropBox(container);

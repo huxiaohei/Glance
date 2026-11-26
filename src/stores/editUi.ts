@@ -210,8 +210,12 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
   },
 
   setTab(tab) {
-    if (get().tab === tab) return;
-    set({ tab, saveError: null });
+    const prev = get().tab;
+    if (prev === tab) return;
+    // 进出裁剪页：上一页的结果与新页的尺寸、画面都对不上，丢掉，等新结果（期间显示“计算中”）。
+    // 换页一并松开“按住查看原图”（裁剪页没有这个按钮，按下中切过去会卡住）
+    const crossCrop = prev === "crop" || tab === "crop";
+    set({ tab, saveError: null, showOriginal: false, ...(crossCrop ? { result: null, resultUrl: null } : {}) });
     scheduler?.change();
   },
 

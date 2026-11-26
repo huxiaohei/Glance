@@ -318,6 +318,30 @@ describe("编辑面板", () => {
     expect(useEditUi.getState().status).toBe("idle");
   });
 
+  it("crop_tab_switch_drops_stale_result_from_footer", async () => {
+    const { container } = await editing();
+    const footer = () => container.querySelector(".edit-size")!.textContent!;
+    act(() => useEditUi.setState({ result: result({ bytes: 512, width: 100, height: 50 }) }));
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.crop") }));
+    expect(useEditUi.getState().result).toBeNull();
+    expect(useEditUi.getState().resultUrl).toBeNull();
+    expect(footer()).toContain(t("edit.size.computing"));
+    expect(footer()).not.toContain("512 B");
+    act(() => useEditUi.setState({ result: result({ bytes: 300, width: 40, height: 30 }), resultUrl: "glance://x/1" }));
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.compress") }));
+    expect(footer()).toContain(t("edit.size.computing"));
+    expect(footer()).not.toContain("300 B");
+    expect(useEditUi.getState().resultUrl).toBeNull();
+  });
+
+  it("switching_tab_releases_hold_original", async () => {
+    await editing();
+    fireEvent.pointerDown(screen.getByRole("button", { name: t("edit.holdOriginal") }));
+    expect(useEditUi.getState().showOriginal).toBe(true);
+    act(() => useEditUi.getState().setTab("crop"));
+    expect(useEditUi.getState().showOriginal).toBe(false);
+  });
+
   it("hold_original_button", async () => {
     await editing();
     const btn = screen.getByRole("button", { name: t("edit.holdOriginal") });

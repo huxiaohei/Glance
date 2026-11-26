@@ -211,6 +211,28 @@ describe("编辑模式", () => {
     expect(container.querySelector(".crop-stage")).toBeNull();
   });
 
+  it("crop_result_does_not_leak_into_other_tabs", async () => {
+    const { container } = await enterEditing();
+    const layer = () => container.querySelector(".edit-layer") as HTMLElement;
+    // 进裁剪前已显示的压缩结果
+    act(() => {
+      fireEvent.load(layer().querySelector("img")!);
+    });
+    expect(layer().classList.contains("shown")).toBe(true);
+    act(() => useEditUi.getState().setTab("crop"));
+    await settle();
+    // 裁剪结果到了（EditLayer 在裁剪页不加载它）
+    act(() => useEditUi.setState({
+      resultUrl: "glance://localhost/edit/1/99",
+      result: { rev: 99, bytes: 5, approx: false, format: "jpeg", width: 40, height: 30 },
+    }));
+    expect(layer().querySelectorAll(".edit-img").length).toBe(0);
+    act(() => useEditUi.getState().setTab("compress"));
+    // 旧的裁剪结果与进裁剪前的压缩结果都不显示
+    expect(layer().classList.contains("shown")).toBe(false);
+    expect(layer().querySelectorAll(".edit-img").length).toBe(0);
+  });
+
   it("open_folder_and_refresh_while_editing", async () => {
     await enterEditing();
     const { findCommand } = await import("../../app/commands");
