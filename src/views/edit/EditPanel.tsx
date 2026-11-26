@@ -6,19 +6,29 @@ import CompressTab from "./CompressTab";
 import { closeConfirmOverwrite } from "../../stores/confirmOverwrite";
 import ConfirmOverwrite from "./ConfirmOverwrite";
 import ConvertTab from "./ConvertTab";
+import CropTab from "./CropTab";
 import SaveBar from "./SaveBar";
 import SizeFooter from "./SizeFooter";
 import "./edit.css";
 
 const keepFocus = (e: MouseEvent) => e.preventDefault();
 
-/** 四个页签；裁剪与去背景属于下一阶段，先禁用并提示“即将推出”。 */
-const TABS: { key: EditTab | null; label: MessageKey }[] = [
+/** 四个页签，顺序固定。 */
+const TABS: { key: EditTab; label: MessageKey }[] = [
   { key: "compress", label: "edit.tab.compress" },
-  { key: null, label: "edit.tab.crop" },
-  { key: null, label: "edit.tab.removeBg" },
+  { key: "crop", label: "edit.tab.crop" },
+  { key: "removeBg", label: "edit.tab.removeBg" },
   { key: "convert", label: "edit.tab.convert" },
 ];
+
+function TabBody({ tab }: { tab: EditTab }) {
+  switch (tab) {
+    case "compress": return <CompressTab />;
+    case "crop": return <CropTab />;
+    case "removeBg": return null;
+    case "convert": return <ConvertTab />;
+  }
+}
 
 /** 面板里的错误：保存失败的原因优先，其次是预览失败（压缩不支持时不算，已有说明）。仍允许保存：后端会自己算全尺寸。 */
 function ErrorLine() {
@@ -88,19 +98,19 @@ export default function EditPanel() {
             role="tab"
             className={`edit-tab${key === tab ? " is-active" : ""}`}
             aria-selected={key === tab}
-            disabled={key === null}
-            title={key === null ? t("edit.tab.soon") : undefined}
             onMouseDown={keepFocus}
-            onClick={() => key !== null && useEditUi.getState().setTab(key)}
+            onClick={() => useEditUi.getState().setTab(key)}
           >
             {t(label)}
           </button>
         ))}
       </div>
-      <div className="edit-body">{tab === "compress" ? <CompressTab /> : <ConvertTab />}</div>
+      <div className="edit-body">
+        <TabBody tab={tab} />
+      </div>
       <ErrorLine />
       <div className="edit-foot">
-        <HoldOriginal />
+        {tab !== "crop" && <HoldOriginal />}
         <SizeFooter />
         <SaveBar />
       </div>

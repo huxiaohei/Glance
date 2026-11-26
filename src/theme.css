@@ -22,6 +22,12 @@
   --overlay-bg: #2A2A2A;
   --overlay-text: #D4D4D4;
   --overlay-text-dim: #8A8A8A;
+  /* 裁剪框（画在图片上，与主题无关，三组同值）：框外变暗、边框、三分线、控制点 */
+  --crop-shade: rgba(0, 0, 0, 0.5);
+  --crop-edge: rgba(255, 255, 255, 0.9);
+  --crop-line: rgba(255, 255, 255, 0.5);
+  --crop-handle: #FFFFFF;
+  --crop-handle-border: rgba(0, 0, 0, 0.5);
   --radius-thumb: 6px;
   --radius: 8px;
   --gap: 8px;
@@ -49,6 +55,11 @@
   --overlay-bg: #2A2A2A;
   --overlay-text: #D4D4D4;
   --overlay-text-dim: #8A8A8A;
+  --crop-shade: rgba(0, 0, 0, 0.5);
+  --crop-edge: rgba(255, 255, 255, 0.9);
+  --crop-line: rgba(255, 255, 255, 0.5);
+  --crop-handle: #FFFFFF;
+  --crop-handle-border: rgba(0, 0, 0, 0.5);
 }
 
 @media (prefers-color-scheme: light) {
@@ -73,6 +84,11 @@
     --overlay-bg: #2A2A2A;
     --overlay-text: #D4D4D4;
     --overlay-text-dim: #8A8A8A;
+    --crop-shade: rgba(0, 0, 0, 0.5);
+    --crop-edge: rgba(255, 255, 255, 0.9);
+    --crop-line: rgba(255, 255, 255, 0.5);
+    --crop-handle: #FFFFFF;
+    --crop-handle-border: rgba(0, 0, 0, 0.5);
   }
 }
 

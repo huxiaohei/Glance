@@ -93,6 +93,16 @@ export function cropIsIdentity(s: CropState, o: Pick<EditOpened, "width" | "heig
   return r.x === 0 && r.y === 0 && r.w === o.width && r.h === o.height && s.quarterTurns === 0 && !s.flipH && !s.flipV;
 }
 
+/** 在裁剪页且裁剪状态等于“没改”：不能保存（提示“未做任何修改”）。 */
+export function cropUnchanged(s: Pick<EditUiState, "tab" | "opened" | "cropState">): boolean {
+  return s.tab === "crop" && s.opened !== null && s.cropState !== null && cropIsIdentity(s.cropState, s.opened);
+}
+
+/** 当前不能保存：压缩不支持，或裁剪未做改动。 */
+export function saveBlocked(s: Pick<EditUiState, "tab" | "opened" | "cropState">): boolean {
+  return compressUnsupported(s) || cropUnchanged(s);
+}
+
 const idle = {
   status: "idle" as const,
   id: null,

@@ -10,6 +10,7 @@ import type { Size } from "../../lib/viewport";
 import { useSingleEntry } from "../../app/singleSource";
 import { useEditUi } from "../../stores/editUi";
 import { useThumbs } from "../../stores/thumbs";
+import CropStage from "../edit/CropStage";
 import EditLayer from "../edit/EditLayer";
 import type { Loaded, Preloader } from "./preloader";
 import { useStageViewport, type StageApi } from "./useStageViewport";
@@ -57,6 +58,8 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
   const [under, setUnder] = useState<HTMLImageElement | null>(null);
   // 编辑模式中：结果图层叠在原图之上，跟随同一个视口
   const editing = useEditUi((s) => s.status !== "idle" && s.id === id);
+  // 裁剪页：CropStage 盖住画面，固定适应窗口
+  const cropping = useEditUi((s) => s.status !== "idle" && s.id === id && s.tab === "crop" && s.opened !== null);
   const [overlay, setOverlay] = useState<HTMLDivElement | null>(null);
 
   const w = entry?.width;
@@ -155,7 +158,8 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
         <img key={thumbUrl} ref={setUnder} className="stage-img stage-underlay" src={thumbUrl} alt="" draggable={false} />
       )}
       {failed && <div className="stage-unreadable">{t("grid.unreadable")}</div>}
-      {percent > 0 && shown && <div className="stage-percent">{percent}%</div>}
+      {percent > 0 && shown && !cropping && <div className="stage-percent">{percent}%</div>}
+      {cropping && <CropStage />}
       {children}
     </div>
   );

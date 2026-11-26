@@ -203,6 +203,16 @@ describe("saveEdit", () => {
     await saveEdit();
     expect(editSave).not.toHaveBeenCalled();
   });
+
+  it("unchanged_crop_does_not_save", async () => {
+    await editing();
+    useEditUi.getState().setTab("crop");
+    await saveEdit();
+    expect(editSave).not.toHaveBeenCalled();
+    useEditUi.getState().setCropState({ ...useEditUi.getState().cropState!, quarterTurns: 1 });
+    await saveEdit();
+    expect(editSave).toHaveBeenCalledWith(1, expect.objectContaining({ op: "crop", quarterTurns: 1 }), { kind: "copy" });
+  });
 });
 
 describe("saveTarget", () => {

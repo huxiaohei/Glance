@@ -3,7 +3,7 @@ import { t } from "../i18n";
 import { editSave } from "../ipc/api";
 import type { EditParams, FileId, OutFormat, SaveMode, SaveReport, SrcFormat } from "../ipc/types";
 import { useCatalog } from "../stores/catalog";
-import { compressUnsupported, currentParams, useEditUi } from "../stores/editUi";
+import { currentParams, saveBlocked, useEditUi } from "../stores/editUi";
 import { topView, useNav } from "../stores/nav";
 import { useSettings } from "../stores/settings";
 import { showToast, type ToastAction } from "../stores/toast";
@@ -64,7 +64,7 @@ let busy = false;
  */
 export async function saveEdit(mode?: SaveMode): Promise<void> {
   const s = useEditUi.getState();
-  if (busy || s.status !== "ready" || s.opened === null || s.id === null || compressUnsupported(s)) return;
+  if (busy || s.status !== "ready" || s.opened === null || s.id === null || saveBlocked(s)) return;
   busy = true;
   try {
     await run(mode ?? defaultMode());

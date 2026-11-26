@@ -1,4 +1,5 @@
 import { registerCommands, type Command } from "../../app/commands";
+import { editActive, useEditUi } from "../../stores/editUi";
 import { topView, useNav } from "../../stores/nav";
 import { useSingleUi } from "../../stores/singleUi";
 import { go } from "./go";
@@ -17,6 +18,9 @@ const withStage = (fn: (api: StageApi) => void) => () => {
   const api = useStageApi.getState().api;
   if (api && topView().kind === "single") fn(api);
 };
+
+/** 裁剪页的画面固定为适应窗口：缩放命令不响应。 */
+const notCropping = () => !(editActive() && useEditUi.getState().tab === "crop");
 
 // 切图命令不忽略自动重复：按住方向键连续切换。缩放与详情面板在编辑模式中照常可用（视图含 "edit"）
 const singleCommands: Command[] = [
@@ -68,6 +72,7 @@ const singleCommands: Command[] = [
     category: "cmd.cat.view",
     keys: ["+", "="],
     views: ["single", "edit"],
+    when: notCropping,
     run: withStage((api) => api.zoomBy(1.25)),
   },
   {
@@ -76,6 +81,7 @@ const singleCommands: Command[] = [
     category: "cmd.cat.view",
     keys: ["-"],
     views: ["single", "edit"],
+    when: notCropping,
     run: withStage((api) => api.zoomBy(0.8)),
   },
   {
@@ -84,6 +90,7 @@ const singleCommands: Command[] = [
     category: "cmd.cat.view",
     keys: ["0"],
     views: ["single", "edit"],
+    when: notCropping,
     run: withStage((api) => api.fit()),
   },
   {
@@ -92,6 +99,7 @@ const singleCommands: Command[] = [
     category: "cmd.cat.view",
     keys: ["1"],
     views: ["single", "edit"],
+    when: notCropping,
     run: withStage((api) => api.actual()),
   },
   {

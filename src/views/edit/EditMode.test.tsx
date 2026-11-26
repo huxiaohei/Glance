@@ -178,6 +178,39 @@ describe("编辑模式", () => {
     expect(useEditUi.getState().status).toBe("ready");
   });
 
+  it("zoom_keys_inactive_on_crop_tab", async () => {
+    await enterEditing();
+    const api = useStageApi.getState().api!;
+    const zoomBy = vi.spyOn(api, "zoomBy");
+    const fit = vi.spyOn(api, "fit");
+    act(() => useEditUi.getState().setTab("crop"));
+    key("+");
+    key("-");
+    key("0");
+    key("1");
+    expect(zoomBy).not.toHaveBeenCalled();
+    expect(fit).not.toHaveBeenCalled();
+    act(() => useEditUi.getState().setTab("removeBg"));
+    key("+");
+    expect(zoomBy).toHaveBeenCalledWith(1.25);
+  });
+
+  it("crop_tab_hides_result_layer_and_shows_crop_stage", async () => {
+    const { container } = await enterEditing();
+    const layer = () => container.querySelector(".edit-layer") as HTMLElement | null;
+    act(() => {
+      fireEvent.load(layer()!.querySelector("img")!);
+    });
+    expect(layer()!.classList.contains("shown")).toBe(true);
+    act(() => useEditUi.getState().setTab("crop"));
+    await settle();
+    expect(layer()?.querySelector("img") ?? null).toBeNull();
+    expect(layer()?.classList.contains("shown") ?? false).toBe(false);
+    expect(container.querySelector(".stage .crop-stage")).toBeTruthy();
+    act(() => useEditUi.getState().setTab("compress"));
+    expect(container.querySelector(".crop-stage")).toBeNull();
+  });
+
   it("open_folder_and_refresh_while_editing", async () => {
     await enterEditing();
     const { findCommand } = await import("../../app/commands");

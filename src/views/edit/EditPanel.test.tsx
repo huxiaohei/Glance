@@ -143,13 +143,53 @@ describe("编辑面板", () => {
     expect(quality.disabled).toBe(true);
   });
 
-  it("crop_and_remove_bg_disabled", async () => {
+  it("all_four_tabs_clickable", async () => {
     await editing();
-    const crop = screen.getByRole("tab", { name: new RegExp(t("edit.tab.crop")) }) as HTMLButtonElement;
-    const bg = screen.getByRole("tab", { name: new RegExp(t("edit.tab.removeBg")) }) as HTMLButtonElement;
-    expect(crop.disabled).toBe(true);
-    expect(bg.disabled).toBe(true);
-    expect(crop.title).toBe(t("edit.tab.soon"));
+    for (const [label, key] of [
+      ["edit.tab.crop", "crop"], ["edit.tab.removeBg", "removeBg"], ["edit.tab.convert", "convert"], ["edit.tab.compress", "compress"],
+    ] as const) {
+      const tab = screen.getByRole("tab", { name: t(label) }) as HTMLButtonElement;
+      expect(tab.disabled).toBe(false);
+      fireEvent.click(tab);
+      expect(useEditUi.getState().tab).toBe(key);
+      expect(tab.getAttribute("aria-selected")).toBe("true");
+    }
+  });
+
+  it("crop_tab_hides_hold_original", async () => {
+    await editing();
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.crop") }));
+    expect(screen.queryByRole("button", { name: t("edit.holdOriginal") })).toBeNull();
+    expect(screen.getByRole("button", { name: t("edit.crop.rotateLeft") })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.removeBg") }));
+    expect(screen.getByRole("button", { name: t("edit.holdOriginal") })).toBeTruthy();
+  });
+
+  it("crop_unchanged_disables_save_until_changed", async () => {
+    await editing();
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.crop") }));
+    const primary = screen.getByRole("button", { name: t("edit.save.copy") }) as HTMLButtonElement;
+    expect(primary.disabled).toBe(true);
+    expect(screen.getByText(t("edit.crop.unchanged"))).toBeTruthy();
+    act(() => useEditUi.getState().setCropState({ ...useEditUi.getState().cropState!, flipH: true }));
+    expect(primary.disabled).toBe(false);
+    expect(screen.queryByText(t("edit.crop.unchanged"))).toBeNull();
+    // 别的页签不受此规则影响
+    act(() => useEditUi.getState().setCropState({ ...useEditUi.getState().cropState!, flipH: false }));
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.removeBg") }));
+    expect(primary.disabled).toBe(false);
+  });
+
+  it("crop_footer_shows_dimensions", async () => {
+    const { container } = await editing();
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.crop") }));
+    act(() => useEditUi.setState({ result: null }));
+    const footer = () => container.querySelector(".edit-size")!.textContent!;
+    expect(footer()).toContain("100×50");
+    expect(footer()).toContain(t("edit.size.computing"));
+    act(() => useEditUi.setState({ result: result({ width: 40, height: 30, bytes: 300 }) }));
+    expect(footer()).toContain("40×30");
+    expect(footer()).toContain("300 B");
   });
 
   it("gif_compress_unsupported_disables_save", async () => {

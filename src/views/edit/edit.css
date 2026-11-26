@@ -76,9 +76,8 @@
   border-bottom: 2px solid transparent;
   border-radius: 0;
 }
-.edit-tab:hover:not(:disabled) { color: var(--text); }
+.edit-tab:hover { color: var(--text); }
 .edit-tab.is-active { color: var(--text); border-bottom-color: var(--accent); }
-.edit-tab:disabled { opacity: 0.4; cursor: default; }
 .edit-body {
   flex: 1;
   min-height: 0;
@@ -235,3 +234,89 @@
 .edit-confirm-body { margin: 0 0 calc(2 * var(--gap)); color: var(--text-dim); line-height: 1.5; }
 .edit-confirm-actions { display: flex; justify-content: flex-end; gap: var(--gap); }
 .edit-danger { background: var(--danger); border-color: var(--danger); }
+
+/* 裁剪页的画面：盖住舞台，固定适应窗口，不缩放平移 */
+.crop-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg);
+  touch-action: none;
+  user-select: none;
+}
+.crop-img {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  transform-origin: 50% 50%;
+  transition: transform 160ms ease-out;
+  pointer-events: none;
+}
+/* 框外变暗：裁剪框大小的透明块投出大阴影，外层按转后画面裁掉 */
+.crop-clip {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+.crop-shade {
+  position: absolute;
+  box-shadow: 0 0 0 100000px var(--crop-shade);
+}
+.crop-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--crop-edge);
+  cursor: move;
+}
+.crop-line {
+  position: absolute;
+  background: var(--crop-line);
+  pointer-events: none;
+}
+.crop-v1, .crop-v2 { top: 0; bottom: 0; width: 1px; }
+.crop-h1, .crop-h2 { left: 0; right: 0; height: 1px; }
+.crop-v1 { left: 33.333%; }
+.crop-v2 { left: 66.667%; }
+.crop-h1 { top: 33.333%; }
+.crop-h2 { top: 66.667%; }
+/* 控制点：命中区 20 px，可视 10 px */
+.crop-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+}
+.crop-handle::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  background: var(--crop-handle);
+  border: 1px solid var(--crop-handle-border);
+}
+.crop-nw { left: 0; top: 0; cursor: nwse-resize; }
+.crop-n { left: 50%; top: 0; cursor: ns-resize; }
+.crop-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.crop-e { left: 100%; top: 50%; cursor: ew-resize; }
+.crop-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.crop-s { left: 50%; top: 100%; cursor: ns-resize; }
+.crop-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.crop-w { left: 0; top: 50%; cursor: ew-resize; }
+.crop-box.is-small .crop-n,
+.crop-box.is-small .crop-e,
+.crop-box.is-small .crop-s,
+.crop-box.is-small .crop-w { display: none; }
+
+/* 裁剪页面板 */
+.crop-ratios, .crop-actions { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.crop-ratio, .crop-swap, .crop-action { padding: 3px 8px; font-size: 12px; }
+.crop-ratio.is-active, .crop-swap.is-active { border-color: var(--accent); color: var(--accent); }
+.crop-swap { display: inline-flex; align-items: center; }
+.crop-swap:disabled { opacity: 0.4; cursor: default; }
+.crop-swap rect, .crop-swap path { fill: none; stroke: currentColor; stroke-width: 1.4; }
+.crop-dims { display: inline-flex; align-items: center; gap: 4px; }
+.crop-number { width: 64px; }
+.edit-unchanged { font-size: 12px; }

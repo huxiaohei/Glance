@@ -4,7 +4,7 @@ import { compressUnsupported, useEditUi } from "../../stores/editUi";
 import { FORMAT_LABEL } from "./ConvertTab";
 
 /**
- * 面板底部的体积对比：`原 格式 · 大小 → 新 格式 · （约）大小`。压缩时加“节省 xx%”；
+ * 面板底部的体积对比：`原 格式 · 大小 → 新 格式 · （约）大小`；裁剪页两侧前面加 `宽×高`。压缩时加“节省 xx%”；
  * 结果比原图大时（压缩、转格式都算）标“变大 xx%”，整行加 is-larger。全尺寸结果到达前大小带“约”。
  */
 export default function SizeFooter() {
@@ -14,14 +14,15 @@ export default function SizeFooter() {
   const unsupported = useEditUi(compressUnsupported);
   if (!opened) return null;
 
-  const src = `${FORMAT_LABEL[opened.srcFormat]} · ${formatBytes(opened.fileSize)}`;
+  const crop = tab === "crop";
+  const src = `${crop ? `${opened.width}×${opened.height} · ` : ""}${FORMAT_LABEL[opened.srcFormat]} · ${formatBytes(opened.fileSize)}`;
   const r = unsupported ? null : result;
   let out = t("edit.size.computing");
   let delta: string | null = null;
   let larger = false;
   if (r) {
     const size = formatBytes(r.bytes);
-    out = `${FORMAT_LABEL[r.format]} · ${r.approx ? t("edit.size.approx", { size }) : size}`;
+    out = `${crop ? `${r.width}×${r.height} · ` : ""}${FORMAT_LABEL[r.format]} · ${r.approx ? t("edit.size.approx", { size }) : size}`;
     const old = opened.fileSize;
     if (old > 0 && r.bytes > old) {
       larger = true;
