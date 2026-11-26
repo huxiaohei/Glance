@@ -1,4 +1,5 @@
 import { useEffect, useRef, type MouseEvent } from "react";
+import { exitBatch, runBatch } from "../../app/batchMode";
 import { saveEdit } from "../../app/editSave";
 import { t } from "../../i18n";
 import { compressUnsupported, cropUnchanged, useEditUi } from "../../stores/editUi";
@@ -10,12 +11,38 @@ import { exitEdit } from "./editCommands";
 /** 按下不把焦点移到按钮上：焦点留在页面，回车仍是“保存”命令，不会再点一次按钮。 */
 const keepFocus = (e: MouseEvent) => e.preventDefault();
 
+/** 批量模式的底部按钮：只有“处理 N 张”一个主按钮（清单未到时“处理…”，N 为 0 时禁用）与“取消”（回网格）。 */
+function BatchSaveBar() {
+  const n = useEditUi((s) => s.batch?.plan?.process.length ?? null);
+  return (
+    <div className="edit-savebar">
+      <button
+        type="button"
+        className="edit-primary edit-batch-run"
+        disabled={n === null || n === 0}
+        onMouseDown={keepFocus}
+        onClick={() => void runBatch()}
+      >
+        {n === null ? t("edit.batch.processPending") : t("edit.batch.process", { n })}
+      </button>
+      <button type="button" className="edit-cancel" onMouseDown={keepFocus} onClick={exitBatch}>
+        {t("edit.cancel")}
+      </button>
+    </div>
+  );
+}
+
+export default function SaveBar() {
+  const batch = useEditUi((s) => s.batch !== null);
+  return batch ? <BatchSaveBar /> : <SingleSaveBar />;
+}
+
 /**
  * 底部按钮：主按钮按设置（保存副本 / 覆盖原图）；下拉里是另一项与“另存到其他位置…”；“取消”。
  * 只有默认是保存副本、从下拉临时选“覆盖原图”时先弹确认。保存进行中全部禁用，主按钮显示进行中。
  * 裁剪页未做任何改动时禁用并给出提示。
  */
-export default function SaveBar() {
+function SingleSaveBar() {
   const mode = useSettings((s) => s.settings.editSaveMode);
   const status = useEditUi((s) => s.status);
   const unsupported = useEditUi(compressUnsupported);

@@ -36,11 +36,16 @@ const SKIP_KEYS = {
   notFound: "batch.skip.notFound",
 } as const satisfies Record<SkipReason, string>;
 
+/** 跳过原因的文字（批量模式面板里的“这张会被跳过”也用它）。 */
+export function skipReasonText(reason: SkipReason): string {
+  return t(SKIP_KEYS[reason]);
+}
+
 /** 失败在前、跳过在后，每行“文件名：原因”。 */
 export function summaryDetails(s: BatchSummary): string[] {
   return [
     ...s.failed.map((f) => t("batch.detailLine", { name: f.name, reason: t(FAIL_KEYS[f.reason]) })),
-    ...s.skipped.map((k) => t("batch.detailLine", { name: k.name, reason: t(SKIP_KEYS[k.reason]) })),
+    ...s.skipped.map((k) => t("batch.detailLine", { name: k.name, reason: skipReasonText(k.reason) })),
   ];
 }
 

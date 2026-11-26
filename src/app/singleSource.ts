@@ -3,12 +3,14 @@ import type { BasketItem } from "../lib/basket";
 import type { ImageEntry, ImageList } from "../lib/deriveList";
 import { useBasket } from "../stores/basket";
 import { useCatalog } from "../stores/catalog";
+import { useEditUi } from "../stores/editUi";
 import { useNav, type NavState, type SingleSource } from "../stores/nav";
 import { getImageList, useImageList } from "./useImageList";
 
 /**
  * 单张视图的“列表 + 条目查找”按来源取：folder 是当前目录派生的列表与 catalog 条目；basket 是对比篮里
- * 未缺失的图（按篮内顺序，只有一个分组）与篮内条目（在当前目录里的用 catalog 条目，否则用快照）。
+ * 未缺失的图（按篮内顺序，只有一个分组）与篮内条目（在当前目录里的用 catalog 条目，否则用快照）；
+ * selection 是批量模式里选中的图（只有一个分组），条目用 catalog 条目。
  * 单张视图与它的命令只经这里取列表和条目，不直接读 useImageList / catalog。
  */
 
@@ -35,9 +37,26 @@ function basketList(): ImageList {
   return basketCache.list;
 }
 
+let selectionCache: { ids: FileId[] | null; entries: ReadonlyMap<FileId, ImageEntry>; list: ImageList } | null = null;
+
+/** 批量模式里选中的图（按网格顺序、只有一个分组），只留当前目录里还在的；输入不变时返回同一个对象。 */
+function selectionList(): ImageList {
+  const ids = useEditUi.getState().batch?.ids ?? null;
+  const entries = useCatalog.getState().entries;
+  if (!selectionCache || selectionCache.ids !== ids || selectionCache.entries !== entries) {
+    const kept = (ids ?? []).filter((id) => entries.has(id));
+    const n = kept.length;
+    selectionCache = { ids, entries, list: { ids: kept, groups: n === 0 ? [] : [{ dir: "", start: 0, count: n, total: n }] } };
+  }
+  return selectionCache.list;
+}
+
 /** 单张视图的有序列表。栈顶不是 single 时按 folder 处理。 */
 export function getSingleList(): ImageList {
-  return singleSource() === "basket" ? basketList() : getImageList();
+  const source = singleSource();
+  if (source === "basket") return basketList();
+  if (source === "selection") return selectionList();
+  return getImageList();
 }
 
 /** 组件里使用：订阅两种来源的输入，返回 getSingleList() 的结果。 */
@@ -46,6 +65,8 @@ export function useSingleList(): ImageList {
   useImageList();
   useBasket((s) => s.order);
   useBasket((s) => s.missing);
+  useEditUi((s) => s.batch?.ids);
+  useCatalog((s) => s.entries);
   return getSingleList();
 }
 

@@ -340,3 +340,7 @@
 .crop-dims { display: inline-flex; align-items: center; gap: 4px; }
 .crop-number { width: 64px; }
 .edit-unchanged { font-size: 12px; }
+/* 批量模式：顶部的跳过说明、底部的“将处理 N 张，跳过 M 张”、单个主按钮占满剩余宽度 */
+.edit-batch-skip { padding: 8px 12px 0; font-size: 12px; }
+.edit-batch-counts { font-size: 12px; }
+.edit-batch-run { flex: 1; }

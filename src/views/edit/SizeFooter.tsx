@@ -7,9 +7,24 @@ import { FORMAT_LABEL } from "./ConvertTab";
  * 面板底部的体积对比：`原 格式 · 大小 → 新 格式 · （约）大小`；裁剪页两侧前面加 `宽×高`。压缩时加“节省 xx%”；
  * 结果比原图大时（压缩、转格式都算）标“变大 xx%”，整行加 is-larger。全尺寸结果到达前大小带“约”；
  * 去背景的拖动预览用快速 PNG 编码，体积与保存时差得远，全尺寸结果到达前只显示“计算中”。
- * 裁剪页没改（整图）时不算结果：结果侧显示原尺寸与“—”。
+ * 裁剪页没改（整图）时不算结果：结果侧显示原尺寸与“—”。批量模式下其后加一行“将处理 N 张，跳过 M 张”。
  */
 export default function SizeFooter() {
+  const plan = useEditUi((s) => s.batch?.plan ?? null);
+  return (
+    <>
+      <SizeRow />
+      {plan && (
+        <p className="edit-note edit-batch-counts">
+          {t("edit.batch.counts", { n: plan.process.length, m: plan.skipped.length })}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** 当前这张的体积对比（批量模式下是“预览这张”的效果）。 */
+function SizeRow() {
   const opened = useEditUi((s) => s.opened);
   const result = useEditUi((s) => s.result);
   const tab = useEditUi((s) => s.tab);

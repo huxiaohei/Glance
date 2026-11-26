@@ -9,7 +9,8 @@ import { markSwitchStart } from "../../lib/perfMarks";
 import { layoutStrip, scrollToShow, STRIP_DIVIDER, STRIP_GAP, STRIP_ITEM, stripVisible } from "../../lib/stripLayout";
 import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
-import { editActive } from "../../stores/editUi";
+import { batchGoto } from "../../app/batchMode";
+import { editActive, inBatch } from "../../stores/editUi";
 import { useNav } from "../../stores/nav";
 import { useThumbs } from "../../stores/thumbs";
 
@@ -43,8 +44,12 @@ function onStripClick(e: MouseEvent<HTMLDivElement>, current: FileId): void {
   if (!item) return;
   const id = Number(item.dataset.id);
   // 点当前项不算切图：不会有随后的绘制，留下的开始标记会与之后无关的绘制配对
-  // 编辑模式中不切图
-  if (id === current || editActive()) return;
+  if (id === current) return;
+  // 编辑模式中不切图；批量模式里切到那张并以当前页签重开会话
+  if (editActive()) {
+    if (inBatch()) batchGoto(id);
+    return;
+  }
   markSwitchStart();
   useNav.getState().setCurrent(id);
 }

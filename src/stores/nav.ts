@@ -2,8 +2,8 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type { FileId } from "../ipc/types";
 import { useCatalog } from "./catalog";
 
-/** 单张视图的来源：folder 是当前目录的列表，basket 是对比篮。 */
-export type SingleSource = "folder" | "basket";
+/** 单张视图的来源：folder 是当前目录的列表，basket 是对比篮，selection 是批量模式里选中的图。 */
+export type SingleSource = "folder" | "basket" | "selection";
 
 export type View =
   | { kind: "grid" }

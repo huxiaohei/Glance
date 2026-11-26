@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { editClose, editOpen, editParamsGet, editParamsSet, editPick, editPreview, editResultUrl } from "../ipc/api";
 import type {
-  CompressMemory, ConvertMemory, CropMemory, CropState, EditOpened, EditParams, EditParamsMemory, EditTab, FileId,
+  BatchPlan, CompressMemory, ConvertMemory, CropMemory, CropState, EditOpened, EditParams, EditParamsMemory, EditTab, FileId,
   PreviewResult, RemoveBgMemory,
 } from "../ipc/types";
 import { createPreviewScheduler } from "../lib/editPreview";
@@ -27,7 +27,16 @@ export interface EditUiState {
   previewError: string | null;
   /** 保存失败的原因（已翻译）；改参数、换页或再次保存时清掉 */
   saveError: string | null;
-  open(id: FileId): Promise<void>;
+  /**
+   * 批量模式：选中的图（网格顺序）与按当前页签算出的处理清单（未到时为 null）。不为 null 时处在批量模式：
+   * 面板只有压缩、转格式两页，左右键在 ids 里切图。close() 不清它（切图时先关再开），由 batchMode 管理。
+   */
+  batch: { ids: FileId[]; plan: BatchPlan | null } | null;
+  /**
+   * 打开一张图的编辑会话。给了 tab 就用它（批量模式），否则按记忆的页签；
+   * keepParams 为真时不读记忆，沿用当前参数（批量模式里切图）。
+   */
+  open(id: FileId, opts?: OpenOpts): Promise<void>;
   close(): void;
   setTab(t: EditTab): void;
   patch<T extends keyof PatchMap>(tab: T, partial: Partial<PatchMap[T]>): void;
@@ -38,6 +47,8 @@ export interface EditUiState {
   /** 保存成功后调用：记住这次保存用的页与参数（取消不记）。 */
   commitMemory(): Promise<void>;
 }
+
+export interface OpenOpts { tab?: EditTab; keepParams?: boolean }
 
 interface PatchMap { compress: CompressMemory; crop: CropMemory; removeBg: RemoveBgMemory; convert: ConvertMemory }
 
@@ -51,7 +62,17 @@ const DEFAULT_CONVERT: ConvertMemory = { format: "jpeg", quality: 85, fill: [255
 
 /** 是否处在编辑模式（含正在打开、正在保存）：命令表据此把单张视图当作 "edit"。 */
 export function editActive(): boolean {
-  return useEditUi.getState().status !== "idle";
+  return isEditing(useEditUi.getState());
+}
+
+/** 选择器：处在编辑模式（有会话，或在批量模式里——批量模式下这张图打不开时也算）。 */
+export function isEditing(s: Pick<EditUiState, "status" | "batch">): boolean {
+  return s.status !== "idle" || s.batch !== null;
+}
+
+/** 处在批量模式。 */
+export function inBatch(): boolean {
+  return useEditUi.getState().batch !== null;
 }
 
 /** 源格式不支持压缩（GIF / BMP）且当前在压缩页：不能保存。 */
@@ -152,18 +173,26 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
   removeBg: DEFAULT_REMOVE_BG,
   convert: DEFAULT_CONVERT,
   error: null,
+  batch: null,
 
-  async open(id) {
+  async open(id, opts) {
     get().close();
     const mine = ++epoch;
-    set({ ...idle, status: "opening", id, error: null });
+    const fixedTab = opts?.tab;
+    set({ ...idle, status: "opening", id, error: null, ...(fixedTab !== undefined ? { tab: fixedTab } : {}) });
     let memory: EditParamsMemory | null = null;
-    try {
-      memory = await editParamsGet();
-    } catch {
-      memory = null;
+    if (!opts?.keepParams) {
+      try {
+        memory = await editParamsGet();
+      } catch {
+        memory = null;
+      }
+      if (mine !== epoch) return;
     }
-    if (mine !== epoch) return;
+    // 页签由调用方定（批量模式）：参数立刻换成记忆，打不开这张图时也能照常调参数
+    if (fixedTab !== undefined && memory) {
+      set({ compress: memory.compress, crop: memory.crop, removeBg: memory.removeBg, convert: memory.convert });
+    }
     let opened: EditOpened;
     try {
       opened = await editOpen(id);
@@ -190,20 +219,29 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
       void editClose(session).catch(() => {});
       return;
     }
-    const removeBg = memory?.removeBg ?? DEFAULT_REMOVE_BG;
-    const forceColor = removeBg.mode === "alpha" && !opened.hasAlpha;
-    rememberedBgMode = forceColor ? removeBg.mode : null;
-    set({
-      status: "ready",
-      opened,
-      tab: unavailable && rememberedTab === "compress" ? "convert" : rememberedTab,
-      compress: memory?.compress ?? DEFAULT_COMPRESS,
-      crop: memory?.crop ?? DEFAULT_CROP,
-      removeBg: forceColor ? { ...removeBg, mode: "color" } : removeBg,
-      convert: memory?.convert ?? DEFAULT_CONVERT,
-      cropState: { rect: { x: 0, y: 0, w: opened.width, h: opened.height }, quarterTurns: 0, flipH: false, flipV: false },
-      bgColor,
-    });
+    const cropState: CropState = {
+      rect: { x: 0, y: 0, w: opened.width, h: opened.height }, quarterTurns: 0, flipH: false, flipV: false,
+    };
+    if (fixedTab !== undefined) {
+      // 页签在开始时已设好（打开期间用户可能又换过页，以当前为准）；参数已在上面换好或沿用当前的
+      rememberedBgMode = null;
+      set({ status: "ready", opened, cropState, bgColor });
+    } else {
+      const removeBg = memory?.removeBg ?? DEFAULT_REMOVE_BG;
+      const forceColor = removeBg.mode === "alpha" && !opened.hasAlpha;
+      rememberedBgMode = forceColor ? removeBg.mode : null;
+      set({
+        status: "ready",
+        opened,
+        tab: unavailable && rememberedTab === "compress" ? "convert" : rememberedTab,
+        compress: memory?.compress ?? DEFAULT_COMPRESS,
+        crop: memory?.crop ?? DEFAULT_CROP,
+        removeBg: forceColor ? { ...removeBg, mode: "color" } : removeBg,
+        convert: memory?.convert ?? DEFAULT_CONVERT,
+        cropState,
+        bgColor,
+      });
+    }
     scheduler = createPreviewScheduler({
       proxy: () => get().tab !== "crop",
       run: (rev, full) => editPreview(session, rev, currentParams(get()), full),

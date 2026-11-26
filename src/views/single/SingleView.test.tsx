@@ -223,7 +223,8 @@ describe("单张视图的命令", () => {
     add(1, 1, 2);
     expect(topView().kind).toBe("grid");
     const prev = allCommands().find((c) => c.id === "single.prev");
-    expect(prev?.views).toEqual(["single"]);
+    // 编辑中也登记（批量模式里左右键在选中的图之间切），普通编辑由 when 挡住
+    expect(prev?.views).toEqual(["single", "edit"]);
     // 网格里方向键仍归网格
     expect(findCommand({ key: "ArrowRight", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false } as KeyboardEvent, "grid", false, true)?.id).toBe("nav.right");
     // 没有单张视图时直接调用也不出错、不做事

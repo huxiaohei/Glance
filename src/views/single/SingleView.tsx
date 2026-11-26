@@ -7,7 +7,7 @@ import { cancelSwitch } from "../../lib/perfMarks";
 import { preloadPlan } from "../../lib/preloadPlan";
 import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
-import { useEditUi } from "../../stores/editUi";
+import { isEditing, useEditUi } from "../../stores/editUi";
 import { useNav } from "../../stores/nav";
 import { useRename } from "../../stores/rename";
 import { useSingleUi } from "../../stores/singleUi";
@@ -83,7 +83,7 @@ export default function SingleView() {
   const basketItems = useBasket((s) => s.items);
   const infoOpen = useSingleUi((s) => s.infoOpen);
   // 编辑模式中不出切图箭头与“加入对比”按钮（切图与加入对比在编辑中都不响应）
-  const editing = useEditUi((s) => s.status !== "idle");
+  const editing = useEditUi(isEditing);
   const [preloader] = useState(() => new Preloader());
 
   // 沉浸：静止 2 秒淡出顶栏与缩略图条。指针在二者之上、详细信息面板展开、键盘焦点在顶栏内时不淡出

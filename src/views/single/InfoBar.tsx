@@ -4,7 +4,7 @@ import { hasSize } from "../../lib/deriveList";
 import { formatBytes } from "../../lib/formatBytes";
 import { editHints, singleHints } from "../../lib/keyHints";
 import { useBasket } from "../../stores/basket";
-import { useEditUi } from "../../stores/editUi";
+import { isEditing, useEditUi } from "../../stores/editUi";
 import { useSettings } from "../../stores/settings";
 import KeyHints from "../common/KeyHints";
 
@@ -24,7 +24,7 @@ export default function InfoBar({ id }: { id: FileId }) {
   const format = entry ? formatLabel(entry.name) : null;
   const showHints = useSettings((s) => s.settings.showKeyHints);
   const basket = useBasket((s) => s.order.length);
-  const editing = useEditUi((s) => s.status !== "idle");
+  const editing = useEditUi(isEditing);
   const inBasket = useBasket((s) => s.order.includes(id));
 
   return (

@@ -3,7 +3,7 @@ import { IS_MAC, formatKey } from "../../app/keys";
 import { useSingleEntry } from "../../app/singleSource";
 import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
-import { useEditUi } from "../../stores/editUi";
+import { isEditing, useEditUi } from "../../stores/editUi";
 import { useNav } from "../../stores/nav";
 import { startRename, useRename } from "../../stores/rename";
 import { useSingleUi } from "../../stores/singleUi";
@@ -27,7 +27,7 @@ export default function TopBar({ id }: { id: FileId }) {
     return !(top.kind === "single" && top.source === "basket");
   });
   // 编辑中也不改名（与 F2 在编辑中不响应一致）
-  const editing = useEditUi((s) => s.status !== "idle");
+  const editing = useEditUi(isEditing);
   const canRename = notBasket && !editing;
   const renaming = useRename((s) => s.id === id);
   const dir = entry?.dir;

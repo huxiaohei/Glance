@@ -1,5 +1,5 @@
 import { registerCommands, type Command } from "../../app/commands";
-import { editActive, useEditUi } from "../../stores/editUi";
+import { editActive, inBatch, useEditUi } from "../../stores/editUi";
 import { topView, useNav } from "../../stores/nav";
 import { useSingleUi } from "../../stores/singleUi";
 import { go } from "./go";
@@ -19,6 +19,9 @@ const withStage = (fn: (api: StageApi) => void) => () => {
   if (api && topView().kind === "single") fn(api);
 };
 
+/** 左右切图：不在编辑中，或在批量模式里（go 转给 batchStep，在选中的图之间切并重开会话）。 */
+const canStep = () => !editActive() || inBatch();
+
 /** 裁剪页的画面固定为适应窗口：缩放命令不响应。 */
 const notCropping = () => !(editActive() && useEditUi.getState().tab === "crop");
 
@@ -29,7 +32,8 @@ const singleCommands: Command[] = [
     title: "cmd.single.prev",
     category: "cmd.cat.nav",
     keys: ["ArrowLeft"],
-    views: ["single"],
+    views: ["single", "edit"],
+    when: canStep,
     run: () => go("prev"),
   },
   {
@@ -37,7 +41,8 @@ const singleCommands: Command[] = [
     title: "cmd.single.next",
     category: "cmd.cat.nav",
     keys: ["ArrowRight"],
-    views: ["single"],
+    views: ["single", "edit"],
+    when: canStep,
     run: () => go("next"),
   },
   {

@@ -1,10 +1,11 @@
+import { exitBatch, runBatch } from "../../app/batchMode";
 import { registerCommands, type Command } from "../../app/commands";
 import { saveEdit } from "../../app/editSave";
 import { t, type MessageKey } from "../../i18n";
 import type { EditError, FileId } from "../../ipc/types";
 import { noteAnimated } from "../../stores/animated";
 import { useCatalog } from "../../stores/catalog";
-import { useEditUi } from "../../stores/editUi";
+import { inBatch, useEditUi } from "../../stores/editUi";
 import { isSaveMenuOpen, setSaveMenuOpen } from "../../stores/saveMenu";
 import { topView, useNav } from "../../stores/nav";
 import { showToast } from "../../stores/toast";
@@ -81,11 +82,15 @@ const editCommands: Command[] = [
     allowInInput: true,
     when: enterSaves,
     run: ({ repeat }) => {
-      if (repeat || useEditUi.getState().status !== "ready") return;
+      if (repeat) return;
+      const batch = inBatch();
+      // 批量模式不要求这张图打开成功（打不开的图也能从这里开始批量）
+      if (!batch && useEditUi.getState().status !== "ready") return;
       // 最长边输入框：先失焦，把输入定下来（只有有效值会写进参数，失焦后显示回有效值）再保存
       const el = focusedInPanel();
       if (el instanceof HTMLInputElement && el.type === "number") el.blur();
-      void saveEdit();
+      if (batch) void runBatch();
+      else void saveEdit();
     },
   },
   {
@@ -103,6 +108,10 @@ const editCommands: Command[] = [
         setSaveMenuOpen(false);
         return;
       }
+      if (inBatch()) {
+        exitBatch();
+        return;
+      }
       // 保存进行中不取消：结果由保存流程收尾
       if (useEditUi.getState().status !== "saving") exitEdit();
     },
@@ -113,12 +122,18 @@ const editCommands: Command[] = [
  * 编辑模式跟着单张视图走：栈顶不再是正在编辑的那张（返回网格、切到别的图、换目录）就关掉会话。
  * 原图在目录事件里被删除或改名时退出编辑并提示；换了一次打开（generation 变了）不算，交给视图栈处理。
  * 保存进行中不管目录事件（覆盖原图本身会引起它们），由保存流程收尾。
+ * 批量模式跟着 selection 来源的单张视图走：栈顶不再是它（换目录回网格等）就退出批量模式；
+ * 批量模式里原图被删或改名同样退出（回网格）并提示。
  */
 function watchEditSource(): () => void {
   const offNav = useNav.subscribe(() => {
     const s = useEditUi.getState();
-    if (s.status === "idle") return;
     const top = topView();
+    if (s.batch !== null && !(top.kind === "single" && top.source === "selection")) {
+      exitBatch();
+      return;
+    }
+    if (s.status === "idle") return;
     if (top.kind !== "single" || top.id !== s.id) s.close();
   });
   const offCatalog = useCatalog.subscribe((state, prev) => {
@@ -129,7 +144,8 @@ function watchEditSource(): () => void {
     if (!before) return;
     const after = state.entries.get(s.id);
     if (after && after.relPath === before.relPath) return;
-    s.close();
+    if (s.batch !== null) exitBatch();
+    else s.close();
     showToast({ text: t("edit.toast.sourceChanged") });
   });
   return () => {

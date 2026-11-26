@@ -11,7 +11,7 @@ import {
   type Viewport,
 } from "../../lib/viewport";
 import { createWheelStepper } from "../../lib/wheelStep";
-import { editActive } from "../../stores/editUi";
+import { editActive, inBatch } from "../../stores/editUi";
 import { useSettings } from "../../stores/settings";
 import { go } from "./go";
 
@@ -245,8 +245,8 @@ export function useStageViewport(args: {
       e.preventDefault();
       const dy = e.deltaMode === 1 ? e.deltaY * LINE_PX : e.deltaMode === 2 ? e.deltaY * box.clientHeight : e.deltaY;
       if (dy === 0) return;
-      // 编辑模式中不切图，滚轮照常缩放
-      if (useSettings.getState().settings.wheel === "switch" && !e.ctrlKey && !e.metaKey && !editActive()) {
+      // 编辑模式中不切图（批量模式除外，go 转给 batchStep），滚轮照常缩放
+      if (useSettings.getState().settings.wheel === "switch" && !e.ctrlKey && !e.metaKey && (!editActive() || inBatch())) {
         const dir = stepWheel(dy, performance.now());
         if (dir !== 0) go(dir > 0 ? "next" : "prev");
         return;

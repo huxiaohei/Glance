@@ -11,7 +11,7 @@ import { t } from "../../i18n";
 import { useBasket } from "../../stores/basket";
 import Filmstrip from "./Filmstrip";
 
-vi.mock("../../ipc/api", () => ({ thumbsWant: vi.fn() }));
+vi.mock("../../ipc/api");
 
 let restore: (() => void)[] = [];
 let viewWidth = 600;
