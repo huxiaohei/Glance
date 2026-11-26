@@ -232,6 +232,33 @@ describe("批量模式", () => {
     expect(container.querySelector(".edit-batch-skip")).toBeNull();
   });
 
+  it("slow_older_open_does_not_mark_wrong_image_animated", async () => {
+    // 5 号图（A）解码慢，1 号图（B）是动图、很快失败：A 的打开在 B 之后才结束，不能把 B 的失败算到 A 头上
+    const slowA = deferred<EditOpened>();
+    let rejectB!: (e: unknown) => void;
+    const failB = new Promise<EditOpened>((_, rej) => (rejectB = rej));
+    vi.mocked(editOpen).mockImplementation((id) => {
+      if (id === 5) return slowA.promise;
+      if (id === 1) return failB;
+      return Promise.resolve(opened());
+    });
+    await startBatchMode();
+    key("ArrowRight");
+    await settle();
+    expect(topView()).toEqual({ kind: "single", source: "selection", id: 5 });
+    key("ArrowRight");
+    await settle();
+    expect(topView()).toEqual({ kind: "single", source: "selection", id: 1 });
+    // B 先失败（动图），A 随后才解码完
+    await act(async () => rejectB("animated"));
+    await settle();
+    await act(async () => slowA.resolve(opened()));
+    await settle();
+    expect(useAnimated.getState().ids.has(1)).toBe(true);
+    expect(useAnimated.getState().ids.has(5)).toBe(false);
+    expect(useToast.getState().current).toBeNull();
+  });
+
   it("tab_switch_refreshes_plan", async () => {
     const late = deferred<BatchPlan>();
     vi.mocked(batchPlan).mockImplementationOnce(() => late.promise);

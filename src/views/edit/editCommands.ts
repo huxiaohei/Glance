@@ -23,12 +23,11 @@ export function editErrorText(error: string): string {
 
 /** 对这张图进入编辑模式；不可编辑（动图、超大、读不了）时不进入，给提示条。 */
 export async function enterEdit(id: FileId): Promise<void> {
-  await useEditUi.getState().open(id);
-  const s = useEditUi.getState();
-  // 被更新的打开取代时 error 为空，不提示
-  if (s.status === "idle" && s.error) {
-    if (s.error === "animated") noteAnimated(id, true);
-    showToast({ text: editErrorText(s.error) });
+  const outcome = await useEditUi.getState().open(id);
+  // 只看这一次打开自己的结果：被更新的打开取代时不提示
+  if (outcome.kind === "failed") {
+    if (outcome.error === "animated") noteAnimated(id, true);
+    showToast({ text: editErrorText(outcome.error) });
   }
 }
 

@@ -35,8 +35,9 @@ export interface EditUiState {
   /**
    * 打开一张图的编辑会话。给了 tab 就用它（批量模式），否则按记忆的页签；
    * keepParams 为真时不读记忆，沿用当前参数（批量模式里切图）。
+   * 返回这一次打开自己的结果：被关闭或被更新的打开取代时为 superseded（此时 store 里的状态属于别的打开）。
    */
-  open(id: FileId, opts?: OpenOpts): Promise<void>;
+  open(id: FileId, opts?: OpenOpts): Promise<OpenOutcome>;
   close(): void;
   setTab(t: EditTab): void;
   patch<T extends keyof PatchMap>(tab: T, partial: Partial<PatchMap[T]>): void;
@@ -49,6 +50,11 @@ export interface EditUiState {
 }
 
 export interface OpenOpts { tab?: EditTab; keepParams?: boolean }
+
+/** 一次 open() 自己的结果。 */
+export type OpenOutcome = { kind: "ready" } | { kind: "superseded" } | { kind: "failed"; error: string };
+const READY: OpenOutcome = { kind: "ready" };
+const SUPERSEDED: OpenOutcome = { kind: "superseded" };
 
 interface PatchMap { compress: CompressMemory; crop: CropMemory; removeBg: RemoveBgMemory; convert: ConvertMemory }
 
@@ -187,7 +193,7 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
       } catch {
         memory = null;
       }
-      if (mine !== epoch) return;
+      if (mine !== epoch) return SUPERSEDED;
     }
     // 页签由调用方定（批量模式）：参数立刻换成记忆，打不开这张图时也能照常调参数
     if (fixedTab !== undefined && memory) {
@@ -197,14 +203,15 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
     try {
       opened = await editOpen(id);
     } catch (e) {
-      if (mine !== epoch) return;
-      set({ ...idle, error: typeof e === "string" ? e : "decode" });
-      return;
+      if (mine !== epoch) return SUPERSEDED;
+      const error = typeof e === "string" ? e : "decode";
+      set({ ...idle, error });
+      return { kind: "failed", error };
     }
     if (mine !== epoch) {
       // 期间被关闭或被新的 open 取代：这个会话没人用了。
       void editClose(opened.session).catch(() => {});
-      return;
+      return SUPERSEDED;
     }
     const unavailable = opened.srcFormat === "gif" || opened.srcFormat === "bmp";
     const rememberedTab = memory?.tab ?? "compress";
@@ -217,7 +224,7 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
     }
     if (mine !== epoch) {
       void editClose(session).catch(() => {});
-      return;
+      return SUPERSEDED;
     }
     const cropState: CropState = {
       rect: { x: 0, y: 0, w: opened.width, h: opened.height }, quarterTurns: 0, flipH: false, flipV: false,
@@ -255,6 +262,7 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
       },
     });
     refresh(get, set);
+    return READY;
   },
 
   close() {

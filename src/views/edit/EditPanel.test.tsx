@@ -57,7 +57,7 @@ describe("编辑面板", () => {
   it("opening_shows_loading", async () => {
     let resolve: (o: EditOpened) => void = () => {};
     vi.mocked(editOpen).mockReturnValue(new Promise<EditOpened>((r) => (resolve = r)));
-    let pending!: Promise<void>;
+    let pending!: Promise<unknown>;
     act(() => {
       pending = useEditUi.getState().open(2);
     });

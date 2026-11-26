@@ -23,10 +23,9 @@ function currentOp(): BatchOp {
 /** 以当前页签（重新）打开这张图；失败时不提示，动图记下来（缩略图角标与按钮状态用）。 */
 async function openInBatch(id: FileId, keepParams: boolean): Promise<void> {
   const ui = useEditUi.getState();
-  await ui.open(id, { tab: opOf(ui.tab), keepParams });
-  const s = useEditUi.getState();
-  // 被更新的打开取代时 error 为空
-  if (s.status === "idle" && s.error === "animated" && s.batch !== null) noteAnimated(id, true);
+  const outcome = await ui.open(id, { tab: opOf(ui.tab), keepParams });
+  // 只看这一次打开自己的结果：被更新的打开取代时，store 里的状态属于别的图
+  if (outcome.kind === "failed" && outcome.error === "animated") noteAnimated(id, true);
 }
 
 /** 进入批量模式。ids 按网格顺序；focus 不在 ids 里时从第一张开始。 */
