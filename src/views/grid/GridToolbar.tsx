@@ -1,3 +1,4 @@
+import { useHelp } from "../../app/useKeyboard";
 import { memo } from "react";
 import { popup } from "../../app/nativeMenu";
 import { openFolder, pickAndOpenFolder } from "../../app/openFolder";
@@ -68,6 +69,15 @@ function GridToolbar() {
       </label>
       <CompareButton />
       <button type="button" onClick={() => void pickAndOpenFolder()}>{t("grid.openOther")}</button>
+      <button
+        type="button"
+        className="toolbar-help"
+        aria-label={t("help.open")}
+        title={`${t("help.open")} (?)`}
+        onClick={() => useHelp.setState({ open: true })}
+      >
+        ?
+      </button>
     </div>
   );
 }

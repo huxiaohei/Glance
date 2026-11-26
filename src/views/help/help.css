@@ -39,3 +39,14 @@
 }
 .help-view-group + .help-view-group { margin-top: 6px; }
 .help-view { margin: 2px 0; font-size: 11px; color: var(--text-dim); }
+.help-tabs { display: flex; gap: 4px; margin: -4px 0 12px; }
+.help-tab {
+  padding: 3px 12px;
+  font: inherit;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+.help-tab.is-active { color: var(--text); background: var(--bg); border-color: var(--line); }
+.help-gesture { color: var(--text-dim); text-align: right; }

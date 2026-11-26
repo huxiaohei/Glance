@@ -316,3 +316,4 @@
   pointer-events: auto;
 }
 .compare-btn:not(:disabled) { border-color: var(--basket); }
+.toolbar-help { min-width: 26px; padding-left: 0; padding-right: 0; font-weight: 600; }

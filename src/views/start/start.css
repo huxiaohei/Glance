@@ -234,3 +234,12 @@
   .start-peek-heart { animation: none; }
   .start-peek-body { transform: none; }
 }
+.start-help {
+  padding: 0;
+  font: inherit;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.start-help:hover { color: var(--text); text-decoration: underline; }

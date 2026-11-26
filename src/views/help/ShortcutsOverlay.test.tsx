@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerBasketCommands } from "../../app/basketCommands";
 import { registerCommands } from "../../app/commands";
@@ -103,5 +103,16 @@ describe("ShortcutsOverlay", () => {
       t("cmd.edit.open"), t("cmd.edit.save"), t("cmd.edit.cancel"),
     ]);
     expect([...g.querySelectorAll(".help-view")].map((r) => r.textContent)).toEqual([t("help.view.single"), t("help.view.edit")]);
+  });
+
+  it("切到“鼠标”页列出鼠标操作，修饰键按平台显示", () => {
+    useHelp.setState({ open: true });
+    render(<ShortcutsOverlay />);
+    const tab = screen.getByRole("tab", { name: t("help.tab.mouse") });
+    fireEvent.click(tab);
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText(t("help.g.dblThumb"))).not.toBeNull();
+    expect(screen.getByText(t("help.m.dragOut"))).not.toBeNull();
+    expect(screen.queryByText(/\{mod\}|\{alt\}/)).toBeNull();
   });
 });

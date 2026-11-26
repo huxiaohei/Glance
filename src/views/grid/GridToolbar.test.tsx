@@ -10,6 +10,7 @@ import { useListView } from "../../stores/listView";
 import { t } from "../../i18n";
 import { useBasket } from "../../stores/basket";
 import { topView, useNav } from "../../stores/nav";
+import { useHelp } from "../../app/useKeyboard";
 import GridToolbar from "./GridToolbar";
 
 vi.mock("../../app/openFolder", () => ({
@@ -64,6 +65,14 @@ describe("GridToolbar", () => {
     expect(recentsList).toHaveBeenCalledTimes(1);
     const nodes = vi.mocked(popup).mock.calls[0][0];
     expect(nodes.map((n) => (n.kind === "item" ? n.label : "|"))).toEqual(["q — /q", "|", t("grid.openOther")]);
+  });
+
+  it("“?”按钮打开帮助", () => {
+    useHelp.setState({ open: false });
+    render(<GridToolbar />);
+    fireEvent.click(screen.getByRole("button", { name: t("help.open") }));
+    expect(useHelp.getState().open).toBe(true);
+    useHelp.setState({ open: false });
   });
 
   it("排序与大小控件有 aria-label", () => {

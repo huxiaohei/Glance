@@ -1,3 +1,4 @@
+import { useHelp } from "../../app/useKeyboard";
 import { useEffect, useState } from "react";
 import { pickAndOpenFolder } from "../../app/openFolder";
 import { formatKey, IS_MAC } from "../../app/keys";
@@ -36,6 +37,9 @@ export default function StartView() {
         <RecentList />
       </div>
       <div className="start-footer">
+        <button type="button" className="start-help" onClick={() => useHelp.setState({ open: true })}>
+          {t("help.open")}
+        </button>
         {version !== null && <span className="start-version">v{version}</span>}
       </div>
       {/* 小老虎趴在窗口底边：隔一阵探头、歪头、冒爱心，平时眨眨眼；没有文字，读屏用 aria-label；点它打开打赏大图 */}
