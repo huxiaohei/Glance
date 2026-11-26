@@ -231,4 +231,27 @@ describe("saveTarget", () => {
     expect(saveTarget("a.jpeg", "jpeg", compress).filter).toEqual({ name: "JPEG", extensions: ["jpeg", "jpg"] });
     expect(saveTarget("a.png", "png", convert("png")).filter).toEqual({ name: "PNG", extensions: ["png"] });
   });
+  const crop = { op: "crop" as const, rect: { x: 0, y: 0, w: 10, h: 10 }, quarterTurns: 0 as const, flipH: false, flipV: false };
+  const removeBg = {
+    op: "removeBg" as const, mode: "color" as const, color: [255, 255, 255] as [number, number, number],
+    tolerance: 30, softness: 10, edgeConnected: true,
+  };
+  it("remove_bg_on_jpeg_saves_png_nobg", () => {
+    expect(saveTarget("photo.jpg", "jpeg", removeBg)).toEqual({
+      name: "photo_nobg.png", filter: { name: "PNG", extensions: ["png"] },
+    });
+  });
+  it("crop_png_keeps_png_cropped", () => {
+    expect(saveTarget("hero.png", "png", crop)).toEqual({
+      name: "hero_cropped.png", filter: { name: "PNG", extensions: ["png"] },
+    });
+    expect(saveTarget("a.JPEG", "jpeg", crop)).toEqual({
+      name: "a_cropped.JPEG", filter: { name: "JPEG", extensions: ["jpeg", "jpg"] },
+    });
+  });
+  it("crop_gif_saves_png_cropped", () => {
+    expect(saveTarget("anim.gif", "gif", crop)).toEqual({
+      name: "anim_cropped.png", filter: { name: "PNG", extensions: ["png"] },
+    });
+  });
 });

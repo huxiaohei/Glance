@@ -19,14 +19,40 @@ const FAMILY: Record<OutFormat, { label: string; canonical: string; exts: string
   webp: { label: "WebP", canonical: "webp", exts: ["webp"] },
 };
 
-/** 输出格式：转格式取目标格式，压缩保持原格式。GIF / BMP 不能压缩，返回 null。 */
+/**
+ * 输出格式，与后端 `out_format` 一致：转格式取目标格式；去背景一律 PNG；
+ * 裁剪 JPEG / WebP 保持原格式，PNG / GIF / BMP 出 PNG；压缩保持原格式，GIF / BMP 不能压缩，返回 null。
+ */
 export function outFormatOf(src: SrcFormat, params: EditParams): OutFormat | null {
-  if (params.op === "convert") return params.format;
-  return src === "gif" || src === "bmp" ? null : src;
+  switch (params.op) {
+    case "convert":
+      return params.format;
+    case "removeBg":
+      return "png";
+    case "crop":
+      return src === "jpeg" || src === "webp" ? src : "png";
+    case "compress":
+      return src === "gif" || src === "bmp" ? null : src;
+  }
+}
+
+/** 保存副本的后缀，与后端 `naming` 一致。 */
+function suffixOf(params: EditParams, sameFormat: boolean): string {
+  switch (params.op) {
+    case "compress":
+      return "_compressed";
+    case "crop":
+      return "_cropped";
+    case "removeBg":
+      return "_nobg";
+    case "convert":
+      return sameFormat ? "_converted" : "";
+  }
 }
 
 /**
  * 另存对话框的建议文件名与过滤器，与后端保存副本的命名一致：压缩 → `名_compressed.扩展名`；
+ * 裁剪 → `名_cropped.扩展名`；去背景 → `名_nobg.png`；
  * 转格式 → `名.新扩展名`，格式没变 → `名_converted.扩展名`。原扩展名属于输出格式（如 .jpeg、.JPG 之于 JPEG）
  * 时原样保留，否则用 png / jpg / webp。后端不核对另存路径的扩展名，所以过滤器必须与输出格式一致。
  */
@@ -41,8 +67,7 @@ export function saveTarget(
   const stem = dot > 0 ? srcName.slice(0, dot) : srcName;
   const srcExt = dot > 0 ? srcName.slice(dot + 1) : "";
   const ext = fam.exts.includes(srcExt.toLowerCase()) ? srcExt : fam.canonical;
-  const sameFormat = src === out;
-  const suffix = params.op === "compress" ? "_compressed" : sameFormat ? "_converted" : "";
+  const suffix = suffixOf(params, src === out);
   const lower = ext.toLowerCase();
   const extensions = [lower, ...fam.exts.filter((e) => e !== lower)];
   return { name: `${stem}${suffix}.${ext}`, filter: { name: fam.label, extensions } };
