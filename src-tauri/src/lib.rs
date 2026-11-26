@@ -54,6 +54,7 @@ pub fn run() {
         .manage(update::PendingUpdate::default())
         .manage(Sessions::default())
         .manage(UndoLog::default())
+        .manage(batch::job::BatchState::default())
         .manage(shell::OpenRequests::default())
         .setup(|app| {
             // 启动参数只记下，不发事件：前端挂载后主动取。
@@ -121,6 +122,8 @@ pub fn run() {
         basket::basket_restore,
         basket::browse_dir,
         batch::plan::batch_plan,
+        batch::job::batch_start,
+        batch::job::batch_cancel,
         commands::recents_list,
         commands::recents_pin,
         commands::recents_remove,
@@ -164,6 +167,8 @@ pub fn run() {
         basket::basket_restore,
         basket::browse_dir,
         batch::plan::batch_plan,
+        batch::job::batch_start,
+        batch::job::batch_cancel,
         commands::recents_list,
         commands::recents_pin,
         commands::recents_remove,

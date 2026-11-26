@@ -24,6 +24,8 @@ pub enum OpKind {
     Copy,
     /// 编辑后保存（副本、覆盖或另存），整次一步撤销。
     Edit,
+    /// 批量压缩 / 转格式，整批一步撤销。
+    Batch,
 }
 
 pub struct UndoEntry {

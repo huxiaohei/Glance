@@ -241,6 +241,7 @@ export const en: Record<MessageKey, string> = {
   "fs.undo": "Undo",
   "fs.keepBoth": "Keep Both",
   "fs.undo.done": "Undone",
+  "fs.undo.batch": "Batch processing undone",
   "fs.undo.partial": "Undone; couldn't restore: {m}",
   "fs.undo.nothing": "Nothing to undo",
   "fs.err.notFound": "File not found",

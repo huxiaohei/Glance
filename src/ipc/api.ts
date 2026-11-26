@@ -16,6 +16,7 @@ import type {
   DragEnd,
   FileId,
   BasketEntry,
+  BatchEvent,
   BatchOp,
   BatchPlan,
   BrowseResult,
@@ -64,6 +65,15 @@ export function basketCheck(ids: FileId[]): Promise<(BasketEntry | null)[]> {
 
 export function batchPlan(ids: FileId[], op: BatchOp): Promise<BatchPlan> {
   return invoke<BatchPlan>("batch_plan", { ids, op });
+}
+
+/** 开始批量压缩 / 转格式，返回任务号；失败时以 BatchError 拒绝。 */
+export function batchStart(ids: FileId[], params: EditParams, onEvent: (e: BatchEvent) => void): Promise<number> {
+  return invoke<number>("batch_start", { ids, params, onEvent: channel(onEvent) });
+}
+
+export function batchCancel(job: number): Promise<void> {
+  return invoke<void>("batch_cancel", { job });
 }
 
 export function basketSave(ids: FileId[]): Promise<void> {

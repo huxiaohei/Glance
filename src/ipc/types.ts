@@ -56,7 +56,7 @@ export interface ImageDetails {
 
 export type FsErrorCode = "notFound" | "exists" | "invalidName" | "readOnly" | "diskFull" | "denied"
   | "restoreDenied" | "notInTrash" | "tooLarge" | "other";
-export type OpKind = "trash" | "rename" | "move" | "copy" | "edit";
+export type OpKind = "trash" | "rename" | "move" | "copy" | "edit" | "batch";
 /** 文件操作的结果。dest 是移动 / 复制的目标目录，只用于显示。 */
 export interface OpReport { kind: OpKind; done: FileId[]; failed: { id: FileId; code: FsErrorCode }[]; token: number | null; dest: string | null }
 export type Dest =
@@ -154,3 +154,30 @@ export interface BatchPlan {
   process: FileId[];
   skipped: SkipItem[];
 }
+
+export type FailReason = "notFound" | "decode" | "tooLarge" | "encode" | "readOnly" | "diskFull" | "denied" | "other";
+
+export interface Failure {
+  id: FileId;
+  name: string;
+  reason: FailReason;
+}
+
+export interface BatchSummary {
+  /** 成功产出的张数 */
+  processed: number;
+  failed: Failure[];
+  skipped: SkipItem[];
+  /** 成功各张的原大小减产出大小之和，可为负 */
+  savedBytes: number;
+  /** 撤销用；没有产出时为 null */
+  token: number | null;
+  cancelled: boolean;
+}
+
+/** 批量任务经 Channel 推来的事件：节流的进度（done = 成功 + 失败），最后一次进度之后是 finished。 */
+export type BatchEvent =
+  | { kind: "progress"; done: number; total: number; failed: number; savedBytes: number }
+  | ({ kind: "finished" } & BatchSummary);
+
+export type BatchError = "busy" | "invalid" | "noRoot";

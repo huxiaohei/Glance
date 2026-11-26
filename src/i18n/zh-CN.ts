@@ -239,6 +239,7 @@ export const zhCN = {
   "fs.undo": "撤销",
   "fs.keepBoth": "保留两者",
   "fs.undo.done": "已撤销",
+  "fs.undo.batch": "已撤销批量处理",
   "fs.undo.partial": "已撤销，{m} 项未能恢复",
   "fs.undo.nothing": "没有可撤销的操作",
   "fs.err.notFound": "文件不存在",

@@ -172,6 +172,12 @@ describe("undoLast", () => {
     expect(toast()?.text).toBe(t("fs.undo.done"));
   });
 
+  it("undoLast：撤销批量处理时提示“已撤销批量处理”", async () => {
+    vi.mocked(fsUndo).mockResolvedValue({ kind: "batch", done: 3, failed: [] });
+    await undoLast();
+    expect(toast()?.text).toBe(t("fs.undo.batch"));
+  });
+
   it("undoLast：没有可撤销的操作时给出提示", async () => {
     vi.mocked(fsUndo).mockResolvedValue({ kind: null, done: 0, failed: [] });
     await undoLast();

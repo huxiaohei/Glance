@@ -2,6 +2,7 @@ import { t } from "../i18n";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { clipboardCopyImage, clipboardCopyPaths, fsCopy, fsMove, fsRename, fsTrash, fsUndo, reveal } from "../ipc/api";
 import type { Dest, FileId, FsErrorCode, OpKind, OpReport } from "../ipc/types";
+import type { MessageKey } from "../i18n";
 import { lastSegment } from "../lib/lastSegment";
 import { useBasket } from "../stores/basket";
 import { useCatalog } from "../stores/catalog";
@@ -117,6 +118,11 @@ const TEXTS: Partial<Record<OpKind, KindTexts>> = {
   },
 };
 
+/** 撤销全部成功时的提示；没有专门文案的用通用的“已撤销”。 */
+const UNDONE_TEXTS: Partial<Record<OpKind, MessageKey>> = {
+  batch: "fs.undo.batch",
+};
+
 export interface ReportOpts {
   /** 给了且有冲突（exists）项时出现“保留两者”，以冲突项的 id 和本次的 token 调用 */
   retry?: (ids: FileId[], token: number | null) => void;
@@ -188,7 +194,7 @@ export async function undoLast(): Promise<void> {
   const r = await call(t("fs.busy.undo"), () => fsUndo());
   if (!r) return;
   if (r.kind === null) showToast({ text: t("fs.undo.nothing") });
-  else if (r.failed.length === 0) showToast({ text: t("fs.undo.done") });
+  else if (r.failed.length === 0) showToast({ text: t(UNDONE_TEXTS[r.kind] ?? "fs.undo.done") });
   else {
     const details = r.failed.map((f) => t("fs.detailLine", { name: f.name, reason: errorText(f.code) }));
     showToast({ text: t("fs.undo.partial", { m: r.failed.length }), details });
