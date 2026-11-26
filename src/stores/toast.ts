@@ -3,6 +3,8 @@ import { create } from "zustand";
 export interface ToastAction {
   label: string;
   run(): void;
+  /** 点击后不关闭提示条（进度形态的“取消”） */
+  keep?: boolean;
 }
 
 export interface ToastSpec {
@@ -16,6 +18,8 @@ export interface ToastSpec {
   busy?: boolean;
   /** 不自动消失，但保留关闭按钮（busy 则连关闭按钮也没有） */
   sticky?: boolean;
+  /** 有则显示进度条（与 busy 同用：不自动消失、没有关闭按钮，操作按钮照常显示） */
+  progress?: { done: number; total: number };
 }
 
 export type CurrentToast = ToastSpec & { key: number };
@@ -32,6 +36,14 @@ export function showToast(spec: ToastSpec): number {
   const key = ++nextKey;
   useToast.setState({ current: { ...spec, key } });
   return key;
+}
+
+/** key 仍是当前这条时原地合并（key 不变、展开状态保留）并返回 true；否则返回 false。 */
+export function updateToast(key: number, patch: Partial<ToastSpec>): boolean {
+  const cur = useToast.getState().current;
+  if (cur === null || cur.key !== key) return false;
+  useToast.setState({ current: { ...cur, ...patch, key } });
+  return true;
 }
 
 /** key 省略时关闭当前这条；给了 key 则只在它仍是当前这条时关闭。 */

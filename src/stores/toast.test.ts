@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dismissToast, showToast, useToast, withBusy } from "./toast";
+import { dismissToast, showToast, updateToast, useToast, withBusy } from "./toast";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -53,5 +53,24 @@ describe("toast store", () => {
     fail(new Error("boom"));
     await expect(p).rejects.toThrow("boom");
     expect(useToast.getState().current?.text).toBe("新的");
+  });
+
+  it("updateToast 对当前 key 原地合并，key 不变", () => {
+    const k = showToast({ text: "a", progress: { done: 0, total: 5 } });
+    expect(updateToast(k, { text: "b", progress: { done: 2, total: 5 } })).toBe(true);
+    const cur = useToast.getState().current;
+    expect(cur?.key).toBe(k);
+    expect(cur?.text).toBe("b");
+    expect(cur?.progress).toEqual({ done: 2, total: 5 });
+  });
+
+  it("updateToast 对过期 key 返回 false 且不改当前", () => {
+    const a = showToast({ text: "a" });
+    showToast({ text: "b" });
+    expect(updateToast(a, { text: "x" })).toBe(false);
+    expect(useToast.getState().current?.text).toBe("b");
+    dismissToast();
+    expect(updateToast(a, { text: "x" })).toBe(false);
+    expect(useToast.getState().current).toBeNull();
   });
 });

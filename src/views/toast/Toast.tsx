@@ -58,7 +58,7 @@ export default function Toast() {
               try {
                 a.run();
               } finally {
-                dismissToast(current.key);
+                if (!a.keep) dismissToast(current.key);
               }
             }}
           >
@@ -76,6 +76,20 @@ export default function Toast() {
           </button>
         )}
       </div>
+      {current.progress && (
+        <div
+          className="toast-progress"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuenow={current.progress.done}
+          aria-valuemax={current.progress.total}
+        >
+          <div
+            className="toast-progress-fill"
+            style={{ width: `${current.progress.total > 0 ? Math.min(100, (current.progress.done / current.progress.total) * 100) : 0}%` }}
+          />
+        </div>
+      )}
       {expanded && current.details && (
         <ul className="toast-details">
           {current.details.map((d, i) => (

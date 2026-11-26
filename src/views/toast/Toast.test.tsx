@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n";
-import { showToast, useToast, withBusy } from "../../stores/toast";
+import { showToast, updateToast, useToast, withBusy } from "../../stores/toast";
 import Toast from "./Toast";
 
 beforeEach(() => {
@@ -129,5 +129,37 @@ describe("Toast", () => {
     expect(screen.queryByRole("status")).not.toBeNull();
     await act(async () => { done(); await p; });
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("有 progress 时渲染进度条，没有关闭按钮但有操作按钮，且不自动消失", () => {
+    render(<Toast />);
+    const run = vi.fn();
+    act(() => { showToast({ text: "处理中", busy: true, progress: { done: 3, total: 10 }, actions: [{ label: "取消", run }] }); });
+    const bar = screen.getByRole("progressbar");
+    expect(bar.getAttribute("aria-valuenow")).toBe("3");
+    expect(bar.getAttribute("aria-valuemax")).toBe("10");
+    expect(screen.queryByRole("button", { name: t("toast.close") })).toBeNull();
+    tick(60000);
+    expect(screen.queryByRole("status")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(run).toHaveBeenCalled();
+  });
+
+  it("keep 的操作按钮点后提示条仍在", () => {
+    render(<Toast />);
+    act(() => { showToast({ text: "x", busy: true, actions: [{ label: "取消", run: () => {}, keep: true }] }); });
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("status")).not.toBeNull();
+  });
+
+  it("updateToast 后展开状态保留，进度条更新", () => {
+    render(<Toast />);
+    let k = 0;
+    act(() => { k = showToast({ text: "a", sticky: true, details: ["d1"], progress: { done: 1, total: 4 } }); });
+    fireEvent.click(screen.getByRole("button", { name: t("toast.details") }));
+    expect(screen.queryByText("d1")).not.toBeNull();
+    act(() => { updateToast(k, { text: "b", progress: { done: 2, total: 4 } }); });
+    expect(screen.queryByText("d1")).not.toBeNull();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("2");
   });
 });
