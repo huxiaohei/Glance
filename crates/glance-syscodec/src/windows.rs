@@ -1,7 +1,8 @@
 //! Windows：WIC（Windows Imaging Component）解码，转成 32 位非预乘 RGBA。
 //!
 //! HEIF / AVIF 的 WIC 解码器由商店里的“HEIF 图像扩展”“HEVC 视频扩展”“AV1 视频扩展”提供，
-//! 没装时 WIC 报“找不到组件”或“不认识的格式”，映射成 [`CodecError::NoCodec`]（见 `wic_error`）。
+//! 没装时 WIC 报“找不到组件”，或在创建解码器这一步报“不认识的格式”，映射成
+//! [`CodecError::NoCodec`]（见 `wic_error`）；其余步骤的“不认识的格式”算这份文件解不出。
 //! 每次调用在当前线程初始化 COM，自建工厂与流，不共享可变状态，可在多个后台线程并发调用。
 //!
 //! 未在 Windows 上编译与运行过；方向是否已由 WIC 摆正、透明与 ICC 的表现待 E6 实测。
@@ -19,7 +20,7 @@ use ::windows::Win32::System::Com::{
 };
 use ::windows::core::{IUnknown, Interface};
 
-use crate::wic_error::map_hresult;
+use crate::wic_error::{map_create_hresult, map_hresult};
 use crate::{CodecError, Image, Kind, boxes_complete, fit_within};
 
 /// 一帧最多看这么多个色彩上下文。
@@ -107,11 +108,12 @@ fn decode_with_com(
     // SAFETY: 同上；`bytes` 比 `stream` 及其派生对象活得久。
     unsafe { stream.InitializeFromMemory(bytes) }.map_err(wic)?;
     // 不指定厂商（空指针），让 WIC 按内容挑解码器；缺组件时在这一步报错。
+    // 只有这一步把“不认识的格式”也算作缺组件。
     // SAFETY: 同上。
     let decoder = unsafe {
         factory.CreateDecoderFromStream(&stream, ptr::null(), WICDecodeMetadataCacheOnDemand)
     }
-    .map_err(wic)?;
+    .map_err(|e| map_create_hresult(e.code().0))?;
     if !boxes_complete(bytes) {
         // 截断的文件，系统解码器可能照样画出半张图；一律算读不出。
         return Err(err("文件不完整或已损坏"));
