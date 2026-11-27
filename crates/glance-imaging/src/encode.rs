@@ -237,6 +237,30 @@ pub fn encode_png_fast(img: RgbaView) -> Result<Vec<u8>, ImagingError> {
     Ok(out)
 }
 
+/// 不压缩的 PNG：不滤波、zlib 不压缩档，icc 非空时写入 iCCP。显示通道用，换编码速度不换体积。
+pub fn encode_png_stored(img: RgbaView, icc: Option<&[u8]>) -> Result<Vec<u8>, ImagingError> {
+    use image::ImageEncoder;
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    validate(&img)?;
+    let mut out = Vec::with_capacity(img.data.len() + img.height as usize + 1024);
+    let mut enc = PngEncoder::new_with_quality(
+        &mut out,
+        CompressionType::Uncompressed,
+        FilterType::NoFilter,
+    );
+    if let Some(icc) = icc.filter(|p| !p.is_empty()) {
+        enc.set_icc_profile(icc.to_vec()).map_err(encode_err)?;
+    }
+    enc.write_image(
+        img.data,
+        img.width,
+        img.height,
+        image::ExtendedColorType::Rgba8,
+    )
+    .map_err(encode_err)?;
+    Ok(out)
+}
+
 /// 有损：先减色成索引图（保留透明通道），再走 oxipng 输出索引 PNG。
 /// 质量 1..=100 映射到颜色数 18..=256 与采样因子 30..=10。
 pub fn encode_png_lossy(
@@ -426,6 +450,24 @@ mod tests {
     }
 
     #[test]
+    fn png_stored_roundtrip_with_icc() {
+        let icc = fake_icc();
+        let d = noise_gradient(1000, 1000);
+        let out = encode_png_stored(view(1000, 1000, &d), Some(&icc)).unwrap();
+        // 不压缩：输出不比原始像素小（1000 × 1000 × 4 = 4 000 000 字节）。
+        assert!(out.len() >= 4_000_000, "{} 字节", out.len());
+        assert_eq!(icc_of(&out).as_deref(), Some(icc.as_slice()));
+        let back = image::load_from_memory(&out).unwrap().into_rgba8();
+        assert_eq!(back.dimensions(), (1000, 1000));
+        assert_eq!(back.as_raw(), &d);
+        // 不带 ICC 时没有 iCCP；空 ICC 同样不写。
+        let plain = encode_png_stored(view(8, 8, &d[..256]), None).unwrap();
+        assert_eq!(icc_of(&plain), None);
+        let empty = encode_png_stored(view(8, 8, &d[..256]), Some(&[])).unwrap();
+        assert_eq!(icc_of(&empty), None);
+    }
+
+    #[test]
     fn decode_rgba_icc_reads_profile() {
         let d = noise_gradient(16, 16);
         let icc = fake_icc();
@@ -593,7 +635,7 @@ mod tests {
         riff.extend(b"WEBPVP8L");
         riff.extend((vp8l.len() as u32).to_le_bytes());
         riff.extend(&vp8l);
-        let out = add_webp_meta(&riff, 8, 1, None, Some(&[1, 2, 3, 4]));
+        let out = add_webp_meta(&riff, 8, 8, None, Some(&[1, 2, 3, 4]));
         let chunks = webp_chunks(&out);
         assert_eq!(&chunks[0].0, b"VP8X");
         assert_eq!(chunks[0].1[0] & 0x10, 0x10);

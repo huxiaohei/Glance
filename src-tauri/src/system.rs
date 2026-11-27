@@ -3,12 +3,13 @@
 
 use std::sync::Arc;
 
-use glance_imaging::{Decoded, ImagingError};
+use glance_imaging::Decoded;
 use tauri::image::Image;
 use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::catalog::registry::{FileId, Registry};
+use crate::decode::{self, DecodeError};
 use crate::fileops::fsx::FsError;
 
 /// 复制到剪贴板的图片像素数上限（宽 × 高）。
@@ -19,10 +20,13 @@ const CLIPBOARD_MAX_PIXELS: u64 = 100_000_000;
 pub fn load_for_clipboard(registry: &Registry, id: u32) -> Result<Decoded, FsError> {
     let path = registry.path(FileId(id)).ok_or(FsError::NotFound)?;
     let bytes = std::fs::read(&path).map_err(|e| FsError::from(&e))?;
-    glance_imaging::decode_rgba(&bytes, CLIPBOARD_MAX_PIXELS).map_err(|e| match e {
-        ImagingError::TooLarge => FsError::TooLarge,
-        _ => FsError::Other,
-    })
+    // 按内容分派：HEIC / AVIF 走系统解码器，本机缺解码器暂且也算 Other。
+    decode::decode(&bytes, CLIPBOARD_MAX_PIXELS)
+        .map(|d| d.decoded)
+        .map_err(|e| match e {
+            DecodeError::TooLarge => FsError::TooLarge,
+            DecodeError::NoCodec | DecodeError::Decode => FsError::Other,
+        })
 }
 
 /// 已登记的那些 id 的路径，按输入顺序以换行连接，末尾不带换行；未登记的跳过，一个都没有 → NotFound。
@@ -133,11 +137,14 @@ mod tests {
         let registry = Registry::default();
         let p = dir.path().join("small.png");
         let data = vec![7u8; 3 * 2 * 4];
-        let png = glance_imaging::encode_png_lossless(glance_imaging::RgbaView {
-            width: 3,
-            height: 2,
-            data: &data,
-        }, None)
+        let png = glance_imaging::encode_png_lossless(
+            glance_imaging::RgbaView {
+                width: 3,
+                height: 2,
+                data: &data,
+            },
+            None,
+        )
         .unwrap();
         std::fs::write(&p, png).unwrap();
         let id = registry.register(&p);

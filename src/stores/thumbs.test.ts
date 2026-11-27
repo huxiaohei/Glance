@@ -43,6 +43,19 @@ describe("thumbs store", () => {
     useThumbs.getState().apply({ type: "broken", id: 5 });
     expect(useThumbs.getState().broken.has(5)).toBe(true);
   });
+  it("noCodec 暂按损坏处理，之后的 ready 仍可清除", () => {
+    const s = useThumbs.getState();
+    s.applyMany([{ type: "noCodec", id: 7 }, { type: "ready", id: 8, tier: 320, v: "1-1" }, { type: "noCodec", id: 8 }]);
+    let st = useThumbs.getState();
+    expect([st.broken.has(7), st.broken.has(8)]).toEqual([true, true]);
+    const before = st.broken;
+    s.apply({ type: "noCodec", id: 7 });
+    expect(useThumbs.getState().broken).toBe(before);
+    s.apply({ type: "ready", id: 7, tier: 320, v: "2-2" });
+    st = useThumbs.getState();
+    expect(st.broken.has(7)).toBe(false);
+    expect(st.ready.get(7)).toEqual({ tier: 320, v: "2-2" });
+  });
   it("ready 清除损坏标记", () => {
     const s = useThumbs.getState();
     s.applyMany([{ type: "broken", id: 1 }, { type: "broken", id: 2 }, { type: "broken", id: 3 }]);

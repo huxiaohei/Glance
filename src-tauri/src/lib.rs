@@ -2,18 +2,19 @@ pub mod catalog;
 mod basket;
 mod batch;
 mod commands;
+pub mod decode;
 mod dragout;
-mod edit;
+pub mod edit;
 pub mod fileops;
 #[cfg(debug_assertions)]
 mod lab;
 #[cfg(target_os = "macos")]
 mod macos_service;
-mod protocol;
+pub mod protocol;
 mod shell;
 mod state;
 mod system;
-mod thumbs;
+pub mod thumbs;
 mod update;
 
 use catalog::registry::Registry;
@@ -102,11 +103,7 @@ pub fn run() {
                 let registry = app.state::<Arc<Registry>>();
                 let thumbs = app.state::<Arc<Thumbs>>();
                 let edit = app.state::<Arc<edit::EditState>>();
-                let ctx = protocol::Ctx {
-                    registry: &registry,
-                    thumbs: thumbs.cache(),
-                    edit: &edit,
-                };
+                let ctx = protocol::Ctx::new(&registry, thumbs.cache(), &edit);
                 responder.respond(protocol::respond(&ctx, &path));
             });
         });

@@ -8,23 +8,35 @@ use super::cache::ThumbCache;
 use super::queue::{Job, WantQueue};
 use crate::catalog::registry::{FileId, Registry};
 use crate::catalog::scan::stamp_of;
+use crate::decode::{DecodeError, Decoder};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ThumbEvent {
-    Ready { id: u32, tier: u32, v: String },
-    Broken { id: u32 },
+    Ready {
+        id: u32,
+        tier: u32,
+        v: String,
+    },
+    Broken {
+        id: u32,
+    },
+    /// 本机系统没有这种格式（HEIC / AVIF）的解码器。
+    NoCodec {
+        id: u32,
+    },
 }
 
 /// 读文件期间文件被改写时，最多尝试这么多次。
 const ATTEMPTS: usize = 3;
 
 /// 处理一个任务：已缓存直接 Ready；否则读文件、生成、写缓存。
-/// 文件未登记、已不存在、读失败或解码失败 → Broken。绝不 panic。
+/// 本机没有该格式的系统解码器 → NoCodec；文件未登记、已不存在、读失败或解码失败 → Broken。绝不 panic。
 pub fn process(job: Job, registry: &Registry, cache: &ThumbCache) -> ThumbEvent {
-    process_with(job, registry, cache, &mut |_| {})
+    process_with(job, registry, cache, Decoder::SYSTEM, &mut |_| {})
 }
 
+/// decoder 是解码依赖，测试里换成替身。
 /// after_read 在读完、解码完之后调用，测试借此在两次查看文件状态之间改写文件。
 ///
 /// 缓存键与版本号出自读文件前查看的同一份文件状态；读完、解码完再查看一次，
@@ -35,6 +47,7 @@ fn process_with(
     job: Job,
     registry: &Registry,
     cache: &ThumbCache,
+    decoder: Decoder,
     after_read: &mut dyn FnMut(&std::path::Path),
 ) -> ThumbEvent {
     let (id, tier) = job;
@@ -59,15 +72,14 @@ fn process_with(
             return broken;
         };
         // 解码库万一 panic，也只算这张图损坏，不能带走工作线程。
-        let made = catch_unwind(AssertUnwindSafe(|| {
-            glance_imaging::make_thumbnail(&bytes, tier.px())
-        }));
+        let made = catch_unwind(AssertUnwindSafe(|| decoder.thumbnail(&bytes, tier.px())));
         after_read(&path);
         if stamp_of(&path) != Some(stamp) {
             continue;
         }
         return match made {
             Ok(Ok(thumb)) if cache.put(&key, &thumb.webp).is_ok() => ready,
+            Ok(Err(DecodeError::NoCodec)) => ThumbEvent::NoCodec { id: id.0 },
             _ => broken,
         };
     }
@@ -180,11 +192,14 @@ mod tests {
         let data: Vec<u8> = (0..w * h)
             .flat_map(|i| [(i % 251) as u8, 80, 160, 255])
             .collect();
-        let png = encode_png_lossless(RgbaView {
-            width: w,
-            height: h,
-            data: &data,
-        }, None)
+        let png = encode_png_lossless(
+            RgbaView {
+                width: w,
+                height: h,
+                data: &data,
+            },
+            None,
+        )
         .unwrap();
         std::fs::write(path, png).unwrap();
     }
@@ -212,6 +227,29 @@ mod tests {
             serde_json::to_string(&ThumbEvent::Broken { id: 1 }).unwrap(),
             r#"{"type":"broken","id":1}"#
         );
+    }
+
+    #[test]
+    fn no_codec_event() {
+        assert_eq!(
+            serde_json::to_string(&ThumbEvent::NoCodec { id: 3 }).unwrap(),
+            r#"{"type":"noCodec","id":3}"#
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        // 扩展名是 .png，内容是 HEIC 的文件头：按内容分派给系统解码器（替身报 NoCodec）。
+        let img = dir.path().join("a.png");
+        let mut bytes = glance_imaging::heif::testkit::ftyp(b"heic", &[*b"mif1", *b"heic"]);
+        bytes.extend_from_slice(&[0; 64]);
+        std::fs::write(&img, bytes).unwrap();
+        let registry = Registry::default();
+        let id = registry.register(&img);
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let dec = crate::decode::no_codec_decoder();
+        let event = process_with((id, Tier::S), &registry, &cache, dec, &mut |_| {});
+        assert_eq!(event, ThumbEvent::NoCodec { id: id.0 });
+        assert_eq!(dec.codecs.missing(glance_syscodec::Kind::Heif), Some(true));
+        assert_eq!(file_count(cache_dir.path()), 0);
     }
 
     #[test]
@@ -253,11 +291,14 @@ mod tests {
             let data: Vec<u8> = (0..w * h)
                 .flat_map(|i| [(i % 7) as u8, 1, 2, 255])
                 .collect();
-            encode_png_lossless(RgbaView {
-                width: w,
-                height: h,
-                data: &data,
-            }, None)
+            encode_png_lossless(
+                RgbaView {
+                    width: w,
+                    height: h,
+                    data: &data,
+                },
+                None,
+            )
             .unwrap()
         };
         std::fs::write(&img, bigger).unwrap();
@@ -291,11 +332,14 @@ mod tests {
     /// 往往相同，同一毫秒内改写时修改时间也不变；靠 pad 保证每次改写文件大小都不同。
     fn png_of_width(w: u32, pad: usize) -> Vec<u8> {
         let data = vec![200u8; (w * 10 * 4) as usize];
-        let mut bytes = encode_png_lossless(RgbaView {
-            width: w,
-            height: 10,
-            data: &data,
-        }, None)
+        let mut bytes = encode_png_lossless(
+            RgbaView {
+                width: w,
+                height: 10,
+                data: &data,
+            },
+            None,
+        )
         .unwrap();
         bytes.extend(std::iter::repeat_n(0u8, pad));
         bytes
@@ -319,12 +363,18 @@ mod tests {
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let mut calls = 0;
         // 第一次读完之后文件被改写（多接 1 字节，大小必然不同，版本也就不同）
-        let event = process_with((id, Tier::S), &registry, &cache, &mut |p| {
-            calls += 1;
-            if calls == 1 {
-                std::fs::write(p, png_of_width(90, 1)).unwrap();
-            }
-        });
+        let event = process_with(
+            (id, Tier::S),
+            &registry,
+            &cache,
+            Decoder::SYSTEM,
+            &mut |p| {
+                calls += 1;
+                if calls == 1 {
+                    std::fs::write(p, png_of_width(90, 1)).unwrap();
+                }
+            },
+        );
         assert_eq!(calls, 2);
         let v = stamp_of(&img).unwrap().version();
         assert_eq!(
@@ -352,11 +402,17 @@ mod tests {
         let id = registry.register(&img);
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let mut calls = 0u32;
-        let event = process_with((id, Tier::S), &registry, &cache, &mut |p| {
-            calls += 1;
-            // 每次多接一个字节：大小每次都不同，同一毫秒内的改写也分辨得出
-            std::fs::write(p, png_of_width(10, calls as usize)).unwrap();
-        });
+        let event = process_with(
+            (id, Tier::S),
+            &registry,
+            &cache,
+            Decoder::SYSTEM,
+            &mut |p| {
+                calls += 1;
+                // 每次多接一个字节：大小每次都不同，同一毫秒内的改写也分辨得出
+                std::fs::write(p, png_of_width(10, calls as usize)).unwrap();
+            },
+        );
         assert_eq!(event, ThumbEvent::Broken { id: id.0 });
         assert_eq!(calls, ATTEMPTS as u32);
         assert_eq!(file_count(cache_dir.path()), 0);

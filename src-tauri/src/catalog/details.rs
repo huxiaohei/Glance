@@ -55,7 +55,8 @@ pub const EXIF_KEYS: [&str; 8] = [
 /// 容器里嵌入的 EXIF 块的上限；超过视为损坏，不读。
 const MAX_EXIF: u64 = 1 << 20;
 
-type Src = BufReader<File>;
+/// 带缓冲的读源：文件或内存里的字节。
+type Src<R> = BufReader<R>;
 
 /// 显示尺寸：文件头里的宽高，带 EXIF 方向 5–8（转 90°）时交换宽高。读不出返回 None。
 /// 只读文件头，不解码。
@@ -79,10 +80,11 @@ pub fn display_size(path: &Path) -> Option<(u32, u32)> {
     Some(if turned { (h, w) } else { (w, h) })
 }
 
-/// 文件里嵌入的原始 EXIF：TIFF 结构（以 `II` / `MM` 开头，不含 JPEG 的 `Exif\0\0` 前缀）。
-/// 没有、读不出或不是 TIFF 结构时返回 None。只读文件头，不解码。
-pub fn exif_blob(path: &Path) -> Option<Vec<u8>> {
-    let mut r = BufReader::new(File::open(path).ok()?);
+/// 图片文件内容（已读进内存的整份字节）里嵌入的原始 EXIF：TIFF 结构（以 `II` / `MM` 开头，
+/// 不含 JPEG 的 `Exif\0\0` 前缀）。没有、读不出或不是 TIFF 结构时返回 None。只看文件头，不解码。
+/// 与像素出自同一份字节，免得两次读文件之间文件被换掉。
+pub fn exif_blob(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut r = BufReader::new(std::io::Cursor::new(bytes));
     probe(&mut r)
         .exif
         .filter(|b| b.starts_with(b"II*\0") || b.starts_with(b"MM\0*"))
@@ -177,7 +179,7 @@ struct Head {
 }
 
 /// 按文件签名分派。只读到图像数据之前（JPEG 的 SOS、PNG 的 IDAT），WebP 跳着走完各块。
-fn probe(r: &mut Src) -> Head {
+fn probe(r: &mut Src<impl Read + Seek>) -> Head {
     let mut head = Head::default();
     if starts_with_ftyp(r) {
         heif_head(r, &mut head);
@@ -208,13 +210,13 @@ fn probe(r: &mut Src) -> Head {
 }
 
 /// 第 4 到 8 字节是 `ftyp`（只看缓冲区，不移动读位置）。
-fn starts_with_ftyp(r: &mut Src) -> bool {
+fn starts_with_ftyp(r: &mut Src<impl Read + Seek>) -> bool {
     r.fill_buf()
         .is_ok_and(|b| b.len() >= 8 && &b[4..8] == b"ftyp")
 }
 
 /// HEIC / HEIF / AVIF：宽高之外的信息都在 `meta` 里，EXIF 块按 `iloc` 给的位置读。
-fn heif_head(r: &mut Src, head: &mut Head) {
+fn heif_head(r: &mut Src<impl Read + Seek>, head: &mut Head) {
     let Some(info) = glance_imaging::heif::parse(r) else {
         return;
     };
@@ -228,13 +230,13 @@ fn heif_head(r: &mut Src, head: &mut Head) {
     });
 }
 
-fn read_arr<const N: usize>(r: &mut Src) -> Option<[u8; N]> {
+fn read_arr<const N: usize>(r: &mut Src<impl Read + Seek>) -> Option<[u8; N]> {
     let mut buf = [0u8; N];
     r.read_exact(&mut buf).ok()?;
     Some(buf)
 }
 
-fn read_vec(r: &mut Src, len: u64) -> Option<Vec<u8>> {
+fn read_vec(r: &mut Src<impl Read + Seek>, len: u64) -> Option<Vec<u8>> {
     if len > MAX_EXIF {
         return None;
     }
@@ -243,7 +245,7 @@ fn read_vec(r: &mut Src, len: u64) -> Option<Vec<u8>> {
     (buf.len() as u64 == len).then_some(buf)
 }
 
-fn skip(r: &mut Src, len: u64) -> Option<()> {
+fn skip(r: &mut Src<impl Read + Seek>, len: u64) -> Option<()> {
     r.seek_relative(i64::try_from(len).ok()?).ok()
 }
 
@@ -266,7 +268,7 @@ fn ppm_to_dpi(x: u32, y: u32) -> Option<(f64, f64)> {
 
 /// JPEG：逐段走到 SOS。取第一个 EXIF APP1、JFIF 密度与 SOF 里的位深和分量数。
 /// 调用时已读过 4 个字节（SOI 和下一个标记）。
-fn jpeg_head(r: &mut Src, head: &mut Head) -> Option<()> {
+fn jpeg_head(r: &mut Src<impl Read + Seek>, head: &mut Head) -> Option<()> {
     r.seek_relative(-2).ok()?;
     head.has_alpha = Some(false);
     loop {
@@ -325,7 +327,7 @@ fn jpeg_head(r: &mut Src, head: &mut Head) -> Option<()> {
 
 /// PNG：逐块走到 IDAT。IHDR 给颜色类型和位深，tRNS 表示有透明，acTL 表示 APNG。
 /// 调用时已读过签名的前 4 个字节。
-fn png_head(r: &mut Src, head: &mut Head) -> Option<()> {
+fn png_head(r: &mut Src<impl Read + Seek>, head: &mut Head) -> Option<()> {
     skip(r, 4)?;
     loop {
         let hdr = read_arr::<8>(r)?;
@@ -370,7 +372,7 @@ fn png_head(r: &mut Src, head: &mut Head) -> Option<()> {
 }
 
 /// WebP：RIFF 里逐块跳过。VP8X 给透明与动画标志，VP8L 头里有透明位。
-fn webp_head(r: &mut Src, head: &mut Head) -> Option<()> {
+fn webp_head(r: &mut Src<impl Read + Seek>, head: &mut Head) -> Option<()> {
     let riff = read_arr::<8>(r)?;
     if riff[4..] != *b"WEBP" {
         return None;
@@ -415,7 +417,7 @@ fn webp_head(r: &mut Src, head: &mut Head) -> Option<()> {
 }
 
 /// GIF：逻辑屏幕描述与全局颜色表。之后由 [`gif_frames`] 数帧。
-fn gif_head(r: &mut Src, head: &mut Head) -> Option<()> {
+fn gif_head(r: &mut Src<impl Read + Seek>, head: &mut Head) -> Option<()> {
     if read_arr::<2>(r)?[1] != b'a' {
         return None;
     }
@@ -433,7 +435,7 @@ fn gif_head(r: &mut Src, head: &mut Head) -> Option<()> {
 }
 
 /// 走 GIF 的块直到第二帧或结尾：两帧及以上为动图；途中的图形控制扩展带透明标志则有透明。
-fn gif_frames(r: &mut Src, head: &mut Head) -> Option<()> {
+fn gif_frames(r: &mut Src<impl Read + Seek>, head: &mut Head) -> Option<()> {
     let mut frames = 0;
     loop {
         match read_arr::<1>(r)?[0] {
@@ -465,7 +467,7 @@ fn gif_frames(r: &mut Src, head: &mut Head) -> Option<()> {
     }
 }
 
-fn skip_sub_blocks(r: &mut Src) -> Option<()> {
+fn skip_sub_blocks(r: &mut Src<impl Read + Seek>) -> Option<()> {
     loop {
         let len = read_arr::<1>(r)?[0];
         if len == 0 {
@@ -476,7 +478,7 @@ fn skip_sub_blocks(r: &mut Src) -> Option<()> {
 }
 
 /// BMP：信息头里的位数、像素密度；32 位且带非零 alpha 掩码才算有透明。
-fn bmp_head(r: &mut Src, head: &mut Head) -> Option<()> {
+fn bmp_head(r: &mut Src<impl Read + Seek>, head: &mut Head) -> Option<()> {
     skip(r, 10)?;
     let size = u32_le(&read_arr::<4>(r)?);
     let (bpp, alpha) = if size == 12 {
@@ -932,7 +934,6 @@ mod tests {
 
     #[test]
     fn exif_blob_is_tiff_for_every_container() {
-        let dir = tempfile::tempdir().unwrap();
         let t = tiff(&[(MAKE, V::Ascii("Acme"))], &[]);
         let cases = [
             ("a.jpg", jpeg_with_exif(16, 16, &t)),
@@ -940,12 +941,10 @@ mod tests {
             ("a.webp", webp_with_exif(16, 16, &t)),
         ];
         for (name, bytes) in cases {
-            let p = write(dir.path(), name, &bytes);
-            assert_eq!(exif_blob(&p).as_deref(), Some(t.as_slice()), "{name}");
+            assert_eq!(exif_blob(&bytes).as_deref(), Some(t.as_slice()), "{name}");
         }
-        let plain = write(dir.path(), "plain.jpg", &jpeg(16, 16));
-        assert_eq!(exif_blob(&plain), None);
-        assert_eq!(exif_blob(&dir.path().join("missing.jpg")), None);
+        assert_eq!(exif_blob(&jpeg(16, 16)), None);
+        assert_eq!(exif_blob(b""), None);
     }
 
     #[test]
@@ -1216,7 +1215,11 @@ mod tests {
         assert!(d.animated);
         assert_eq!(d.exif[0].key, "make");
         assert_eq!(d.exif[0].value, "Apple");
-        assert_eq!(exif_blob(&p).map(|b| b.starts_with(b"II*\0")), Some(true));
+        let bytes = std::fs::read(&p).unwrap();
+        assert_eq!(
+            exif_blob(&bytes).map(|b| b.starts_with(b"II*\0")),
+            Some(true)
+        );
 
         let p = heif_file(tmp.path(), "b.heic", &SampleOpts::default());
         let d = image_details(&p).unwrap();

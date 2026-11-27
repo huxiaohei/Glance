@@ -35,7 +35,11 @@ export interface RootInfo { generation: number; path: string; name: string; recu
 
 export type OpenErrorCode = "notFound" | "notAnImage" | "unreadable";
 
-export type ThumbEvent = { type: "ready"; id: FileId; tier: Tier; v: string } | { type: "broken"; id: FileId };
+// noCodec：本机系统没有这种格式（HEIC / AVIF）的解码器。
+export type ThumbEvent =
+  | { type: "ready"; id: FileId; tier: Tier; v: string }
+  | { type: "broken"; id: FileId }
+  | { type: "noCodec"; id: FileId };
 
 export interface ExifItem {
   key: "make" | "model" | "lens" | "dateTime" | "exposure" | "fNumber" | "iso" | "focalLength";

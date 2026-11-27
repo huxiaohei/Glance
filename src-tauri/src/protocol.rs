@@ -1,7 +1,10 @@
 use crate::catalog::registry::{FileId, Registry};
+use crate::decode::{DecodeError, Decoder};
 use crate::edit::EditState;
 use crate::state::recents::is_cache_key;
 use crate::thumbs::{ThumbCache, Tier};
+use glance_imaging::heif;
+use glance_imaging::{SrcFormat, src_format_of};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::http;
 
@@ -25,6 +28,19 @@ pub struct Ctx<'a> {
     pub registry: &'a Registry,
     pub thumbs: &'a ThumbCache,
     pub edit: &'a EditState,
+    /// 显示通道的解码依赖；生产路径是 [`Decoder::SYSTEM`]，测试换成替身。
+    pub decoder: Decoder,
+}
+
+impl<'a> Ctx<'a> {
+    pub fn new(registry: &'a Registry, thumbs: &'a ThumbCache, edit: &'a EditState) -> Self {
+        Ctx {
+            registry,
+            thumbs,
+            edit,
+            decoder: Decoder::SYSTEM,
+        }
+    }
 }
 
 fn parse_u32(s: &str) -> Option<u32> {
@@ -67,13 +83,35 @@ fn content_type(path: &std::path::Path) -> Option<&'static str> {
     }
 }
 
-fn not_found() -> http::Response<Vec<u8>> {
+/// 扩展名是 HEIC / HEIF / AVIF 之一：内容才决定怎么返回。
+fn is_heif_ext(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ["heic", "heif", "avif"].contains(&e.to_ascii_lowercase().as_str()))
+}
+
+fn mime_of(f: SrcFormat) -> &'static str {
+    match f {
+        SrcFormat::Png => "image/png",
+        SrcFormat::Jpeg => "image/jpeg",
+        SrcFormat::Webp => "image/webp",
+        SrcFormat::Gif => "image/gif",
+        SrcFormat::Bmp => "image/bmp",
+    }
+}
+
+/// 空应答体，只有状态码。
+fn bare(status: u16) -> http::Response<Vec<u8>> {
     http::Response::builder()
-        .status(404)
-        // 与 200 一致地放行跨源读取，否则 fetch() 只能看到网络错误，读不到 404。
+        .status(status)
+        // 与 200 一致地放行跨源读取，否则 fetch() 只能看到网络错误，读不到状态码。
         .header("access-control-allow-origin", "*")
         .body(Vec::new())
-        .expect("static 404 response")
+        .expect("static bare response")
+}
+
+fn not_found() -> http::Response<Vec<u8>> {
+    bare(404)
 }
 
 fn ok(mime: &str, body: Vec<u8>) -> http::Response<Vec<u8>> {
@@ -113,10 +151,26 @@ fn serve_edit_source(ctx: &Ctx, session: u32) -> Option<http::Response<Vec<u8>>>
         .ok()
 }
 
+/// 原图。内容是 HEIF / AVIF（不论扩展名）→ 后端解码成不压缩的 PNG：本机没有解码器是 415，
+/// 解不出来是 404。其余原样返回：MIME 按扩展名，扩展名是 HEIC / HEIF / AVIF 而内容不是时按内容。
 fn serve_image(ctx: &Ctx, id: FileId) -> Option<http::Response<Vec<u8>>> {
     let file = ctx.registry.path(id)?;
-    let mime = content_type(&file)?;
+    let by_ext = content_type(&file);
+    if by_ext.is_none() && !is_heif_ext(&file) {
+        return None;
+    }
     let bytes = std::fs::read(&file).ok()?;
+    if heif::sniff(&bytes).is_some() {
+        return Some(match ctx.decoder.display_png(&bytes) {
+            Ok(png) => ok("image/png", png),
+            Err(DecodeError::NoCodec) => bare(415),
+            Err(_) => not_found(),
+        });
+    }
+    let mime = match by_ext {
+        Some(m) => m,
+        None => mime_of(src_format_of(&bytes)?),
+    };
     Some(ok(mime, bytes))
 }
 
@@ -127,7 +181,7 @@ fn serve_thumb(ctx: &Ctx, id: FileId, tier: Tier) -> Option<http::Response<Vec<u
     Some(ok("image/webp", ctx.thumbs.get(&key)?))
 }
 
-/// 读文件并组装响应；任何失败都是 404，不 panic。
+/// 读文件并组装响应；不 panic。失败都是 404，只有本机缺 HEIF / AVIF 解码器时是 415。
 pub fn respond(ctx: &Ctx, path: &str) -> http::Response<Vec<u8>> {
     HITS.fetch_add(1, Ordering::Relaxed);
     let response = match parse_route(path) {
@@ -193,11 +247,7 @@ mod tests {
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let edit = EditState::default();
-        let ctx = Ctx {
-            registry: &r,
-            thumbs: &cache,
-            edit: &edit,
-        };
+        let ctx = Ctx::new(&r, &cache, &edit);
         let id = r.register(&file);
         let resp = respond(&ctx, &format!("/image/{}", id.0));
         assert_eq!(resp.status(), 200);
@@ -209,17 +259,103 @@ mod tests {
         assert_eq!(resp.body().as_slice(), b"\x89PNG-bytes");
     }
 
+    fn heic_head() -> Vec<u8> {
+        let mut b = glance_imaging::heif::testkit::ftyp(b"heic", &[*b"mif1", *b"heic"]);
+        b.extend_from_slice(&[0; 64]);
+        b
+    }
+
+    #[test]
+    fn serve_image_sniffs_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = Registry::default();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let edit = EditState::default();
+        // 系统解码器一调就报 NoCodec：PNG 字节若误走系统解码，这里就会是 415。
+        let ctx = Ctx {
+            decoder: crate::decode::no_codec_decoder(),
+            ..Ctx::new(&r, &cache, &edit)
+        };
+        // 扩展名是 .heic，内容是 PNG：按内容给 MIME，原样返回。
+        let file = dir.path().join("x.heic");
+        real_png(&file);
+        let id = r.register(&file);
+        let resp = respond(&ctx, &format!("/image/{}", id.0));
+        assert_eq!(resp.status(), 200);
+        assert_eq!(resp.headers()["content-type"], "image/png");
+        assert_eq!(
+            resp.headers()["cache-control"],
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(resp.body(), &std::fs::read(&file).unwrap());
+        // 内容认不出的新扩展名文件：404。
+        let junk = dir.path().join("y.avif");
+        std::fs::write(&junk, b"junk").unwrap();
+        let id = r.register(&junk);
+        assert_eq!(respond(&ctx, &format!("/image/{}", id.0)).status(), 404);
+    }
+
+    #[test]
+    fn no_codec_is_415() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = Registry::default();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let edit = EditState::default();
+        let dec = crate::decode::no_codec_decoder();
+        let ctx = Ctx {
+            decoder: dec,
+            ..Ctx::new(&r, &cache, &edit)
+        };
+        // 扩展名是 .png，内容是 HEIC：按内容走系统解码。
+        let file = dir.path().join("x.png");
+        std::fs::write(&file, heic_head()).unwrap();
+        let id = r.register(&file);
+        let resp = respond(&ctx, &format!("/image/{}", id.0));
+        assert_eq!(resp.status(), 415);
+        assert_eq!(resp.headers()["access-control-allow-origin"], "*");
+        assert!(resp.body().is_empty());
+        assert_eq!(dec.codecs.missing(glance_syscodec::Kind::Heif), Some(true));
+    }
+
+    #[test]
+    fn heif_decode_failure_is_404() {
+        fn bad(
+            _: &[u8],
+            _: glance_syscodec::Kind,
+            _: u64,
+            _: Option<u32>,
+        ) -> Result<glance_syscodec::Image, glance_syscodec::CodecError> {
+            Err(glance_syscodec::CodecError::Decode("坏".into()))
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let r = Registry::default();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let cache = ThumbCache::new(cache_dir.path().to_path_buf());
+        let edit = EditState::default();
+        let ctx = Ctx {
+            decoder: crate::decode::Decoder {
+                sys: bad,
+                ..crate::decode::no_codec_decoder()
+            },
+            ..Ctx::new(&r, &cache, &edit)
+        };
+        let file = dir.path().join("x.heic");
+        std::fs::write(&file, heic_head()).unwrap();
+        let id = r.register(&file);
+        let resp = respond(&ctx, &format!("/image/{}", id.0));
+        assert_eq!(resp.status(), 404);
+        assert_eq!(resp.headers()["access-control-allow-origin"], "*");
+    }
+
     #[test]
     fn unknown_id_and_deleted_file_are_404() {
         let r = Registry::default();
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let edit = EditState::default();
-        let ctx = Ctx {
-            registry: &r,
-            thumbs: &cache,
-            edit: &edit,
-        };
+        let ctx = Ctx::new(&r, &cache, &edit);
         let missing = respond(&ctx, "/image/7");
         assert_eq!(missing.status(), 404);
         // 404 也要放行跨源读取，否则 fetch() 只会报网络错误。
@@ -283,11 +419,7 @@ mod tests {
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let edit = EditState::default();
-        let ctx = Ctx {
-            registry: &r,
-            thumbs: &cache,
-            edit: &edit,
-        };
+        let ctx = Ctx::new(&r, &cache, &edit);
         let s = edit.open(&r, r.register(&file)).unwrap().session;
         let resp = respond(&ctx, &format!("/edit/{s}/source"));
         assert_eq!(resp.status(), 200);
@@ -312,11 +444,7 @@ mod tests {
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let edit = EditState::default();
-        let ctx = Ctx {
-            registry: &r,
-            thumbs: &cache,
-            edit: &edit,
-        };
+        let ctx = Ctx::new(&r, &cache, &edit);
         let s = edit.open(&r, r.register(&file)).unwrap().session;
         assert_eq!(respond(&ctx, &format!("/edit/{s}/1")).status(), 404);
         let webp = EditParams::Convert {
@@ -374,11 +502,7 @@ mod tests {
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let edit = EditState::default();
-        let ctx = Ctx {
-            registry: &r,
-            thumbs: &cache,
-            edit: &edit,
-        };
+        let ctx = Ctx::new(&r, &cache, &edit);
         let key = "0123456789abcdef0123456789abcdef";
         let url = format!("/thumb-key/{key}");
         let before = respond(&ctx, &url);
@@ -406,11 +530,7 @@ mod tests {
         let cache_dir = tempfile::tempdir().unwrap();
         let cache = ThumbCache::new(cache_dir.path().to_path_buf());
         let edit = EditState::default();
-        let ctx = Ctx {
-            registry: &r,
-            thumbs: &cache,
-            edit: &edit,
-        };
+        let ctx = Ctx::new(&r, &cache, &edit);
         let id = r.register(&file);
         let url = format!("/thumb/{}/320", id.0);
 

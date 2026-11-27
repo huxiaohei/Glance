@@ -23,16 +23,34 @@ pub fn make_thumbnail(bytes: &[u8], max_edge: u32) -> Result<Thumbnail, ImagingE
         return Err(ImagingError::InvalidMaxEdge);
     }
     let img = decode_oriented(bytes, u64::MAX)?;
-
     let has_alpha = img.color().has_alpha();
     let src = img.into_rgba8();
-    let (sw, sh) = src.dimensions();
+    let (width, height) = src.dimensions();
+    let d = Decoded {
+        width,
+        height,
+        rgba: src.into_raw(),
+    };
+    thumbnail_from_rgba(d, has_alpha, max_edge)
+}
+
+/// 已解码、已转正的 RGBA8 → 缩略图：长边缩到不超过 max_edge（不放大），输出有损 WebP（质量 80）。
+/// has_alpha 为 true 时缩放前预乘 alpha，避免透明边缘发黑。
+pub fn thumbnail_from_rgba(
+    d: Decoded,
+    has_alpha: bool,
+    max_edge: u32,
+) -> Result<Thumbnail, ImagingError> {
+    if max_edge == 0 {
+        return Err(ImagingError::InvalidMaxEdge);
+    }
+    let (sw, sh) = (d.width, d.height);
     let (tw, th) = target_size(sw, sh, max_edge);
 
     let pixels = if (tw, th) == (sw, sh) {
-        src.into_raw()
+        d.rgba
     } else {
-        resize_rgba(src.into_raw(), (sw, sh), (tw, th), has_alpha)?
+        resize_rgba(d.rgba, (sw, sh), (tw, th), has_alpha)?
     };
     let webp = encode_webp(
         RgbaView {
@@ -153,4 +171,45 @@ fn resize_rgba(
             .map_err(|e| err(&e))?;
     }
     Ok(dst.into_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::encode::encode_png_lossless;
+
+    #[test]
+    fn thumbnail_from_rgba_matches_make_thumbnail() {
+        let (w, h) = (400u32, 200u32);
+        let data: Vec<u8> = (0..w * h)
+            .flat_map(|i| [(i % 251) as u8, 80, 160, (i % 7) as u8 * 30 + 75])
+            .collect();
+        let png = encode_png_lossless(
+            RgbaView {
+                width: w,
+                height: h,
+                data: &data,
+            },
+            None,
+        )
+        .unwrap();
+        let a = make_thumbnail(&png, 320).unwrap();
+        let d = Decoded {
+            width: w,
+            height: h,
+            rgba: data,
+        };
+        let b = thumbnail_from_rgba(d, true, 320).unwrap();
+        assert_eq!((b.width, b.height), (320, 160));
+        assert_eq!(a.webp, b.webp);
+        let d = Decoded {
+            width: 4,
+            height: 4,
+            rgba: vec![0; 64],
+        };
+        assert!(matches!(
+            thumbnail_from_rgba(d, false, 0),
+            Err(ImagingError::InvalidMaxEdge)
+        ));
+    }
 }

@@ -29,7 +29,8 @@ export const useThumbs = create<ThumbsState>((set) => ({
       let broken: Set<FileId> | null = null;
       for (const e of events) {
         const isBroken = (broken ?? s.broken).has(e.id);
-        if (e.type === "broken") {
+        // noCodec 暂按损坏处理
+        if (e.type === "broken" || e.type === "noCodec") {
           if (isBroken) continue;
           broken ??= new Set(s.broken);
           broken.add(e.id);

@@ -23,6 +23,7 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 glance-imaging = { path = "../crates/glance-imaging" }
+glance-syscodec = { path = "../crates/glance-syscodec" }
 tauri-plugin-dialog = "2"
 thiserror = "2"
 drag = "2.1.1"
@@ -51,3 +52,9 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 glance-imaging = { path = "../crates/glance-imaging", features = ["testkit"] }
 tempfile = "3"
 dirs = "6"
+
+# 集成测试 heic_display 用 CGImageDestination 现编 HEIC 样本。
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFData", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
+objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageDestination", "objc2-core-graphics"] }
