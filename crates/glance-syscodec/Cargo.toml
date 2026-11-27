@@ -10,14 +10,12 @@ license = "GPL-3.0-only"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFData", "CFDictionary", "CFNumber", "CFString"] }
-objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGColorSpace", "CGContext", "CGImage"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
 objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageSource", "CGImageProperties", "objc2-core-graphics"] }
 
-# 往返测试要在测试时用 CGImageDestination 编出 HEIC / AVIF 样本，并从位图上下文拿到 CGImage。
+# 测试在上面的基础上只多要编码：用 CGImageDestination 现编 HEIC / AVIF 样本。
 [target.'cfg(target_os = "macos")'.dev-dependencies]
-objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFData", "CFDictionary", "CFNumber", "CFString"] }
-objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
-objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageDestination", "CGImageSource", "CGImageProperties", "objc2-core-graphics"] }
+objc2-image-io = { version = "0.3", default-features = false, features = ["CGImageDestination"] }
 
 [dev-dependencies]
 glance-imaging = { path = "../glance-imaging" }

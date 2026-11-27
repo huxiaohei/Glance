@@ -14,12 +14,12 @@ use objc2_core_graphics::{
     CGImageByteOrderInfo, kCGColorSpaceSRGB,
 };
 use objc2_image_io::{
-    CGImageSource, kCGImagePropertyPixelHeight, kCGImagePropertyPixelWidth,
+    CGImageSource, CGImageSourceStatus, kCGImagePropertyPixelHeight, kCGImagePropertyPixelWidth,
     kCGImageSourceCreateThumbnailFromImageAlways, kCGImageSourceCreateThumbnailWithTransform,
     kCGImageSourceThumbnailMaxPixelSize, kCGImageSourceTypeIdentifierHint,
 };
 
-use crate::{CodecError, Image, Kind, unpremultiply};
+use crate::{CodecError, Image, Kind, boxes_complete, unpremultiply};
 
 const UTI_HEIC: &str = "public.heic";
 const UTI_HEIF: &str = "public.heif";
@@ -34,8 +34,15 @@ pub(crate) fn decode(
     if !os_supports(kind) {
         return Err(CodecError::NoCodec);
     }
+    if !boxes_complete(bytes) {
+        // 截断的文件，ImageIO 常常照样画出半张图（缺的部分是灰的）、状态也报完整；一律算读不出。
+        return Err(err("文件不完整或已损坏"));
+    }
     let source = create_source(bytes, kind).ok_or_else(|| err("建不出图像源"))?;
     let index = primary_index(&source).ok_or_else(|| err("文件里没有图像"))?;
+    if !is_complete(&source, index) {
+        return Err(err("文件不完整或已损坏"));
+    }
     let (w, h) = pixel_dims(&source, index).ok_or_else(|| err("读不出尺寸"))?;
     let long = w.max(h);
     let target = match max_edge {
@@ -44,6 +51,14 @@ pub(crate) fn decode(
         None => long,
     };
     let image = oriented_image(&source, index, target).ok_or_else(|| err("解码失败"))?;
+    if max_edge.is_none() {
+        // 属性里的尺寸可能与实际编码的图不符：按解出来的图再核一次，免得超限分配。
+        let actual = (CGImage::width(Some(&image)) as u64)
+            .saturating_mul(CGImage::height(Some(&image)) as u64);
+        if actual > max_pixels {
+            return Err(CodecError::TooLarge);
+        }
+    }
     render(&image)
 }
 
@@ -102,6 +117,13 @@ fn primary_index(source: &CGImageSource) -> Option<usize> {
     }
 }
 
+/// 整个源与主图都读到了完整数据。
+fn is_complete(source: &CGImageSource, index: usize) -> bool {
+    // SAFETY: `index` 已确认小于图像数；两个查询都只读。
+    let (all, one) = unsafe { (source.status(), source.status_at_index(index)) };
+    all == CGImageSourceStatus::StatusComplete && one == CGImageSourceStatus::StatusComplete
+}
+
 /// 图像属性里的像素宽高（未缩小）。
 fn pixel_dims(source: &CGImageSource, index: usize) -> Option<(u32, u32)> {
     // SAFETY: `index` 已确认小于图像数；不传选项。
@@ -158,18 +180,14 @@ fn render(image: &CGImage) -> Result<Image, CodecError> {
     rgba.resize(len, 0);
 
     let (space, mut icc) = target_space(image).ok_or_else(|| err("没有可用的色彩空间"))?;
-    let ctx = match bitmap_context(&mut rgba, w, h, row, &space) {
-        Some(ctx) => ctx,
-        None => {
-            // 源空间做不了 8 位位图的输出空间时退回 sRGB。
-            icc = None;
-            let srgb = srgb().ok_or_else(|| err("没有 sRGB"))?;
-            bitmap_context(&mut rgba, w, h, row, &srgb).ok_or_else(|| err("建不出位图"))?
+    if !draw_rgba(&mut rgba, w, h, &space, image) {
+        // 源空间做不了 8 位位图的输出空间时退回 sRGB。
+        icc = None;
+        let srgb = srgb().ok_or_else(|| err("没有 sRGB"))?;
+        if !draw_rgba(&mut rgba, w, h, &srgb, image) {
+            return Err(err("建不出位图"));
         }
-    };
-    let rect = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(w as f64, h as f64));
-    CGContext::draw_image(Some(&ctx), rect, Some(image));
-    drop(ctx);
+    }
 
     unpremultiply(&mut rgba);
     Ok(Image {
@@ -206,21 +224,25 @@ fn is_srgb(space: &CGColorSpace) -> bool {
     CGColorSpace::name(Some(space)).is_some_and(|n| *n == *srgb)
 }
 
-/// 以 `buf` 为像素缓冲建 8 位预乘 RGBA 位图上下文。
-/// 上下文只记住缓冲的指针：调用方须在再次读写 `buf` 之前释放它。
-fn bitmap_context(
-    buf: &mut [u8],
-    w: usize,
-    h: usize,
-    row: usize,
-    space: &CGColorSpace,
-) -> Option<CFRetained<CGContext>> {
-    if row < w.checked_mul(4)? || buf.len() < row.checked_mul(h)? {
-        return None;
+/// 以 `buf`（w × h 的紧排 RGBA8，行宽 w × 4）为像素缓冲建 8 位预乘 RGBA 位图上下文，
+/// 把 `image` 铺满画进去。建不出上下文（如 `space` 不能做输出空间）时返回 false。
+/// 上下文只在本函数内存在，`buf` 的可变借用覆盖它的整个生命期。
+fn draw_rgba(buf: &mut [u8], w: usize, h: usize, space: &CGColorSpace, image: &CGImage) -> bool {
+    let Some(row) = w.checked_mul(4) else {
+        return false;
+    };
+    if row.checked_mul(h).is_none_or(|need| buf.len() < need) {
+        return false;
     }
     let info = CGImageAlphaInfo::PremultipliedLast.0 | CGImageByteOrderInfo::Order32Big.0;
     let data: *mut c_void = buf.as_mut_ptr().cast();
     // SAFETY: `buf` 至少有 row × h 字节，行宽 row = w × 4 与 8 位 RGBA 一致；
-    // 上下文只在调用方的作用域里使用，且在 `buf` 被再次访问前释放。
-    unsafe { CGBitmapContextCreate(data, w, h, 8, row, Some(space), info) }
+    // 上下文在本函数返回前释放，期间 `buf` 被可变借用，别处读写不到它。
+    let Some(ctx) = (unsafe { CGBitmapContextCreate(data, w, h, 8, row, Some(space), info) })
+    else {
+        return false;
+    };
+    let rect = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(w as f64, h as f64));
+    CGContext::draw_image(Some(&ctx), rect, Some(image));
+    true
 }

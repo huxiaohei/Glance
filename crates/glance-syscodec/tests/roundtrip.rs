@@ -251,3 +251,25 @@ fn concurrent_decodes_from_worker_threads() {
         }
     });
 }
+
+#[test]
+fn truncated_files_are_decode_errors() {
+    let mut wrong = Vec::new();
+    for (uti, kind) in [("public.heic", Kind::Heif), ("public.avif", Kind::Avif)] {
+        let Some(bytes) = sample(uti) else { continue };
+        for pct in [25, 50, 75, 95] {
+            let cut = &bytes[..bytes.len() * pct / 100];
+            let got = decode(cut, kind, u64::MAX, None);
+            eprintln!(
+                "{uti} 截到 {pct}%（{} / {} 字节）：{:?}",
+                cut.len(),
+                bytes.len(),
+                got.as_ref().map(|i| (i.width, i.height))
+            );
+            if !matches!(got, Err(CodecError::Decode(_))) {
+                wrong.push(format!("{uti} {pct}%"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "这些截断没有返回 Decode：{wrong:?}");
+}

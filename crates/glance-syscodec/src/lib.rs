@@ -65,9 +65,85 @@ fn unpremultiply(rgba: &mut [u8]) {
     }
 }
 
+/// 顶层 ISOBMFF 盒子是否都完整落在 `bytes` 里。
+///
+/// 系统解码器对截断的文件常常照样画出半张图、状态也报“完整”，所以先自己核一遍：
+/// 每个顶层盒子声明的长度都不能超出文件末尾；末尾剩下的不足一个盒子头的字节只允许是全 0 的填充。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn boxes_complete(bytes: &[u8]) -> bool {
+    let len = bytes.len() as u64;
+    let mut pos: u64 = 0;
+    let mut seen = false;
+    while pos < len {
+        let rest = &bytes[pos as usize..];
+        if rest.len() < 8 {
+            return seen && rest.iter().all(|&b| b == 0);
+        }
+        let (size, header) = match u32::from_be_bytes([rest[0], rest[1], rest[2], rest[3]]) {
+            0 => (len - pos, 8),
+            1 => {
+                let Some(large) = rest.get(8..16) else {
+                    return false;
+                };
+                let mut b = [0u8; 8];
+                b.copy_from_slice(large);
+                (u64::from_be_bytes(b), 16)
+            }
+            n => (u64::from(n), 8),
+        };
+        if size < header || size > len - pos {
+            return false;
+        }
+        pos += size;
+        seen = true;
+    }
+    seen
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fbox(fourcc: &[u8; 4], body: usize) -> Vec<u8> {
+        let mut b = ((8 + body) as u32).to_be_bytes().to_vec();
+        b.extend_from_slice(fourcc);
+        b.resize(8 + body, 7);
+        b
+    }
+
+    #[test]
+    fn boxes_complete_checks_declared_lengths() {
+        let mut file = fbox(b"ftyp", 16);
+        file.extend(fbox(b"meta", 40));
+        file.extend(fbox(b"mdat", 100));
+        assert!(boxes_complete(&file));
+        // 截在最后一个盒子里、截在盒子头里，都不算完整。
+        assert!(!boxes_complete(&file[..file.len() - 1]));
+        assert!(!boxes_complete(&file[..24 + 48 + 4]));
+        // 末尾不足一个盒子头的 0 填充可以接受，非 0 的不行。
+        let mut padded = file.clone();
+        padded.extend_from_slice(&[0, 0, 0]);
+        assert!(boxes_complete(&padded));
+        padded.push(9);
+        assert!(!boxes_complete(&padded));
+        // size = 0 表示延伸到文件末尾。
+        let mut to_end = fbox(b"ftyp", 16);
+        to_end.extend_from_slice(&[0, 0, 0, 0]);
+        to_end.extend_from_slice(b"mdat");
+        to_end.extend_from_slice(&[1, 2, 3]);
+        assert!(boxes_complete(&to_end));
+        // 64 位长度。
+        let mut large = fbox(b"ftyp", 16);
+        large.extend_from_slice(&1u32.to_be_bytes());
+        large.extend_from_slice(b"mdat");
+        large.extend_from_slice(&20u64.to_be_bytes());
+        large.extend_from_slice(&[5, 5, 5, 5]);
+        assert!(boxes_complete(&large));
+        assert!(!boxes_complete(&large[..large.len() - 1]));
+        // 长度小于盒子头、空输入。
+        assert!(!boxes_complete(&[0, 0, 0, 4, b'f', b't', b'y', b'p']));
+        assert!(!boxes_complete(&[]));
+    }
 
     #[test]
     fn unpremultiply_restores_straight_alpha() {
