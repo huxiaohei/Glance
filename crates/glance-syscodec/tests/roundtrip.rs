@@ -183,10 +183,27 @@ fn display_p3_source_keeps_space_and_icc() {
         return;
     };
     let img = decode(&bytes, Kind::Heif, u64::MAX, None).expect("解码 HEIC");
-    let icc = img.icc.as_ref().expect("非 sRGB 的源应带回 ICC");
-    assert!(icc.len() > 128, "ICC 太短：{} 字节", icc.len());
-    // 像素留在 P3，不换算到 sRGB：数值应与编码前接近。
-    assert_corners_close(&img);
+    match img.icc.as_ref() {
+        Some(icc) => {
+            eprintln!("结果：保持源空间（Display P3），ICC {} 字节", icc.len());
+            assert!(icc.len() > 128, "ICC 太短：{} 字节", icc.len());
+            // 像素留在 P3，不换算到 sRGB：数值应与编码前接近。
+            assert_corners_close(&img);
+        }
+        None => {
+            // 有的系统版本在源空间里画不上去（CI 的 macOS 26），解码器退回 sRGB：
+            // 颜色已换算，数值不再与编码前相同，但绝不能是一张空图。
+            eprintln!("结果：源空间里画不上，已退回 sRGB（广色域被换算）");
+            assert!(
+                img.rgba.chunks_exact(4).all(|p| p[3] == 255),
+                "不透明的源解出来应当全不透明"
+            );
+            assert!(
+                img.rgba.chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0),
+                "解出来是一张全黑的图"
+            );
+        }
+    }
 }
 
 #[test]

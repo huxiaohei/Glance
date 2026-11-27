@@ -180,8 +180,12 @@ fn render(image: &CGImage) -> Result<Image, CodecError> {
     rgba.resize(len, 0);
 
     let (space, mut icc) = target_space(image).ok_or_else(|| err("没有可用的色彩空间"))?;
-    if !draw_rgba(&mut rgba, w, h, &space, image) {
-        // 源空间做不了 8 位位图的输出空间时退回 sRGB。
+    // 源空间做不了 8 位位图的输出空间时退回 sRGB。
+    // 另一种要退回的情况：上下文建出来了，却什么都没画上（缓冲仍然全 0）。CI 的 macOS 26 上
+    // Display P3 的 HEIC 就是这样（2026-11-27），不退回的话整张图是透明的。真正全透明的图
+    // 在 sRGB 里重画一遍仍是全 0，结果不变，只是多画一次。
+    let drawn = draw_rgba(&mut rgba, w, h, &space, image);
+    if !drawn || (icc.is_some() && rgba.iter().all(|&b| b == 0)) {
         icc = None;
         let srgb = srgb().ok_or_else(|| err("没有 sRGB"))?;
         if !draw_rgba(&mut rgba, w, h, &srgb, image) {
