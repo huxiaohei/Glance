@@ -243,8 +243,9 @@ const IDAT_MAX: usize = 1 << 30;
 const STORED_MAX: usize = 65535;
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 
-const CRC_TABLE: [u32; 256] = {
-    let mut t = [0u32; 256];
+/// slice-by-16 的 16 张表：`CRC_TABLES[0]` 是普通的逐字节表，第 k 张是“再过 k 个零字节”的结果。
+const CRC_TABLES: [[u32; 256]; 16] = {
+    let mut t = [[0u32; 256]; 16];
     let mut n = 0;
     while n < 256 {
         let mut c = n as u32;
@@ -257,22 +258,46 @@ const CRC_TABLE: [u32; 256] = {
             };
             k += 1;
         }
-        t[n] = c;
+        t[0][n] = c;
+        n += 1;
+    }
+    let mut n = 0;
+    while n < 256 {
+        let mut k = 1;
+        while k < 16 {
+            let prev = t[k - 1][n];
+            t[k][n] = (prev >> 8) ^ t[0][(prev & 0xFF) as usize];
+            k += 1;
+        }
         n += 1;
     }
     t
 };
 
-/// CRC-32（PNG 用的多项式），可分段累加：首段传 0。
+/// CRC-32（PNG 用的多项式），可分段累加：首段传 0。每轮吃 16 字节（slice-by-16）。
 fn crc32_update(crc: u32, data: &[u8]) -> u32 {
     let mut c = !crc;
-    for &b in data {
-        c = CRC_TABLE[((c ^ u32::from(b)) & 0xFF) as usize] ^ (c >> 8);
+    let mut chunks = data.chunks_exact(16);
+    for ch in &mut chunks {
+        let ch: &[u8; 16] = ch.try_into().expect("chunks_exact(16)");
+        let w = c ^ u32::from_le_bytes([ch[0], ch[1], ch[2], ch[3]]);
+        let mut next = CRC_TABLES[15][(w & 0xFF) as usize]
+            ^ CRC_TABLES[14][((w >> 8) & 0xFF) as usize]
+            ^ CRC_TABLES[13][((w >> 16) & 0xFF) as usize]
+            ^ CRC_TABLES[12][(w >> 24) as usize];
+        for k in 4..16 {
+            next ^= CRC_TABLES[15 - k][ch[k] as usize];
+        }
+        c = next;
+    }
+    for &b in chunks.remainder() {
+        c = CRC_TABLES[0][((c ^ u32::from(b)) & 0xFF) as usize] ^ (c >> 8);
     }
     !c
 }
 
-/// Adler-32，每 5552 字节才取一次模。
+/// Adler-32，每 5552 字节才取一次模；块内每 16 字节一组，用
+/// `b += 16 * a + Σ (16 - i) * x[i]`、`a += Σ x[i]` 展开，组内没有串行依赖，编译器可向量化。
 struct Adler32 {
     a: u32,
     b: u32,
@@ -284,8 +309,32 @@ impl Adler32 {
     }
 
     fn update(&mut self, data: &[u8]) {
+        const WEIGHTS: [u32; 16] = [16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
         for part in data.chunks(5552) {
-            for &x in part {
+            // 16 条车道各自累加，循环里没有跨车道的依赖，编译器可向量化：
+            // la = 各车道的字节和，lb = 各组开始前 la 的累计，lw = 带权字节和。
+            let mut la = [0u32; 16];
+            let mut lb = [0u32; 16];
+            let mut lw = [0u32; 16];
+            let mut groups = part.chunks_exact(16);
+            let mut n_groups = 0u32;
+            for g in &mut groups {
+                let g: &[u8; 16] = g.try_into().expect("chunks_exact(16)");
+                for i in 0..16 {
+                    lb[i] += la[i];
+                    let x = u32::from(g[i]);
+                    la[i] += x;
+                    lw[i] += WEIGHTS[i] * x;
+                }
+                n_groups += 1;
+            }
+            let sum_a: u32 = la.iter().sum();
+            let sum_b: u32 = lb.iter().sum();
+            let weighted: u32 = lw.iter().sum();
+            // 每组的 b 增量是 16 * (该组开始前的 a) + 带权和，该组开始前的 a = a0 + Σ la_before。
+            self.b += 16 * (n_groups * self.a + sum_b) + weighted;
+            self.a += sum_a;
+            for &x in groups.remainder() {
                 self.a += u32::from(x);
                 self.b += self.a;
             }
@@ -300,21 +349,31 @@ impl Adler32 {
 }
 
 /// n 字节原始数据装进 stored 块的 zlib 流长度：2 字节头 + 各块（5 字节头 + 数据）+ 4 字节 Adler。
-fn zlib_stored_len(n: usize) -> usize {
-    2 + n + 5 * n.div_ceil(STORED_MAX).max(1) + 4
+/// 任何一步溢出返回 None。
+fn zlib_stored_len(n: usize) -> Option<usize> {
+    n.checked_add(5 * n.div_ceil(STORED_MAX).max(1))?
+        .checked_add(6)
 }
 
-/// 不压缩 PNG 的精确字节数（调用方已用 `validate` 保证 w * h * 4 不溢出）。
-fn png_stored_len(width: u32, height: u32, icc_len: usize, idat_max: usize) -> usize {
-    let raw = height as usize * (1 + width as usize * 4);
-    let z = zlib_stored_len(raw);
-    let idat = z + 12 * z.div_ceil(idat_max);
+/// 不压缩 PNG 的精确字节数；任何一步溢出（只会出现在 32 位目标上的超大图）返回 None。
+fn png_stored_len(width: u32, height: u32, icc_len: usize, idat_max: usize) -> Option<usize> {
+    let raw = (width as usize)
+        .checked_mul(4)?
+        .checked_add(1)?
+        .checked_mul(height as usize)?;
+    let z = zlib_stored_len(raw)?;
+    let idat = z.checked_add(z.div_ceil(idat_max).checked_mul(12)?)?;
     let iccp = if icc_len == 0 {
         0
     } else {
-        12 + 5 + zlib_stored_len(icc_len)
+        zlib_stored_len(icc_len)?.checked_add(12 + 5)?
     };
-    PNG_SIGNATURE.len() + (12 + 13) + iccp + idat + 12
+    PNG_SIGNATURE
+        .len()
+        .checked_add(12 + 13)?
+        .checked_add(iccp)?
+        .checked_add(idat)?
+        .checked_add(12)
 }
 
 fn put_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
@@ -351,16 +410,12 @@ fn write_png_stored(
 ) -> Result<Vec<u8>, ImagingError> {
     validate(img)?;
     let icc = icc.filter(|p| !p.is_empty());
-    let w4 = img.width as usize * 4;
-    let rows = img.height as usize;
-    // 校验过 w * h * 4 不溢出，再加每行 1 字节仍要查。
-    let raw = rows
-        .checked_mul(1 + w4)
+    // validate 保证 w * h * 4 不溢出；每行多 1 个滤波字节与各块头的开销都在 png_stored_len 里按
+    // checked 运算累计，溢出（只会在 32 位目标上）就报错，不会写出算错长度的缓冲。
+    let total = png_stored_len(img.width, img.height, icc.map_or(0, <[u8]>::len), idat_max)
         .ok_or_else(|| encode_err("图像过大"))?;
-    if zlib_stored_len(raw).checked_add(1 << 20).is_none() {
-        return Err(encode_err("图像过大"));
-    }
-    let total = png_stored_len(img.width, img.height, icc.map_or(0, <[u8]>::len), idat_max);
+    let w4 = img.width as usize * 4;
+    let raw = img.height as usize * (1 + w4);
     let mut out = Vec::with_capacity(total);
     out.extend_from_slice(&PNG_SIGNATURE);
 
@@ -373,7 +428,7 @@ fn write_png_stored(
 
     if let Some(icc) = icc {
         // 小缓冲：名字 "ICC" + 0 + 压缩方法 0 + stored 的 zlib 流。
-        let mut body = Vec::with_capacity(5 + zlib_stored_len(icc.len()));
+        let mut body = Vec::with_capacity(5 + zlib_stored_len(icc.len()).unwrap_or(0));
         body.extend_from_slice(b"ICC\0\0");
         let mut ad = Adler32::new();
         let mut pos = 0;
@@ -387,7 +442,7 @@ fn write_png_stored(
     }
 
     // IDAT：zlib 流按 idat_max 切成若干块；先占长度与类型，写满再回填长度并补 CRC。
-    let z_len = zlib_stored_len(raw);
+    let z_len = zlib_stored_len(raw).unwrap_or(0);
     let mut chunk_start = out.len();
     let mut chunk_left = idat_max.min(z_len);
     out.extend([0u8; 4]);
@@ -674,7 +729,7 @@ mod tests {
 
     fn assert_stored_roundtrip(w: u32, h: u32, d: &[u8], icc: Option<&[u8]>, idat_max: usize) {
         let out = write_png_stored(&view(w, h, d), icc, idat_max).unwrap();
-        let expect = png_stored_len(w, h, icc.map_or(0, <[u8]>::len), idat_max);
+        let expect = png_stored_len(w, h, icc.map_or(0, <[u8]>::len), idat_max).unwrap();
         assert_eq!(out.len(), expect, "{w}x{h} 实际长度与预算不符");
         assert_eq!(out.capacity(), out.len(), "{w}x{h} 缓冲发生过扩容");
         let back = image::load_from_memory(&out).unwrap().into_rgba8();
@@ -723,14 +778,130 @@ mod tests {
     fn png_stored_public_fn_is_exact_size() {
         let d = noise_gradient(200, 100);
         let out = encode_png_stored(view(200, 100, &d), None).unwrap();
-        assert_eq!(out.len(), png_stored_len(200, 100, 0, IDAT_MAX));
+        assert_eq!(out.len(), png_stored_len(200, 100, 0, IDAT_MAX).unwrap());
         assert_eq!(out.capacity(), out.len());
+    }
+
+    #[test]
+    fn png_stored_len_reports_overflow() {
+        assert_eq!(png_stored_len(u32::MAX, u32::MAX, 0, IDAT_MAX), None);
+        assert_eq!(png_stored_len(1, 1, usize::MAX, IDAT_MAX), None);
+        assert!(png_stored_len(4000, 3000, 0, IDAT_MAX).is_some());
     }
 
     #[test]
     fn png_stored_rejects_bad_buffer() {
         assert!(encode_png_stored(view(2, 2, &[0; 15]), None).is_err());
         assert!(encode_png_stored(view(0, 2, &[]), None).is_err());
+    }
+
+    /// 计时：4000x3000 不压缩 PNG 编码，取 5 次中位数。
+    /// `cargo test --release -p glance-imaging png_stored_timing -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn png_stored_timing_4000x3000() {
+        let (w, h) = (4000u32, 3000u32);
+        let mut seed = 99u32;
+        let d: Vec<u8> = (0..w as usize * h as usize * 4)
+            .map(|i| {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                (seed >> 24) as u8 ^ (i >> 8) as u8
+            })
+            .collect();
+        let mut times: Vec<f64> = (0..5)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                let out = encode_png_stored(view(w, h, &d), None).unwrap();
+                std::hint::black_box(&out);
+                t.elapsed().as_secs_f64() * 1000.0
+            })
+            .collect();
+        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "encode_png_stored 4000x3000 中位数 {:.1} ms（5 次：{times:.1?}）",
+            times[2]
+        );
+    }
+
+    /// 逐字节的参考实现（慢但一眼能看懂）。
+    fn crc32_ref(crc: u32, data: &[u8]) -> u32 {
+        let mut c = !crc;
+        for &b in data {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+        }
+        !c
+    }
+
+    fn adler32_ref(data: &[u8]) -> u32 {
+        let (mut a, mut b) = (1u64, 0u64);
+        for &x in data {
+            a = (a + u64::from(x)) % 65521;
+            b = (b + a) % 65521;
+        }
+        ((b << 16) | a) as u32
+    }
+
+    fn pseudo(len: usize, seed: u32) -> Vec<u8> {
+        let mut s = seed;
+        (0..len)
+            .map(|_| {
+                s = s.wrapping_mul(1664525).wrapping_add(1013904223);
+                (s >> 24) as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn checksums_match_bytewise_reference() {
+        let mut lens = vec![
+            0usize, 1, 7, 8, 9, 15, 16, 17, 5551, 5552, 5553, 11104, 70000,
+        ];
+        lens.push(65535 * 2 + 3);
+        for &len in &lens {
+            // 0xFF 全满的数据最容易让 Adler 的累加溢出；再配一份随机数据。
+            for data in [pseudo(len + 3, len as u32 + 1), vec![255u8; len + 3]] {
+                // 起点偏移 0..3 以改变对齐。
+                for off in 0..3 {
+                    let d = &data[off..off + len];
+                    assert_eq!(
+                        crc32_update(0, d),
+                        crc32_ref(0, d),
+                        "crc len {len} off {off}"
+                    );
+                    assert_eq!(crc32_update(0x1234_5678, d), crc32_ref(0x1234_5678, d));
+                    let mut a = Adler32::new();
+                    a.update(d);
+                    assert_eq!(a.finish(), adler32_ref(d), "adler len {len} off {off}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn checksums_split_updates_equal_one_call() {
+        let data = pseudo(70000, 7);
+        for cuts in [
+            &[1usize, 8, 9, 5551, 5552, 5553, 30000][..],
+            &[3, 4, 5, 6],
+            &[69999],
+        ] {
+            let (mut crc, mut ad) = (0u32, Adler32::new());
+            let mut at = 0;
+            for &c in cuts.iter().chain(std::iter::once(&data.len())) {
+                crc = crc32_update(crc, &data[at..c]);
+                ad.update(&data[at..c]);
+                at = c;
+            }
+            assert_eq!(crc, crc32_ref(0, &data));
+            assert_eq!(ad.finish(), adler32_ref(&data));
+        }
     }
 
     #[test]
