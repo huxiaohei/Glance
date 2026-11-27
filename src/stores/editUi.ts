@@ -5,6 +5,7 @@ import type {
   PreviewResult, RemoveBgMemory,
 } from "../ipc/types";
 import { createPreviewScheduler } from "../lib/editPreview";
+import { noCompress } from "../lib/noCompress";
 
 export interface EditUiState {
   status: "idle" | "opening" | "ready" | "saving";
@@ -81,10 +82,10 @@ export function inBatch(): boolean {
   return useEditUi.getState().batch !== null;
 }
 
-/** 源格式不支持压缩（GIF / BMP）且当前在压缩页：不能保存。 */
+/** 源格式不支持压缩（GIF / BMP / HEIC / AVIF）且当前在压缩页：不能保存。 */
 export function compressUnsupported(s: Pick<EditUiState, "tab" | "opened">): boolean {
   const f = s.opened?.srcFormat;
-  return s.tab === "compress" && (f === "gif" || f === "bmp");
+  return s.tab === "compress" && f !== undefined && noCompress(f);
 }
 
 /** 质量夹到后端接受的 1..=100（PNG 目标时滑块禁用，仍须带一个有效值）。 */
@@ -213,7 +214,7 @@ export const useEditUi = create<EditUiState>()((set, get) => ({
       void editClose(opened.session).catch(() => {});
       return SUPERSEDED;
     }
-    const unavailable = opened.srcFormat === "gif" || opened.srcFormat === "bmp";
+    const unavailable = noCompress(opened.srcFormat);
     const rememberedTab = memory?.tab ?? "compress";
     const session = opened.session;
     let bgColor = WHITE;

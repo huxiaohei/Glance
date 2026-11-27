@@ -2,6 +2,7 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { t } from "../i18n";
 import { editSave } from "../ipc/api";
 import type { EditParams, FileId, OutFormat, SaveMode, SaveReport, SrcFormat } from "../ipc/types";
+import { noCompress } from "../lib/noCompress";
 import { useCatalog } from "../stores/catalog";
 import { currentParams, saveBlocked, useEditUi } from "../stores/editUi";
 import { topView, useNav } from "../stores/nav";
@@ -9,6 +10,8 @@ import { useSettings } from "../stores/settings";
 import { showToast, type ToastAction } from "../stores/toast";
 import { codeOf, errorText, undoLast } from "./fileOps";
 import { getSingleEntry, getSingleList, singleSource } from "./singleSource";
+
+export { noCompress };
 
 /** 保存后等新文件进列表的最长时间；等不到就停在原图。 */
 export const NAV_WAIT_MS = 3000;
@@ -21,20 +24,23 @@ const FAMILY: Record<OutFormat, { label: string; canonical: string; exts: string
 
 /**
  * 输出格式，与后端 `out_format` 一致：转格式取目标格式；去背景一律 PNG；
- * 裁剪 JPEG / WebP 保持原格式，PNG / GIF / BMP 出 PNG；压缩保持原格式，GIF / BMP 不能压缩，返回 null。
+ * 裁剪 JPEG / WebP 保持原格式，PNG / GIF / BMP 出 PNG，HEIC / AVIF 无透明出 JPEG、有透明出 PNG；
+ * 压缩保持原格式，GIF / BMP / HEIC / AVIF 不能压缩，返回 null。
  */
-export function outFormatOf(src: SrcFormat, params: EditParams): OutFormat | null {
+export function outFormatOf(src: SrcFormat, hasAlpha: boolean, params: EditParams): OutFormat | null {
   switch (params.op) {
     case "convert":
       return params.format;
     case "removeBg":
       return "png";
     case "crop":
+      if (src === "heif" || src === "avif") return hasAlpha ? "png" : "jpeg";
       return src === "jpeg" || src === "webp" ? src : "png";
     case "compress":
-      return src === "gif" || src === "bmp" ? null : src;
+      return noCompress(src) ? null : (src as OutFormat);
   }
 }
+
 
 /** 保存副本的后缀，与后端 `naming` 一致。 */
 function suffixOf(params: EditParams, sameFormat: boolean): string {
@@ -60,8 +66,9 @@ export function saveTarget(
   srcName: string,
   src: SrcFormat,
   params: EditParams,
+  hasAlpha: boolean,
 ): { name: string; filter: { name: string; extensions: string[] } } {
-  const out = outFormatOf(src, params) ?? "png";
+  const out = outFormatOf(src, hasAlpha, params) ?? "png";
   const fam = FAMILY[out];
   const dot = srcName.lastIndexOf(".");
   const stem = dot > 0 ? srcName.slice(0, dot) : srcName;
@@ -106,7 +113,7 @@ async function run(requested: SaveMode): Promise<void> {
 
   let mode = requested;
   if (requested.kind === "saveAs") {
-    const { name, filter } = saveTarget(getSingleEntry(srcId)?.name ?? "image", start.opened!.srcFormat, params);
+    const { name, filter } = saveTarget(getSingleEntry(srcId)?.name ?? "image", start.opened!.srcFormat, params, start.opened!.hasAlpha);
     let picked: string | null;
     try {
       picked = await saveDialog({ defaultPath: name, filters: [filter] });

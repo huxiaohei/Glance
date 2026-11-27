@@ -440,6 +440,62 @@ mod tests {
     }
 
     #[test]
+    fn naming_for_heic_crop() {
+        let crop = EditParams::Crop {
+            rect: glance_imaging::CropRect {
+                x: 0,
+                y: 0,
+                w: 1,
+                h: 1,
+            },
+            quarter_turns: 0,
+            flip_h: false,
+            flip_v: false,
+        };
+        assert_eq!(
+            naming(
+                Path::new("a/IMG_1.heic"),
+                SrcFormat::Heif,
+                &crop,
+                OutFormat::Jpeg
+            ),
+            ("jpg".into(), "_cropped")
+        );
+        assert_eq!(
+            naming(
+                Path::new("a/IMG_1.avif"),
+                SrcFormat::Avif,
+                &crop,
+                OutFormat::Png
+            ),
+            ("png".into(), "_cropped")
+        );
+    }
+
+    #[test]
+    fn naming_for_heic_convert() {
+        // 现有规则：格式变了不加后缀，扩展名取输出格式。
+        assert_eq!(
+            naming(
+                Path::new("a/IMG_1.heic"),
+                SrcFormat::Heif,
+                &convert(OutFormat::Jpeg),
+                OutFormat::Jpeg
+            ),
+            ("jpg".into(), "")
+        );
+        assert_eq!(
+            naming(
+                Path::new("a/IMG_1.avif"),
+                SrcFormat::Avif,
+                &convert(OutFormat::Webp),
+                OutFormat::Webp
+            ),
+            ("webp".into(), "")
+        );
+    }
+
+    #[test]
     fn save_errors() {
         let w = world();
         let rel = SaveMode::SaveAs {

@@ -17,7 +17,7 @@ vi.mock("../ipc/api", () => ({
   editResultUrl: (s: number, r: number) => `u/${s}/${r}`,
 }));
 
-const { useEditUi, currentParams, cropIsIdentity } = await import("./editUi");
+const { useEditUi, currentParams, cropIsIdentity, compressUnsupported } = await import("./editUi");
 
 const memory = (tab: EditParamsMemory["tab"] = "compress"): EditParamsMemory => ({
   tab,
@@ -53,6 +53,17 @@ describe("useEditUi", () => {
     expect(s.id).toBe(7);
     expect(s.tab).toBe("convert");
     expect(s.compress.quality).toBe(70);
+    s.close();
+  });
+
+  it("open_heif_falls_back_to_convert_and_marks_compress_unsupported", async () => {
+    editParamsGet.mockResolvedValue(memory("compress"));
+    editOpen.mockResolvedValue(opened(1, "heif"));
+    await useEditUi.getState().open(7);
+    const s = useEditUi.getState();
+    expect(s.tab).toBe("convert");
+    expect(compressUnsupported({ tab: "compress", opened: s.opened })).toBe(true);
+    expect(compressUnsupported(s)).toBe(false);
     s.close();
   });
 

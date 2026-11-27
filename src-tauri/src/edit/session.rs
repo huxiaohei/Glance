@@ -90,21 +90,33 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// 输出格式：转格式取目标格式，压缩取源格式（GIF / BMP 不支持压缩）。
-pub(super) fn out_format(src: SrcFormat, p: &EditParams) -> Result<OutFormat, EditError> {
+/// 输出格式：转格式取目标格式，压缩取源格式（GIF / BMP / HEIC / AVIF 不支持压缩）。
+/// 裁剪 HEIC / AVIF：整张源图无透明出 JPEG，有透明出 PNG。
+pub(super) fn out_format(
+    src: SrcFormat,
+    has_alpha: bool,
+    p: &EditParams,
+) -> Result<OutFormat, EditError> {
     match *p {
         EditParams::Convert { format, .. } => Ok(format),
         EditParams::Compress { .. } => match src {
             SrcFormat::Png => Ok(OutFormat::Png),
             SrcFormat::Jpeg => Ok(OutFormat::Jpeg),
             SrcFormat::Webp => Ok(OutFormat::Webp),
-            SrcFormat::Gif | SrcFormat::Bmp => Err(EditError::Unsupported),
+            SrcFormat::Gif | SrcFormat::Bmp | SrcFormat::Heif | SrcFormat::Avif => {
+                Err(EditError::Unsupported)
+            }
         },
         EditParams::RemoveBg(_) => Ok(OutFormat::Png),
         EditParams::Crop { .. } => match src {
             SrcFormat::Jpeg => Ok(OutFormat::Jpeg),
             SrcFormat::Webp => Ok(OutFormat::Webp),
-            SrcFormat::Png | SrcFormat::Gif | SrcFormat::Bmp => Ok(OutFormat::Png),
+            SrcFormat::Heif | SrcFormat::Avif if !has_alpha => Ok(OutFormat::Jpeg),
+            SrcFormat::Png
+            | SrcFormat::Gif
+            | SrcFormat::Bmp
+            | SrcFormat::Heif
+            | SrcFormat::Avif => Ok(OutFormat::Png),
         },
     }
 }
@@ -287,6 +299,7 @@ impl Session {
             apply(
                 view(&self.orig),
                 self.src_format,
+                self.has_alpha,
                 self.icc(),
                 self.exif(),
                 params,
@@ -313,7 +326,7 @@ impl Session {
     /// 在缩小的代理图上算，体积按像素比例换算到全尺寸输出。
     fn approx(&self, params: &EditParams) -> Result<Computed, EditError> {
         self.gate(params)?;
-        let fmt = out_format(self.src_format, params)?;
+        let fmt = out_format(self.src_format, self.has_alpha, params)?;
         // 裁剪没有代理预览：前端用画布叠框，不发这种请求。
         if matches!(params, EditParams::Crop { .. }) {
             return Err(EditError::Unsupported);
@@ -342,7 +355,14 @@ impl Session {
                 }
             }
             // 代理图上不带 EXIF：它的长度另算，不随像素数放大。
-            _ => apply(view(&src), self.src_format, self.icc(), None, &p)?,
+            _ => apply(
+                view(&src),
+                self.src_format,
+                self.has_alpha,
+                self.icc(),
+                None,
+                &p,
+            )?,
         };
         let (width, height) = out_dims(self.orig.width, self.orig.height, params);
         // ICC 是固定开销，不随像素数放大；EXIF 也是固定的，但代理图没带它，缩放后另加。
@@ -464,7 +484,6 @@ fn load(registry: &Registry, id: FileId) -> Result<Loaded, EditError> {
     } else {
         Arc::new(downscale(view(&orig), PROXY_EDGE)?)
     };
-    let has_alpha = orig.rgba.chunks_exact(4).any(|p| p[3] != 255);
     Ok(Loaded {
         src_format: src.src_format,
         icc: src.icc,
@@ -472,7 +491,7 @@ fn load(registry: &Registry, id: FileId) -> Result<Loaded, EditError> {
         orig,
         proxy,
         file_size: src.file_size,
-        has_alpha,
+        has_alpha: src.has_alpha,
     })
 }
 
@@ -1127,13 +1146,39 @@ mod tests {
     #[test]
     fn out_format_for_crop_and_remove_bg() {
         let c = crop(1, 1);
-        assert_eq!(out_format(SrcFormat::Jpeg, &c), Ok(OutFormat::Jpeg));
-        assert_eq!(out_format(SrcFormat::Webp, &c), Ok(OutFormat::Webp));
-        assert_eq!(out_format(SrcFormat::Png, &c), Ok(OutFormat::Png));
-        assert_eq!(out_format(SrcFormat::Gif, &c), Ok(OutFormat::Png));
-        assert_eq!(out_format(SrcFormat::Bmp, &c), Ok(OutFormat::Png));
+        assert_eq!(out_format(SrcFormat::Jpeg, false, &c), Ok(OutFormat::Jpeg));
+        assert_eq!(out_format(SrcFormat::Webp, false, &c), Ok(OutFormat::Webp));
+        assert_eq!(out_format(SrcFormat::Png, false, &c), Ok(OutFormat::Png));
+        assert_eq!(out_format(SrcFormat::Gif, false, &c), Ok(OutFormat::Png));
+        assert_eq!(out_format(SrcFormat::Bmp, false, &c), Ok(OutFormat::Png));
         for f in [SrcFormat::Jpeg, SrcFormat::Gif, SrcFormat::Webp] {
-            assert_eq!(out_format(f, &rm_color()), Ok(OutFormat::Png));
+            assert_eq!(out_format(f, false, &rm_color()), Ok(OutFormat::Png));
+        }
+    }
+
+    fn compress_params() -> EditParams {
+        EditParams::Compress {
+            quality: 80,
+            max_edge: None,
+            png_mode: glance_imaging::PngMode::Lossless,
+        }
+    }
+
+    #[test]
+    fn out_format_for_heif_and_avif() {
+        let c = crop(1, 1);
+        assert_eq!(out_format(SrcFormat::Heif, false, &c), Ok(OutFormat::Jpeg));
+        assert_eq!(out_format(SrcFormat::Heif, true, &c), Ok(OutFormat::Png));
+        assert_eq!(out_format(SrcFormat::Avif, false, &c), Ok(OutFormat::Jpeg));
+        assert_eq!(out_format(SrcFormat::Avif, true, &c), Ok(OutFormat::Png));
+        for f in [SrcFormat::Heif, SrcFormat::Avif] {
+            for alpha in [false, true] {
+                assert_eq!(
+                    out_format(f, alpha, &compress_params()),
+                    Err(EditError::Unsupported)
+                );
+                assert_eq!(out_format(f, alpha, &rm_color()), Ok(OutFormat::Png));
+            }
         }
     }
 

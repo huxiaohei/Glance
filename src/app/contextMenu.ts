@@ -1,8 +1,10 @@
 import { t } from "../i18n";
 import { fsRecentTargets } from "../ipc/api";
+import { allCodecNames } from "../lib/codecKind";
 import { lastSegment } from "../lib/lastSegment";
 import { useAnimated } from "../stores/animated";
 import { useBasket } from "../stores/basket";
+import { useCatalog } from "../stores/catalog";
 import { useCompareUi } from "../stores/compareUi";
 import { batchRunning } from "../stores/batch";
 import { topView } from "../stores/nav";
@@ -30,6 +32,8 @@ export interface MenuCtx {
   animated?: boolean;
   /** 批量任务进行中：批量项置灰。 */
   batchBusy?: boolean;
+  /** 操作对象的文件名（与 count 一一对应时才有意义）：全是 HEIC / HEIF / AVIF 时“批量压缩…”置灰。 */
+  names?: string[];
 }
 
 /** 命令表里的一条命令做成菜单项：标签与快捷键取自命令表，点击即命令的 run。命令未注册时没有这一项。 */
@@ -75,7 +79,7 @@ export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
       ? [
           ...commandItem("grid.open", single),
           ...(ctx.count >= 2
-            ? [...commandItem("grid.batchCompress", !ctx.batchBusy), ...commandItem("grid.batchConvert", !ctx.batchBusy)]
+            ? [...commandItem("grid.batchCompress", !ctx.batchBusy && !allCodecNames(ctx.names ?? [])), ...commandItem("grid.batchConvert", !ctx.batchBusy)]
             : commandItem("grid.edit", single && !ctx.animated)),
         ]
       : [],
@@ -113,7 +117,8 @@ export async function showImageMenu(): Promise<void> {
   const recent = await fsRecentTargets().catch(() => [] as string[]);
   const focus = useCompareUi.getState().focus;
   const removable = view === "compare" && focus !== null && useBasket.getState().order.includes(focus);
-  const nodes = buildImageMenu({ view, count, recent, readOnly: singleSource() === "basket", removable, animated, batchBusy: batchRunning() });
+  const names = targets.map((id) => useCatalog.getState().entries.get(id)?.name ?? "");
+  const nodes = buildImageMenu({ view, count, recent, names, readOnly: singleSource() === "basket", removable, animated, batchBusy: batchRunning() });
   if (nodes.length === 0) return;
   try {
     await popup(nodes);

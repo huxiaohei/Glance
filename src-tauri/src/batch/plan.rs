@@ -42,6 +42,9 @@ pub struct BatchPlan {
     pub skipped: Vec<SkipItem>,
 }
 
+/// 读文件头的字节数：`ftyp` 的兼容品牌可能较长。
+const HEAD_LEN: usize = 512;
+
 /// 该文件为何不处理；None 表示要处理。`rel` 是相对会话根的路径。
 pub fn skip_reason(path: &Path, rel: &Path, op: BatchOp, out_dir: &str) -> Option<SkipReason> {
     let first = rel
@@ -54,8 +57,8 @@ pub fn skip_reason(path: &Path, rel: &Path, op: BatchOp, out_dir: &str) -> Optio
     let Some(details) = details::image_details(path) else {
         return Some(SkipReason::NotFound);
     };
-    let mut head = Vec::with_capacity(64);
-    match std::fs::File::open(path).and_then(|f| f.take(64).read_to_end(&mut head)) {
+    let mut head = Vec::with_capacity(HEAD_LEN);
+    match std::fs::File::open(path).and_then(|f| f.take(HEAD_LEN as u64).read_to_end(&mut head)) {
         Ok(_) => {}
         Err(_) => return Some(SkipReason::NotFound),
     }
@@ -64,7 +67,9 @@ pub fn skip_reason(path: &Path, rel: &Path, op: BatchOp, out_dir: &str) -> Optio
     }
     match src_format_of(&head) {
         None => Some(SkipReason::Unsupported),
-        Some(SrcFormat::Gif | SrcFormat::Bmp) if op == BatchOp::Compress => {
+        Some(SrcFormat::Gif | SrcFormat::Bmp | SrcFormat::Heif | SrcFormat::Avif)
+            if op == BatchOp::Compress =>
+        {
             Some(SkipReason::Unsupported)
         }
         Some(_) => None,
@@ -186,6 +191,37 @@ mod tests {
                 Some(SkipReason::Unsupported)
             );
             assert_eq!(skip_reason(p, rel, BatchOp::Convert, "_o"), None);
+        }
+    }
+
+    #[test]
+    fn heif_skipped_for_compress_only() {
+        use glance_imaging::heif::testkit::bx;
+        let t = tempfile::tempdir().unwrap();
+        // 兼容品牌很多的 ftyp：整个盒子超过 64 字节，仍应认得出。
+        let mut body = b"heic".to_vec();
+        body.extend_from_slice(&[0; 4]);
+        for _ in 0..40 {
+            body.extend_from_slice(b"mif1");
+        }
+        body.extend_from_slice(b"heic");
+        let mut bytes = bx(b"ftyp", &body);
+        assert!(bytes.len() > 64);
+        let avif = {
+            let mut b = body.clone();
+            b[..4].copy_from_slice(b"avif");
+            bx(b"ftyp", &b)
+        };
+        bytes.extend_from_slice(&[0; 32]);
+        for (name, data) in [("a.heic", bytes), ("b.avif", avif)] {
+            let p = put(t.path(), name, &data);
+            let rel = Path::new(name);
+            assert_eq!(
+                skip_reason(&p, rel, BatchOp::Compress, "_o"),
+                Some(SkipReason::Unsupported),
+                "{name}"
+            );
+            assert_eq!(skip_reason(&p, rel, BatchOp::Convert, "_o"), None, "{name}");
         }
     }
 

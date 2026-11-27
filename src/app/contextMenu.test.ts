@@ -235,5 +235,19 @@ describe("showImageMenu", () => {
       expect(m.some((n) => n.kind === "item" && n.label === T("cmd.grid.batchCompress"))).toBe(false);
       expect(find(m, T("cmd.grid.edit"))).toBeTruthy();
     });
+
+    it("HEIC / AVIF：单选时“编辑”仍可用（菜单里没有单独的压缩项，压缩页自己说明不支持）", () => {
+      const m = buildImageMenu({ view: "grid", count: 1, recent: [], names: ["a.heic"] });
+      expect((find(m, T("cmd.grid.edit")) as Item).enabled).toBe(true);
+      expect(m.some((n) => n.kind === "item" && n.label === T("cmd.grid.batchCompress"))).toBe(false);
+    });
+
+    it("多选全是 HEIC / AVIF：“批量压缩…”置灰，“批量转格式…”可用；混选仍可用", () => {
+      const all = buildImageMenu({ view: "grid", count: 2, recent: [], names: ["a.heic", "b.avif"] });
+      expect((find(all, T("cmd.grid.batchCompress")) as Item).enabled).toBe(false);
+      expect((find(all, T("cmd.grid.batchConvert")) as Item).enabled).toBe(true);
+      const mixed = buildImageMenu({ view: "grid", count: 2, recent: [], names: ["a.heic", "c.jpg"] });
+      expect((find(mixed, T("cmd.grid.batchCompress")) as Item).enabled).toBe(true);
+    });
   });
 });

@@ -6,6 +6,7 @@ use crate::crop::{CropRect, crop_rgba, orient_view};
 use crate::encode::{RgbaView, encode_jpeg, encode_png_lossless, encode_png_lossy, encode_webp};
 use crate::error::ImagingError;
 use crate::exifblob::normalize_exif;
+use crate::heif::{self, HeifKind};
 use crate::removebg::{RemoveBg, remove_bg};
 use crate::thumb::Decoded;
 
@@ -17,6 +18,8 @@ pub enum SrcFormat {
     Webp,
     Gif,
     Bmp,
+    Heif,
+    Avif,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,7 +83,10 @@ pub fn src_format_of(bytes: &[u8]) -> Option<SrcFormat> {
     } else if bytes.starts_with(b"BM") {
         Some(SrcFormat::Bmp)
     } else {
-        None
+        match heif::sniff(bytes)? {
+            HeifKind::Heic => Some(SrcFormat::Heif),
+            HeifKind::Avif => Some(SrcFormat::Avif),
+        }
     }
 }
 
@@ -168,11 +174,12 @@ fn exif_for(exif: Option<&[u8]>, format: OutFormat, width: u32, height: u32) -> 
     }
 }
 
-/// 执行一次编辑并编码。`exif` 是源图**原始**的 EXIF（TIFF 结构，不含 `Exif\0\0`），
+/// 执行一次编辑并编码。`has_alpha` 是整张源图是否有非不透明像素（HEIC / AVIF 裁剪据此选 JPEG 或 PNG）。`exif` 是源图**原始**的 EXIF（TIFF 结构，不含 `Exif\0\0`），
 /// 输出为 JPEG / WebP 时随输出尺寸改写后带上。
 pub fn apply(
     src: RgbaView,
     src_format: SrcFormat,
+    has_alpha: bool,
     icc: Option<&[u8]>,
     exif: Option<&[u8]>,
     p: &EditParams,
@@ -187,7 +194,9 @@ pub fn apply(
                 SrcFormat::Png => OutFormat::Png,
                 SrcFormat::Jpeg => OutFormat::Jpeg,
                 SrcFormat::Webp => OutFormat::Webp,
-                SrcFormat::Gif | SrcFormat::Bmp => return Err(ImagingError::Unsupported),
+                SrcFormat::Gif | SrcFormat::Bmp | SrcFormat::Heif | SrcFormat::Avif => {
+                    return Err(ImagingError::Unsupported);
+                }
             };
             check_quality(quality)?;
             let resized;
@@ -279,9 +288,17 @@ pub fn apply(
                     let b = encode_webp(view, 95, icc, exif.as_deref())?;
                     (OutFormat::Webp, b)
                 }
-                SrcFormat::Png | SrcFormat::Gif | SrcFormat::Bmp => {
-                    (OutFormat::Png, encode_png_lossless(view, icc)?)
+                // HEIC / AVIF 不能原格式输出：无透明出高质量 JPEG，有透明出 PNG。
+                SrcFormat::Heif | SrcFormat::Avif if !has_alpha => {
+                    let exif = exif_for(exif, OutFormat::Jpeg, view.width, view.height);
+                    let b = encode_jpeg(view, 95, [255; 3], icc, exif.as_deref())?;
+                    (OutFormat::Jpeg, b)
                 }
+                SrcFormat::Png
+                | SrcFormat::Gif
+                | SrcFormat::Bmp
+                | SrcFormat::Heif
+                | SrcFormat::Avif => (OutFormat::Png, encode_png_lossless(view, icc)?),
             };
             Ok(Encoded {
                 bytes,
@@ -355,6 +372,7 @@ mod tests {
         let e = apply(
             view(48, 32, &d),
             SrcFormat::Jpeg,
+            false,
             None,
             Some(&tiff),
             &convert_jpeg(),
@@ -398,7 +416,15 @@ mod tests {
             flip_h: false,
             flip_v: false,
         };
-        let e = apply(view(48, 32, &d), SrcFormat::Jpeg, None, Some(&tiff), &p).unwrap();
+        let e = apply(
+            view(48, 32, &d),
+            SrcFormat::Jpeg,
+            false,
+            None,
+            Some(&tiff),
+            &p,
+        )
+        .unwrap();
         let x = exif_of_jpeg(&e.bytes);
         assert_eq!(
             uint(&x, exif::Tag::PixelXDimension, exif::In::PRIMARY),
@@ -420,7 +446,15 @@ mod tests {
             max_edge: Some(16),
             png_mode: PngMode::Lossless,
         };
-        let e = apply(view(48, 32, &d), SrcFormat::Jpeg, None, Some(&tiff), &p).unwrap();
+        let e = apply(
+            view(48, 32, &d),
+            SrcFormat::Jpeg,
+            false,
+            None,
+            Some(&tiff),
+            &p,
+        )
+        .unwrap();
         assert_eq!((e.width, e.height), (16, 11));
         let x = exif_of_jpeg(&e.bytes);
         assert_eq!(
@@ -445,6 +479,7 @@ mod tests {
         let e = apply(
             view(16, 16, &d),
             SrcFormat::Jpeg,
+            false,
             None,
             Some(&tiff),
             &to_png,
@@ -457,7 +492,15 @@ mod tests {
             max_edge: None,
             png_mode: PngMode::Lossy,
         };
-        let e = apply(view(16, 16, &d), SrcFormat::Png, None, Some(&tiff), &p).unwrap();
+        let e = apply(
+            view(16, 16, &d),
+            SrcFormat::Png,
+            false,
+            None,
+            Some(&tiff),
+            &p,
+        )
+        .unwrap();
         assert!(!e.bytes.windows(4).any(|w| w == b"eXIf"));
     }
 
@@ -470,7 +513,15 @@ mod tests {
             quality: 80,
             fill: [255; 3],
         };
-        let e = apply(view(48, 32, &d), SrcFormat::Jpeg, None, Some(&tiff), &p).unwrap();
+        let e = apply(
+            view(48, 32, &d),
+            SrcFormat::Jpeg,
+            false,
+            None,
+            Some(&tiff),
+            &p,
+        )
+        .unwrap();
         let at = e.bytes.windows(4).position(|w| w == b"EXIF").unwrap();
         let len = u32::from_le_bytes(e.bytes[at + 4..at + 8].try_into().unwrap()) as usize;
         let blob = &e.bytes[at + 8..at + 8 + len];
@@ -505,6 +556,7 @@ mod tests {
             let e = apply(
                 view(16, 16, &d),
                 SrcFormat::Jpeg,
+                false,
                 None,
                 Some(&blob),
                 &convert_jpeg(),
@@ -512,5 +564,90 @@ mod tests {
             .unwrap();
             assert!(!has_exif_app1(&e.bytes));
         }
+    }
+
+    fn compress_params() -> EditParams {
+        EditParams::Compress {
+            quality: 80,
+            max_edge: None,
+            png_mode: PngMode::Lossless,
+        }
+    }
+
+    fn crop_params() -> EditParams {
+        EditParams::Crop {
+            rect: CropRect {
+                x: 1,
+                y: 1,
+                w: 6,
+                h: 4,
+            },
+            quarter_turns: 0,
+            flip_h: false,
+            flip_v: false,
+        }
+    }
+
+    #[test]
+    fn heif_compress_unsupported() {
+        let d = img(16, 16);
+        for f in [SrcFormat::Heif, SrcFormat::Avif] {
+            let r = apply(view(16, 16, &d), f, false, None, None, &compress_params());
+            assert!(matches!(r, Err(ImagingError::Unsupported)), "{f:?}");
+        }
+    }
+
+    #[test]
+    fn heif_crop_opaque_is_jpeg() {
+        let d = img(16, 16);
+        let e = apply(
+            view(16, 16, &d),
+            SrcFormat::Heif,
+            false,
+            None,
+            None,
+            &crop_params(),
+        )
+        .unwrap();
+        assert_eq!(e.format, OutFormat::Jpeg);
+        assert_eq!(&e.bytes[..2], &[0xFF, 0xD8]);
+        assert_eq!((e.width, e.height), (6, 4));
+    }
+
+    #[test]
+    fn heif_crop_with_alpha_is_png() {
+        let mut d = img(16, 16);
+        d[3] = 10;
+        for f in [SrcFormat::Heif, SrcFormat::Avif] {
+            let e = apply(view(16, 16, &d), f, true, None, None, &crop_params()).unwrap();
+            assert_eq!(e.format, OutFormat::Png);
+            assert_eq!(&e.bytes[..4], b"\x89PNG");
+        }
+    }
+
+    #[test]
+    fn avif_convert_to_webp_ok() {
+        let d = img(16, 16);
+        let p = EditParams::Convert {
+            format: OutFormat::Webp,
+            quality: 80,
+            fill: [255; 3],
+        };
+        let e = apply(view(16, 16, &d), SrcFormat::Avif, false, None, None, &p).unwrap();
+        assert_eq!(e.format, OutFormat::Webp);
+        assert_eq!(&e.bytes[..4], b"RIFF");
+    }
+
+    #[test]
+    fn src_format_of_recognizes_heif_and_avif() {
+        use crate::heif::testkit::bx;
+        let ftyp = |brand: &[u8; 4]| {
+            let mut body = brand.to_vec();
+            body.extend_from_slice(&[0; 4]);
+            body.extend_from_slice(brand);
+            bx(b"ftyp", &body)
+        };
+        assert_eq!(src_format_of(&ftyp(b"heic")), Some(SrcFormat::Heif));
+        assert_eq!(src_format_of(&ftyp(b"avif")), Some(SrcFormat::Avif));
     }
 }

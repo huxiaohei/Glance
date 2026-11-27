@@ -114,7 +114,7 @@ export interface RecentEntry {
 export type DragEnd = "dropped" | "cancelled";
 
 // ---- 编辑（压缩与转格式）----
-export type SrcFormat = "png" | "jpeg" | "webp" | "gif" | "bmp";
+export type SrcFormat = "png" | "jpeg" | "webp" | "gif" | "bmp" | "heif" | "avif";
 export type OutFormat = "png" | "jpeg" | "webp";
 export type PngMode = "lossy" | "lossless";
 export type EditTab = "compress" | "crop" | "removeBg" | "convert";

@@ -158,6 +158,18 @@ describe("StatusBar", () => {
       expect(enterBatch).toHaveBeenLastCalledWith([1, 2], 2, "convert");
     });
 
+    it("选中的全是 HEIC / AVIF：“压缩”禁用，“转格式”可用；混选仍可压缩", () => {
+      const e = (id: number, name: string) => ({ id, relPath: name, dir: "", name, size: 1, mtimeMs: 1 });
+      useCatalog.setState({ entries: new Map([[1, e(1, "a.heic")], [2, e(2, "b.avif")], [3, e(3, "c.jpg")]]) });
+      useSelection.getState().set({ ...selectOnly(1), ids: new Set([1, 2]), focus: 1 });
+      const { rerender } = render(<StatusBar total={3} />);
+      expect((screen.getByRole("button", { name: t("status.compress") }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("button", { name: t("status.convert") }) as HTMLButtonElement).disabled).toBe(false);
+      act(() => useSelection.getState().set({ ...selectOnly(1), ids: new Set([1, 3]), focus: 1 }));
+      rerender(<StatusBar total={3} />);
+      expect((screen.getByRole("button", { name: t("status.compress") }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
     it("批量进行中按钮禁用并提示；任务结束后恢复", () => {
       useSelection.getState().set({ ...selectOnly(1), ids: new Set([1, 2]), focus: 1 });
       render(<StatusBar total={3} />);

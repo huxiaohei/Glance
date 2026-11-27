@@ -18,6 +18,13 @@ pub struct Source {
     pub exif: Option<Vec<u8>>,
     pub decoded: Decoded,
     pub file_size: u64,
+    /// 整张图是否有非不透明像素（HEIC / AVIF 裁剪据此选输出格式，去背景页据此提示）。
+    pub has_alpha: bool,
+}
+
+/// 整张图里有没有非不透明的像素。
+pub(super) fn any_transparent(d: &Decoded) -> bool {
+    d.rgba.chunks_exact(4).any(|p| p[3] != 255)
 }
 
 /// 读文件并解码。动图是 `Animated`，读不到是 `NotFound`，认不出格式是 `Unsupported`。
@@ -34,31 +41,32 @@ fn read_source_with(path: &Path, after_read: &mut dyn FnMut(&Path)) -> Result<So
     }
     let bytes = std::fs::read(path).map_err(|_| EditError::NotFound)?;
     after_read(path);
-    // HEIC / AVIF 在这里仍是 Unsupported，编辑支持之后再放开。
     let src_format = src_format_of(&bytes).ok_or(EditError::Unsupported)?;
     let d = decode::decode(&bytes, MAX_PIXELS).map_err(|e| match e {
         DecodeError::TooLarge => EditError::TooLarge,
         // 本机缺系统解码器暂且算解不出来，以后换成专门的错误。
         DecodeError::NoCodec | DecodeError::Decode => EditError::Decode,
     })?;
+    let has_alpha = any_transparent(&d.decoded);
     Ok(Source {
         src_format,
         icc: d.icc,
         exif: exif_blob(&bytes),
         decoded: d.decoded,
         file_size: bytes.len() as u64,
+        has_alpha,
     })
 }
 
 /// 批量只支持 Compress / Convert：不经会话的 RemoveBg 透明度闸门。
-/// 读文件、按参数编码；返回编码结果、源格式与原文件大小。压缩 GIF / BMP 是 `Unsupported`；
+/// 读文件、按参数编码；返回编码结果、源格式与原文件大小。压缩 GIF / BMP / HEIC / AVIF 是 `Unsupported`；
 /// 编码时 panic 记作 `Encode`。
 pub fn render_path(
     path: &Path,
     params: &EditParams,
 ) -> Result<(Encoded, SrcFormat, u64), EditError> {
     let src = read_source(path)?;
-    out_format(src.src_format, params)?;
+    out_format(src.src_format, src.has_alpha, params)?;
     let view = RgbaView {
         width: src.decoded.width,
         height: src.decoded.height,
@@ -68,6 +76,7 @@ pub fn render_path(
         apply(
             view,
             src.src_format,
+            src.has_alpha,
             src.icc.as_deref(),
             src.exif.as_deref(),
             params,

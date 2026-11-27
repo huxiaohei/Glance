@@ -81,6 +81,7 @@ fn bench_apply() {
                 data: &d,
             },
             src,
+            false,
             None,
             None,
             &p,

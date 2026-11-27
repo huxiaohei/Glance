@@ -207,6 +207,13 @@ describe("编辑面板", () => {
     expect(primary.disabled).toBe(true);
   });
 
+  it("avif_compress_tab_shows_unsupported_note", async () => {
+    await editing({ srcFormat: "avif" });
+    expect(useEditUi.getState().tab).toBe("convert");
+    fireEvent.click(screen.getByRole("tab", { name: t("edit.tab.compress") }));
+    expect(screen.getByText(t("edit.compress.unsupported"))).toBeTruthy();
+  });
+
   it("footer_shows_approx_then_exact", async () => {
     const { container } = await editing();
     act(() => useEditUi.setState({ result: result({ bytes: 512, approx: true }) }));

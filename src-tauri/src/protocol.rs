@@ -97,6 +97,8 @@ fn mime_of(f: SrcFormat) -> &'static str {
         SrcFormat::Webp => "image/webp",
         SrcFormat::Gif => "image/gif",
         SrcFormat::Bmp => "image/bmp",
+        SrcFormat::Heif => "image/heif",
+        SrcFormat::Avif => "image/avif",
     }
 }
 

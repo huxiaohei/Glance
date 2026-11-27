@@ -57,4 +57,4 @@ dirs = "6"
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFData", "CFDictionary", "CFNumber", "CFString"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
-objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageDestination", "objc2-core-graphics"] }
+objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageDestination", "CGImageProperties", "objc2-core-graphics"] }

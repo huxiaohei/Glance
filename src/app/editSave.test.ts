@@ -8,7 +8,7 @@ import { useEditUi } from "../stores/editUi";
 import { topView, useNav } from "../stores/nav";
 import { DEFAULT_SETTINGS, useSettings } from "../stores/settings";
 import { useToast } from "../stores/toast";
-import { saveEdit, saveTarget } from "./editSave";
+import { noCompress, outFormatOf, saveEdit, saveTarget } from "./editSave";
 
 vi.mock("../ipc/api");
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
@@ -215,21 +215,44 @@ describe("saveEdit", () => {
   });
 });
 
+describe("outFormatOf 与 noCompress", () => {
+  const compress = { op: "compress" as const, quality: 80, maxEdge: null, pngMode: "lossy" as const };
+  const crop = { op: "crop" as const, rect: { x: 0, y: 0, w: 10, h: 10 }, quarterTurns: 0 as const, flipH: false, flipV: false };
+  it("heif_avif_crop_and_compress", () => {
+    expect(outFormatOf("heif", false, crop)).toBe("jpeg");
+    expect(outFormatOf("avif", true, crop)).toBe("png");
+    expect(outFormatOf("heif", false, compress)).toBeNull();
+    expect(outFormatOf("avif", true, compress)).toBeNull();
+    expect(outFormatOf("jpeg", true, crop)).toBe("jpeg");
+    expect(outFormatOf("gif", false, compress)).toBeNull();
+  });
+  it("no_compress_formats", () => {
+    for (const f of ["gif", "bmp", "heif", "avif"] as const) expect(noCompress(f)).toBe(true);
+    for (const f of ["png", "jpeg", "webp"] as const) expect(noCompress(f)).toBe(false);
+  });
+  it("heic_crop_names_jpg", () => {
+    expect(saveTarget("IMG_1.heic", "heif", crop, false)).toEqual({
+      name: "IMG_1_cropped.jpg", filter: { name: "JPEG", extensions: ["jpg", "jpeg"] },
+    });
+    expect(saveTarget("IMG_1.avif", "avif", crop, true).name).toBe("IMG_1_cropped.png");
+  });
+});
+
 describe("saveTarget", () => {
   const compress = { op: "compress" as const, quality: 80, maxEdge: null, pngMode: "lossy" as const };
   const convert = (format: "png" | "jpeg" | "webp") => ({ op: "convert" as const, format, quality: 85, fill: [255, 255, 255] as [number, number, number] });
   it("names_like_backend", () => {
-    expect(saveTarget("hero.png", "png", compress).name).toBe("hero_compressed.png");
-    expect(saveTarget("a.JPEG", "jpeg", compress).name).toBe("a_compressed.JPEG");
-    expect(saveTarget("hero.png", "png", convert("webp")).name).toBe("hero.webp");
-    expect(saveTarget("hero.png", "png", convert("jpeg")).name).toBe("hero.jpg");
-    expect(saveTarget("hero.png", "png", convert("png")).name).toBe("hero_converted.png");
-    expect(saveTarget("a.jpeg", "jpeg", convert("jpeg")).name).toBe("a_converted.jpeg");
-    expect(saveTarget("noext", "jpeg", compress).name).toBe("noext_compressed.jpg");
+    expect(saveTarget("hero.png", "png", compress, false).name).toBe("hero_compressed.png");
+    expect(saveTarget("a.JPEG", "jpeg", compress, false).name).toBe("a_compressed.JPEG");
+    expect(saveTarget("hero.png", "png", convert("webp"), false).name).toBe("hero.webp");
+    expect(saveTarget("hero.png", "png", convert("jpeg"), false).name).toBe("hero.jpg");
+    expect(saveTarget("hero.png", "png", convert("png"), false).name).toBe("hero_converted.png");
+    expect(saveTarget("a.jpeg", "jpeg", convert("jpeg"), false).name).toBe("a_converted.jpeg");
+    expect(saveTarget("noext", "jpeg", compress, false).name).toBe("noext_compressed.jpg");
   });
   it("filter_matches_output_format", () => {
-    expect(saveTarget("a.jpeg", "jpeg", compress).filter).toEqual({ name: "JPEG", extensions: ["jpeg", "jpg"] });
-    expect(saveTarget("a.png", "png", convert("png")).filter).toEqual({ name: "PNG", extensions: ["png"] });
+    expect(saveTarget("a.jpeg", "jpeg", compress, false).filter).toEqual({ name: "JPEG", extensions: ["jpeg", "jpg"] });
+    expect(saveTarget("a.png", "png", convert("png"), false).filter).toEqual({ name: "PNG", extensions: ["png"] });
   });
   const crop = { op: "crop" as const, rect: { x: 0, y: 0, w: 10, h: 10 }, quarterTurns: 0 as const, flipH: false, flipV: false };
   const removeBg = {
@@ -237,20 +260,20 @@ describe("saveTarget", () => {
     tolerance: 30, softness: 10, edgeConnected: true,
   };
   it("remove_bg_on_jpeg_saves_png_nobg", () => {
-    expect(saveTarget("photo.jpg", "jpeg", removeBg)).toEqual({
+    expect(saveTarget("photo.jpg", "jpeg", removeBg, false)).toEqual({
       name: "photo_nobg.png", filter: { name: "PNG", extensions: ["png"] },
     });
   });
   it("crop_png_keeps_png_cropped", () => {
-    expect(saveTarget("hero.png", "png", crop)).toEqual({
+    expect(saveTarget("hero.png", "png", crop, false)).toEqual({
       name: "hero_cropped.png", filter: { name: "PNG", extensions: ["png"] },
     });
-    expect(saveTarget("a.JPEG", "jpeg", crop)).toEqual({
+    expect(saveTarget("a.JPEG", "jpeg", crop, false)).toEqual({
       name: "a_cropped.JPEG", filter: { name: "JPEG", extensions: ["jpeg", "jpg"] },
     });
   });
   it("crop_gif_saves_png_cropped", () => {
-    expect(saveTarget("anim.gif", "gif", crop)).toEqual({
+    expect(saveTarget("anim.gif", "gif", crop, false)).toEqual({
       name: "anim_cropped.png", filter: { name: "PNG", extensions: ["png"] },
     });
   });

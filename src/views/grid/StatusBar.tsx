@@ -6,6 +6,7 @@ import { t } from "../../i18n";
 import { useBasket } from "../../stores/basket";
 import { useBatch } from "../../stores/batch";
 import { useCatalog } from "../../stores/catalog";
+import { allCodecNames } from "../../lib/codecKind";
 import { gridHints } from "../../lib/keyHints";
 import { useSelection } from "../../stores/selection";
 import { useSettings } from "../../stores/settings";
@@ -24,21 +25,28 @@ function moveTitle(): string {
   return cmd ? t(cmd.title) : t("status.move");
 }
 
-/** 批量按钮：直接执行命令表里的命令；批量进行中禁用。 */
-function BatchButton({ id, label, busy }: { id: string; label: string; busy: boolean }) {
+/** 批量按钮：直接执行命令表里的命令；批量进行中禁用；unsupported 时禁用并说明（选中的图都不能压缩）。 */
+function BatchButton({ id, label, busy, unsupported = false }: { id: string; label: string; busy: boolean; unsupported?: boolean }) {
   const cmd = allCommands().find((c) => c.id === id);
   if (!cmd) return null;
   return (
     <button
       type="button"
       className="status-action"
-      disabled={busy}
-      title={busy ? t("batch.running") : t(cmd.title)}
+      disabled={busy || unsupported}
+      title={busy ? t("batch.running") : unsupported ? t("edit.compress.unsupported") : t(cmd.title)}
       onClick={() => cmd.run({ shift: false, repeat: false })}
     >
       {label}
     </button>
   );
+}
+
+/** 选中的图全是 HEIC / HEIF / AVIF：这些图不能压缩，“压缩”按钮置灰（混选时由后端跳过）。 */
+function useAllCodecSelected(): boolean {
+  const ids = useSelection((s) => s.ids);
+  const entries = useCatalog((s) => s.entries);
+  return useMemo(() => allCodecNames([...ids].map((id) => entries.get(id)?.name ?? "")), [ids, entries]);
 }
 
 /** 选中的图里有几张还不在对比篮里。 */
@@ -61,6 +69,7 @@ export default function StatusBar({ total }: { total: number }) {
   const showHints = useSettings((s) => s.settings.showKeyHints);
   const notInBasket = useSelectedNotInBasket();
   const busy = useBatch((s) => s.progress !== null);
+  const noneCompressible = useAllCodecSelected();
   return (
     <div className="status-bar">
       <span className="status-counts">
@@ -72,7 +81,7 @@ export default function StatusBar({ total }: { total: number }) {
       </span>
       {watchFailed && <span className="status-warn">{t("status.watchFailed")}</span>}
       {showHints && <KeyHints hints={gridHints({ selected, selectedNotInBasket: notInBasket, basket: inBasket })} />}
-      {selected > 0 && <BatchButton id="grid.batchCompress" label={t("status.compress")} busy={busy} />}
+      {selected > 0 && <BatchButton id="grid.batchCompress" label={t("status.compress")} busy={busy} unsupported={noneCompressible} />}
       {selected > 0 && <BatchButton id="grid.batchConvert" label={t("status.convert")} busy={busy} />}
       {selected > 0 && (
         <button type="button" className="status-action" title={moveTitle()} onClick={() => void pickAndTransfer("move")}>
