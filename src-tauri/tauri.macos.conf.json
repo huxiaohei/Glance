@@ -6,7 +6,7 @@
       }
     },
     "fileAssociations": [
-      { "ext": ["png", "jpg", "jpeg", "webp", "gif", "bmp"], "name": "Image", "role": "Viewer", "rank": "Alternate" },
+      { "ext": ["png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "heif", "avif"], "name": "Image", "role": "Viewer", "rank": "Alternate" },
       { "ext": [], "contentTypes": ["public.folder"], "name": "Folder", "role": "Viewer", "rank": "Alternate" }
     ]
   }

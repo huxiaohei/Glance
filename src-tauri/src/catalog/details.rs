@@ -4,7 +4,7 @@
 //! JPEG 的 APP1、PNG 的 eXIf 块（须在 IDAT 之前）、WebP 的 EXIF 块；GIF、BMP 没有方向。
 
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use exif::{Exif, In, Tag, Value};
@@ -61,6 +61,10 @@ type Src = BufReader<File>;
 /// 只读文件头，不解码。
 pub fn display_size(path: &Path) -> Option<(u32, u32)> {
     let mut r = BufReader::new(File::open(path).ok()?);
+    // HEIF 的宽高来自 ispe，只按 irot 转正；EXIF 方向不再参与（设计 4.3）
+    if starts_with_ftyp(&mut r) {
+        return glance_imaging::heif::parse(&mut r).map(|i| i.display_dims());
+    }
     let size = imagesize::reader_size(&mut r).ok()?;
     let (w, h) = (size.width as u32, size.height as u32);
     // 回到开头；seek_relative 在缓冲区内移动时不丢弃已读的数据
@@ -175,6 +179,10 @@ struct Head {
 /// 按文件签名分派。只读到图像数据之前（JPEG 的 SOS、PNG 的 IDAT），WebP 跳着走完各块。
 fn probe(r: &mut Src) -> Head {
     let mut head = Head::default();
+    if starts_with_ftyp(r) {
+        heif_head(r, &mut head);
+        return head;
+    }
     let Some(sig) = read_arr::<4>(r) else {
         return head;
     };
@@ -197,6 +205,27 @@ fn probe(r: &mut Src) -> Head {
         _ => {}
     }
     head
+}
+
+/// 第 4 到 8 字节是 `ftyp`（只看缓冲区，不移动读位置）。
+fn starts_with_ftyp(r: &mut Src) -> bool {
+    r.fill_buf()
+        .is_ok_and(|b| b.len() >= 8 && &b[4..8] == b"ftyp")
+}
+
+/// HEIC / HEIF / AVIF：宽高之外的信息都在 `meta` 里，EXIF 块按 `iloc` 给的位置读。
+fn heif_head(r: &mut Src, head: &mut Head) {
+    let Some(info) = glance_imaging::heif::parse(r) else {
+        return;
+    };
+    head.color = Some(if info.has_alpha { "RGBA" } else { "RGB" });
+    head.bit_depth = info.bit_depth;
+    head.has_alpha = Some(info.has_alpha);
+    head.animated = info.animated;
+    head.exif = info.exif.and_then(|(off, len)| {
+        r.seek(SeekFrom::Start(off)).ok()?;
+        read_vec(r, len)
+    });
 }
 
 fn read_arr<const N: usize>(r: &mut Src) -> Option<[u8; N]> {
@@ -1153,5 +1182,75 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn heif_file(
+        dir: &Path,
+        name: &str,
+        o: &glance_imaging::heif::testkit::SampleOpts,
+    ) -> std::path::PathBuf {
+        write(dir, name, &glance_imaging::heif::testkit::sample(o))
+    }
+
+    #[test]
+    fn heif_head_fills_details() {
+        use glance_imaging::heif::testkit::{ExifSpec, SampleOpts};
+        let tmp = tempfile::tempdir().unwrap();
+        let t = tiff(&[(MAKE, V::Ascii("Apple"))], &[]);
+        let o = SampleOpts {
+            major: *b"avis",
+            pixi: Some(vec![10, 10, 10]),
+            aux_urn: Some("urn:mpeg:mpegB:cicp:systems:auxiliary:alpha"),
+            exif: Some(ExifSpec {
+                iloc_version: 1,
+                skip: 6,
+                tiff: t,
+            }),
+            ..Default::default()
+        };
+        let p = heif_file(tmp.path(), "a.avif", &o);
+        let d = image_details(&p).unwrap();
+        assert_eq!(d.bit_depth, Some(10));
+        assert_eq!(d.has_alpha, Some(true));
+        assert_eq!(d.color.as_deref(), Some("RGBA"));
+        assert!(d.animated);
+        assert_eq!(d.exif[0].key, "make");
+        assert_eq!(d.exif[0].value, "Apple");
+        assert_eq!(exif_blob(&p).map(|b| b.starts_with(b"II*\0")), Some(true));
+
+        let p = heif_file(tmp.path(), "b.heic", &SampleOpts::default());
+        let d = image_details(&p).unwrap();
+        assert_eq!(d.color.as_deref(), Some("RGB"));
+        assert_eq!(d.has_alpha, Some(false));
+        assert!(!d.animated);
+        assert!(d.exif.is_empty());
+    }
+
+    #[test]
+    fn display_size_uses_irot_not_exif() {
+        use glance_imaging::heif::testkit::{ExifSpec, SampleOpts};
+        let tmp = tempfile::tempdir().unwrap();
+        let t = tiff(&[(ORIENTATION, V::Short(6))], &[]);
+        let exif = Some(ExifSpec {
+            iloc_version: 0,
+            skip: 0,
+            tiff: t,
+        });
+        let o = SampleOpts {
+            size: (40, 20),
+            irot: Some(0),
+            exif: exif.clone(),
+            ..Default::default()
+        };
+        let p = heif_file(tmp.path(), "o.heic", &o);
+        assert_eq!(display_size(&p), Some((40, 20)));
+        let o = SampleOpts {
+            size: (40, 20),
+            irot: Some(1),
+            exif,
+            ..Default::default()
+        };
+        let p = heif_file(tmp.path(), "r.heic", &o);
+        assert_eq!(display_size(&p), Some((20, 40)));
     }
 }

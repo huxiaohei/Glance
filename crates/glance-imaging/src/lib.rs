@@ -5,6 +5,7 @@ mod edit;
 mod encode;
 mod error;
 mod exifblob;
+pub mod heif;
 mod quantize;
 mod removebg;
 mod thumb;

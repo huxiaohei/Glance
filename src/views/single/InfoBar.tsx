@@ -8,12 +8,13 @@ import { isEditing, useEditUi } from "../../stores/editUi";
 import { useSettings } from "../../stores/settings";
 import KeyHints from "../common/KeyHints";
 
-/** 格式标签：扩展名大写，jpeg 显示为 JPG；没有扩展名返回 null。 */
+/** 格式标签：扩展名大写，jpeg 显示为 JPG，heif 显示为 HEIC；没有扩展名返回 null。 */
 function formatLabel(name: string): string | null {
   const i = name.lastIndexOf(".");
   if (i < 0 || i === name.length - 1) return null;
   const ext = name.slice(i + 1).toUpperCase();
-  return ext === "JPEG" ? "JPG" : ext;
+  if (ext === "JPEG") return "JPG";
+  return ext === "HEIF" ? "HEIC" : ext;
 }
 
 /** 单张视图底部常驻信息条：文件名、宽 × 高、大小、格式，快捷键提示，右侧 序号 / 总数。 */

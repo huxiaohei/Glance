@@ -21,6 +21,9 @@
   WriteRegStr SHCTX "Software\Classes\.webp\OpenWithProgids" "Glance.Image" ""
   WriteRegStr SHCTX "Software\Classes\.gif\OpenWithProgids" "Glance.Image" ""
   WriteRegStr SHCTX "Software\Classes\.bmp\OpenWithProgids" "Glance.Image" ""
+  WriteRegStr SHCTX "Software\Classes\.heic\OpenWithProgids" "Glance.Image" ""
+  WriteRegStr SHCTX "Software\Classes\.heif\OpenWithProgids" "Glance.Image" ""
+  WriteRegStr SHCTX "Software\Classes\.avif\OpenWithProgids" "Glance.Image" ""
 
   WriteRegStr SHCTX "Software\Classes\Directory\shell\Glance" "" $0
   WriteRegStr SHCTX "Software\Classes\Directory\shell\Glance" "Icon" '$INSTDIR\${MAINBINARYNAME}.exe,0'
@@ -44,5 +47,8 @@
   DeleteRegValue SHCTX "Software\Classes\.webp\OpenWithProgids" "Glance.Image"
   DeleteRegValue SHCTX "Software\Classes\.gif\OpenWithProgids" "Glance.Image"
   DeleteRegValue SHCTX "Software\Classes\.bmp\OpenWithProgids" "Glance.Image"
+  DeleteRegValue SHCTX "Software\Classes\.heic\OpenWithProgids" "Glance.Image"
+  DeleteRegValue SHCTX "Software\Classes\.heif\OpenWithProgids" "Glance.Image"
+  DeleteRegValue SHCTX "Software\Classes\.avif\OpenWithProgids" "Glance.Image"
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 !macroend

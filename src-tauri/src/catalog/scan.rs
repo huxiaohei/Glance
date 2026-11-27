@@ -25,7 +25,9 @@ pub const IGNORED_DIRS: [&str; 6] = [
 ];
 
 /// 支持的图片扩展名（小写）。系统侧的文件关联声明用测试与它比对。
-pub const IMAGE_EXTS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+pub const IMAGE_EXTS: [&str; 9] = [
+    "png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "heif", "avif",
+];
 
 /// 扩展名属于 `IMAGE_EXTS`（不分大小写）。
 pub fn is_image_path(path: &Path) -> bool {
@@ -200,6 +202,13 @@ mod tests {
     use super::*;
     use std::fs;
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn heif_extensions_are_images() {
+        for name in ["A.HEIC", "b.heif", "c.Avif"] {
+            assert!(is_image_path(Path::new(name)), "{name}");
+        }
+    }
 
     fn touch(root: &Path, rel: &str) {
         let p = root.join(rel);
