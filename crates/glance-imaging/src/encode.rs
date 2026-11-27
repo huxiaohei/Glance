@@ -1083,7 +1083,9 @@ mod tests {
     #[test]
     fn webp_lossless_alpha_flag_from_vp8l_header() {
         // libwebp 的有损编码不会出 VP8L；直接拼一个 VP8L 块来验证重排逻辑的透明标志。
-        let mut vp8l = vec![0x2F, 7, 0, 0, 0x10]; // 宽高各 8，alpha 位在第 28 位
+        // 签名 0x2F 后的 32 位小端：宽 - 1（14 位）、高 - 1（14 位）、alpha 位（第 28 位）。
+        // 0x1001_C007 = 宽高各 8，alpha 位置 1。
+        let mut vp8l = vec![0x2F, 0x07, 0xC0, 0x01, 0x10];
         vp8l.extend([0u8; 3]);
         let mut riff = b"RIFF".to_vec();
         riff.extend((4 + 8 + vp8l.len() as u32).to_le_bytes());
