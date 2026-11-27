@@ -37,10 +37,9 @@ export function outFormatOf(src: SrcFormat, hasAlpha: boolean, params: EditParam
       if (src === "heif" || src === "avif") return hasAlpha ? "png" : "jpeg";
       return src === "jpeg" || src === "webp" ? src : "png";
     case "compress":
-      return noCompress(src) ? null : (src as OutFormat);
+      return src === "png" || src === "jpeg" || src === "webp" ? src : null;
   }
 }
-
 
 /** 保存副本的后缀，与后端 `naming` 一致。 */
 function suffixOf(params: EditParams, sameFormat: boolean): string {

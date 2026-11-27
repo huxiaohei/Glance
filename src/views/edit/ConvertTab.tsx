@@ -1,10 +1,12 @@
 import { t } from "../../i18n";
-import type { OutFormat } from "../../ipc/types";
+import type { OutFormat, SrcFormat } from "../../ipc/types";
 import { useEditUi } from "../../stores/editUi";
 import { QualitySlider } from "./CompressTab";
 
 /** 格式名是专有名词，不翻译。 */
-export const FORMAT_LABEL: Record<string, string> = { png: "PNG", jpeg: "JPG", webp: "WebP", gif: "GIF", bmp: "BMP" };
+export const FORMAT_LABEL: Record<SrcFormat, string> = {
+  png: "PNG", jpeg: "JPG", webp: "WebP", gif: "GIF", bmp: "BMP", heif: "HEIC", avif: "AVIF",
+};
 
 const FORMATS: OutFormat[] = ["png", "jpeg", "webp"];
 const WHITE: [number, number, number] = [255, 255, 255];
