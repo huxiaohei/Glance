@@ -237,28 +237,233 @@ pub fn encode_png_fast(img: RgbaView) -> Result<Vec<u8>, ImagingError> {
     Ok(out)
 }
 
-/// 不压缩的 PNG：不滤波、zlib 不压缩档，icc 非空时写入 iCCP。显示通道用，换编码速度不换体积。
-pub fn encode_png_stored(img: RgbaView, icc: Option<&[u8]>) -> Result<Vec<u8>, ImagingError> {
-    use image::ImageEncoder;
-    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-    validate(&img)?;
-    let mut out = Vec::with_capacity(img.data.len() + img.height as usize + 1024);
-    let mut enc = PngEncoder::new_with_quality(
-        &mut out,
-        CompressionType::Uncompressed,
-        FilterType::NoFilter,
-    );
-    if let Some(icc) = icc.filter(|p| !p.is_empty()) {
-        enc.set_icc_profile(icc.to_vec()).map_err(encode_err)?;
+/// 单个 IDAT 块的数据长度上限（PNG 规范允许到 2^31 - 1）。
+const IDAT_MAX: usize = 1 << 30;
+/// 一个 stored 块最多装 65535 字节。
+const STORED_MAX: usize = 65535;
+const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+
+const CRC_TABLE: [u32; 256] = {
+    let mut t = [0u32; 256];
+    let mut n = 0;
+    while n < 256 {
+        let mut c = n as u32;
+        let mut k = 0;
+        while k < 8 {
+            c = if c & 1 != 0 {
+                0xEDB8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
+            k += 1;
+        }
+        t[n] = c;
+        n += 1;
     }
-    enc.write_image(
-        img.data,
-        img.width,
-        img.height,
-        image::ExtendedColorType::Rgba8,
-    )
-    .map_err(encode_err)?;
+    t
+};
+
+/// CRC-32（PNG 用的多项式），可分段累加：首段传 0。
+fn crc32_update(crc: u32, data: &[u8]) -> u32 {
+    let mut c = !crc;
+    for &b in data {
+        c = CRC_TABLE[((c ^ u32::from(b)) & 0xFF) as usize] ^ (c >> 8);
+    }
+    !c
+}
+
+/// Adler-32，每 5552 字节才取一次模。
+struct Adler32 {
+    a: u32,
+    b: u32,
+}
+
+impl Adler32 {
+    fn new() -> Self {
+        Adler32 { a: 1, b: 0 }
+    }
+
+    fn update(&mut self, data: &[u8]) {
+        for part in data.chunks(5552) {
+            for &x in part {
+                self.a += u32::from(x);
+                self.b += self.a;
+            }
+            self.a %= 65521;
+            self.b %= 65521;
+        }
+    }
+
+    fn finish(&self) -> u32 {
+        (self.b << 16) | self.a
+    }
+}
+
+/// n 字节原始数据装进 stored 块的 zlib 流长度：2 字节头 + 各块（5 字节头 + 数据）+ 4 字节 Adler。
+fn zlib_stored_len(n: usize) -> usize {
+    2 + n + 5 * n.div_ceil(STORED_MAX).max(1) + 4
+}
+
+/// 不压缩 PNG 的精确字节数（调用方已用 `validate` 保证 w * h * 4 不溢出）。
+fn png_stored_len(width: u32, height: u32, icc_len: usize, idat_max: usize) -> usize {
+    let raw = height as usize * (1 + width as usize * 4);
+    let z = zlib_stored_len(raw);
+    let idat = z + 12 * z.div_ceil(idat_max);
+    let iccp = if icc_len == 0 {
+        0
+    } else {
+        12 + 5 + zlib_stored_len(icc_len)
+    };
+    PNG_SIGNATURE.len() + (12 + 13) + iccp + idat + 12
+}
+
+fn put_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+    out.extend((data.len() as u32).to_be_bytes());
+    let start = out.len();
+    out.extend_from_slice(kind);
+    out.extend_from_slice(data);
+    let crc = crc32_update(0, &out[start..]);
+    out.extend(crc.to_be_bytes());
+}
+
+/// 把一段 zlib stored 流直接写进输出：每块 5 字节头 + 数据；`feed` 给出原始字节（同时算 Adler）。
+fn put_zlib_stored(out: &mut Vec<u8>, raw_len: usize, mut feed: impl FnMut(&mut Vec<u8>, usize)) {
+    out.extend([0x78, 0x01]);
+    let mut left = raw_len;
+    loop {
+        let n = left.min(STORED_MAX);
+        left -= n;
+        out.push(u8::from(left == 0));
+        out.extend((n as u16).to_le_bytes());
+        out.extend((!(n as u16)).to_le_bytes());
+        feed(out, n);
+        if left == 0 {
+            break;
+        }
+    }
+}
+
+/// 直接写进一次分配好的缓冲：签名、IHDR、可选 iCCP、若干 IDAT（stored 块，每行前置滤波字节 0）、IEND。
+fn write_png_stored(
+    img: &RgbaView,
+    icc: Option<&[u8]>,
+    idat_max: usize,
+) -> Result<Vec<u8>, ImagingError> {
+    validate(img)?;
+    let icc = icc.filter(|p| !p.is_empty());
+    let w4 = img.width as usize * 4;
+    let rows = img.height as usize;
+    // 校验过 w * h * 4 不溢出，再加每行 1 字节仍要查。
+    let raw = rows
+        .checked_mul(1 + w4)
+        .ok_or_else(|| encode_err("图像过大"))?;
+    if zlib_stored_len(raw).checked_add(1 << 20).is_none() {
+        return Err(encode_err("图像过大"));
+    }
+    let total = png_stored_len(img.width, img.height, icc.map_or(0, <[u8]>::len), idat_max);
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(&PNG_SIGNATURE);
+
+    let mut ihdr = [0u8; 13];
+    ihdr[0..4].copy_from_slice(&img.width.to_be_bytes());
+    ihdr[4..8].copy_from_slice(&img.height.to_be_bytes());
+    ihdr[8] = 8; // 位深
+    ihdr[9] = 6; // RGBA
+    put_chunk(&mut out, b"IHDR", &ihdr);
+
+    if let Some(icc) = icc {
+        // 小缓冲：名字 "ICC" + 0 + 压缩方法 0 + stored 的 zlib 流。
+        let mut body = Vec::with_capacity(5 + zlib_stored_len(icc.len()));
+        body.extend_from_slice(b"ICC\0\0");
+        let mut ad = Adler32::new();
+        let mut pos = 0;
+        put_zlib_stored(&mut body, icc.len(), |o, n| {
+            o.extend_from_slice(&icc[pos..pos + n]);
+            ad.update(&icc[pos..pos + n]);
+            pos += n;
+        });
+        body.extend(ad.finish().to_be_bytes());
+        put_chunk(&mut out, b"iCCP", &body);
+    }
+
+    // IDAT：zlib 流按 idat_max 切成若干块；先占长度与类型，写满再回填长度并补 CRC。
+    let z_len = zlib_stored_len(raw);
+    let mut chunk_start = out.len();
+    let mut chunk_left = idat_max.min(z_len);
+    out.extend([0u8; 4]);
+    out.extend_from_slice(b"IDAT");
+    let mut emitted = 0usize;
+    // 把 bytes 追加进当前 IDAT，满了就封口开下一块。
+    let mut push = |out: &mut Vec<u8>, mut bytes: &[u8]| {
+        while !bytes.is_empty() {
+            if chunk_left == 0 {
+                let len = out.len() - chunk_start - 8;
+                out[chunk_start..chunk_start + 4].copy_from_slice(&(len as u32).to_be_bytes());
+                let crc = crc32_update(0, &out[chunk_start + 4..]);
+                out.extend(crc.to_be_bytes());
+                chunk_start = out.len();
+                chunk_left = idat_max.min(z_len - emitted);
+                out.extend([0u8; 4]);
+                out.extend_from_slice(b"IDAT");
+            }
+            let n = chunk_left.min(bytes.len());
+            out.extend_from_slice(&bytes[..n]);
+            bytes = &bytes[n..];
+            chunk_left -= n;
+            emitted += n;
+        }
+    };
+
+    push(&mut out, &[0x78, 0x01]);
+    let mut ad = Adler32::new();
+    let mut pos = 0usize; // 在“带滤波字节的原始流”里的位置
+    let mut left = raw;
+    loop {
+        let n = left.min(STORED_MAX);
+        left -= n;
+        let n16 = n as u16;
+        let mut hdr = [0u8; 5];
+        hdr[0] = u8::from(left == 0);
+        hdr[1..3].copy_from_slice(&n16.to_le_bytes());
+        hdr[3..5].copy_from_slice(&(!n16).to_le_bytes());
+        push(&mut out, &hdr);
+        let mut need = n;
+        while need > 0 {
+            let (row, off) = (pos / (1 + w4), pos % (1 + w4));
+            if off == 0 {
+                push(&mut out, &[0]);
+                ad.update(&[0]);
+                pos += 1;
+                need -= 1;
+                continue;
+            }
+            let take = need.min(1 + w4 - off);
+            let src = &img.data[row * w4 + off - 1..][..take];
+            push(&mut out, src);
+            ad.update(src);
+            pos += take;
+            need -= take;
+        }
+        if left == 0 {
+            break;
+        }
+    }
+    push(&mut out, &ad.finish().to_be_bytes());
+    // 封最后一个 IDAT。
+    let len = out.len() - chunk_start - 8;
+    out[chunk_start..chunk_start + 4].copy_from_slice(&(len as u32).to_be_bytes());
+    let crc = crc32_update(0, &out[chunk_start + 4..]);
+    out.extend(crc.to_be_bytes());
+
+    put_chunk(&mut out, b"IEND", &[]);
+    debug_assert_eq!(out.len(), total);
     Ok(out)
+}
+
+/// 不压缩的 PNG：不滤波、zlib 只用 stored 块，icc 非空时写入 iCCP。显示通道用，换编码速度不换体积。
+/// 直接写进一次按精确长度分配的缓冲，没有中间的整幅副本。
+pub fn encode_png_stored(img: RgbaView, icc: Option<&[u8]>) -> Result<Vec<u8>, ImagingError> {
+    write_png_stored(&img, icc, IDAT_MAX)
 }
 
 /// 有损：先减色成索引图（保留透明通道），再走 oxipng 输出索引 PNG。
@@ -465,6 +670,85 @@ mod tests {
         assert_eq!(icc_of(&plain), None);
         let empty = encode_png_stored(view(8, 8, &d[..256]), Some(&[])).unwrap();
         assert_eq!(icc_of(&empty), None);
+    }
+
+    fn assert_stored_roundtrip(w: u32, h: u32, d: &[u8], icc: Option<&[u8]>, idat_max: usize) {
+        let out = write_png_stored(&view(w, h, d), icc, idat_max).unwrap();
+        let expect = png_stored_len(w, h, icc.map_or(0, <[u8]>::len), idat_max);
+        assert_eq!(out.len(), expect, "{w}x{h} 实际长度与预算不符");
+        assert_eq!(out.capacity(), out.len(), "{w}x{h} 缓冲发生过扩容");
+        let back = image::load_from_memory(&out).unwrap().into_rgba8();
+        assert_eq!(back.dimensions(), (w, h));
+        assert_eq!(back.as_raw(), d);
+        assert_eq!(icc_of(&out).as_deref(), icc.filter(|p| !p.is_empty()));
+    }
+
+    #[test]
+    fn png_stored_exact_size_and_roundtrip_variants() {
+        let icc = fake_icc();
+        // 不透明（噪点渐变）。
+        let d = noise_gradient(37, 23);
+        assert_stored_roundtrip(37, 23, &d, None, usize::MAX >> 1);
+        assert_stored_roundtrip(37, 23, &d, Some(&icc), usize::MAX >> 1);
+        // 半透明。
+        let semi: Vec<u8> = (0..37 * 23)
+            .flat_map(|i| [i as u8, (i * 3) as u8, (i * 7) as u8, (i % 251) as u8])
+            .collect();
+        assert_stored_roundtrip(37, 23, &semi, Some(&icc), usize::MAX >> 1);
+        // 1x1。
+        assert_stored_roundtrip(1, 1, &[1, 2, 3, 4], None, usize::MAX >> 1);
+        assert_stored_roundtrip(1, 1, &[1, 2, 3, 4], Some(&icc), usize::MAX >> 1);
+    }
+
+    #[test]
+    fn png_stored_crosses_stored_block_boundary() {
+        // 每行 1 + 4w 字节：w = 16383 时一行 65533 字节，第二行的数据跨过 65535 的块边界；
+        // 另取行长恰为 65535 的情形（w = 16383.5 不存在，用 w = 16384 的 65537 字节行）。
+        for (w, h) in [(16383u32, 3u32), (16384, 3), (4096, 40), (100, 700)] {
+            let d = noise_gradient(w, h);
+            assert_stored_roundtrip(w, h, &d, None, usize::MAX >> 1);
+        }
+    }
+
+    #[test]
+    fn png_stored_splits_idat_chunks() {
+        // IDAT 上限压到很小，强制切成很多块，仍要能读回。
+        let icc = fake_icc();
+        let d = noise_gradient(300, 50);
+        assert_stored_roundtrip(300, 50, &d, Some(&icc), 1000);
+        assert_stored_roundtrip(300, 50, &d, None, 70_000);
+    }
+
+    #[test]
+    fn png_stored_public_fn_is_exact_size() {
+        let d = noise_gradient(200, 100);
+        let out = encode_png_stored(view(200, 100, &d), None).unwrap();
+        assert_eq!(out.len(), png_stored_len(200, 100, 0, IDAT_MAX));
+        assert_eq!(out.capacity(), out.len());
+    }
+
+    #[test]
+    fn png_stored_rejects_bad_buffer() {
+        assert!(encode_png_stored(view(2, 2, &[0; 15]), None).is_err());
+        assert!(encode_png_stored(view(0, 2, &[]), None).is_err());
+    }
+
+    #[test]
+    fn crc32_and_adler32_known_values() {
+        assert_eq!(crc32_update(0, b"123456789"), 0xCBF4_3926);
+        let mut a = Adler32::new();
+        a.update(b"Wikipedia");
+        assert_eq!(a.finish(), 0x11E6_0398);
+        // 超过 5552 字节的延迟取模路径。
+        let big = vec![255u8; 100_000];
+        let mut a = Adler32::new();
+        a.update(&big);
+        let (mut s1, mut s2) = (1u64, 0u64);
+        for &x in &big {
+            s1 = (s1 + u64::from(x)) % 65521;
+            s2 = (s2 + s1) % 65521;
+        }
+        assert_eq!(a.finish(), ((s2 << 16) | s1) as u32);
     }
 
     #[test]
