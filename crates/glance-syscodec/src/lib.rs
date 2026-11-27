@@ -98,21 +98,25 @@ fn fit_within(w: u32, h: u32, edge: u32) -> (u32, u32) {
 ///
 /// 系统解码器对截断的文件常常照样画出半张图、状态也报“完整”，所以先自己核一遍：
 /// 每个顶层盒子声明的长度都不能超出文件末尾；末尾剩下的不足一个盒子头的字节只允许是全 0 的填充。
+/// 例外：完整的 `ftyp`、`meta` 与至少一个完整的 `mdat` 都已出现后，剩下的字节凑不成一个
+/// 放得下的盒子时当作厂商附加数据（如三星的尾巴），照样算完整。
 #[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 fn boxes_complete(bytes: &[u8]) -> bool {
     let len = bytes.len() as u64;
     let mut pos: u64 = 0;
     let mut seen = false;
+    let (mut ftyp, mut meta, mut mdat) = (false, false, false);
     while pos < len {
         let rest = &bytes[pos as usize..];
+        let image_done = ftyp && meta && mdat;
         if rest.len() < 8 {
-            return seen && rest.iter().all(|&b| b == 0);
+            return image_done || (seen && rest.iter().all(|&b| b == 0));
         }
         let (size, header) = match u32::from_be_bytes([rest[0], rest[1], rest[2], rest[3]]) {
             0 => (len - pos, 8),
             1 => {
                 let Some(large) = rest.get(8..16) else {
-                    return false;
+                    return image_done;
                 };
                 let mut b = [0u8; 8];
                 b.copy_from_slice(large);
@@ -121,7 +125,13 @@ fn boxes_complete(bytes: &[u8]) -> bool {
             n => (u64::from(n), 8),
         };
         if size < header || size > len - pos {
-            return false;
+            return image_done;
+        }
+        match &rest[4..8] {
+            b"ftyp" => ftyp = true,
+            b"meta" => meta = true,
+            b"mdat" => mdat = true,
+            _ => {}
         }
         pos += size;
         seen = true;
@@ -149,12 +159,16 @@ mod tests {
         // 截在最后一个盒子里、截在盒子头里，都不算完整。
         assert!(!boxes_complete(&file[..file.len() - 1]));
         assert!(!boxes_complete(&file[..24 + 48 + 4]));
-        // 末尾不足一个盒子头的 0 填充可以接受，非 0 的不行。
+        // 末尾不足一个盒子头的 0 填充可以接受；缺 mdat 时非 0 的不行。
         let mut padded = file.clone();
         padded.extend_from_slice(&[0, 0, 0]);
         assert!(boxes_complete(&padded));
-        padded.push(9);
-        assert!(!boxes_complete(&padded));
+        let mut no_mdat = fbox(b"ftyp", 16);
+        no_mdat.extend(fbox(b"meta", 40));
+        no_mdat.extend_from_slice(&[0, 0, 0]);
+        assert!(boxes_complete(&no_mdat));
+        no_mdat.push(9);
+        assert!(!boxes_complete(&no_mdat));
         // size = 0 表示延伸到文件末尾。
         let mut to_end = fbox(b"ftyp", 16);
         to_end.extend_from_slice(&[0, 0, 0, 0]);
@@ -172,6 +186,34 @@ mod tests {
         // 长度小于盒子头、空输入。
         assert!(!boxes_complete(&[0, 0, 0, 4, b'f', b't', b'y', b'p']));
         assert!(!boxes_complete(&[]));
+    }
+
+    #[test]
+    fn boxes_complete_accepts_vendor_trailer_after_full_image() {
+        let mut head = fbox(b"ftyp", 16);
+        head.extend(fbox(b"meta", 40));
+        let mut full = head.clone();
+        full.extend(fbox(b"mdat", 100));
+        // ftyp、meta、mdat 都完整之后的厂商附加数据（头 4 字节读出来的长度超出文件末尾）。
+        let mut trailer = full.clone();
+        trailer.extend(std::iter::repeat_n(0xAB, 64));
+        assert!(boxes_complete(&trailer));
+        // 不足一个盒子头的非 0 尾巴也接受。
+        let mut short = full.clone();
+        short.extend_from_slice(&[1, 2, 3]);
+        assert!(boxes_complete(&short));
+        // mdat 截断：仍不完整。
+        let mut cut_mdat = head.clone();
+        cut_mdat.extend_from_slice(&fbox(b"mdat", 100)[..60]);
+        assert!(!boxes_complete(&cut_mdat));
+        // meta 截断：仍不完整。
+        let mut cut_meta = fbox(b"ftyp", 16);
+        cut_meta.extend_from_slice(&fbox(b"meta", 40)[..30]);
+        assert!(!boxes_complete(&cut_meta));
+        // 只有 ftyp + meta、没有 mdat 时的尾巴：不接受。
+        let mut no_mdat = head.clone();
+        no_mdat.extend(std::iter::repeat_n(0xAB, 64));
+        assert!(!boxes_complete(&no_mdat));
     }
 
     #[test]

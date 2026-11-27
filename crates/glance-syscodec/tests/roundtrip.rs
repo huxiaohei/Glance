@@ -286,6 +286,20 @@ fn truncated_files_are_decode_errors() {
     assert!(wrong.is_empty(), "这些截断没有返回 Decode：{wrong:?}");
 }
 
+/// 末尾带厂商附加数据（类似三星的尾巴）的完整文件照样能解。
+#[test]
+fn vendor_trailer_after_image_still_decodes() {
+    for (uti, kind) in [("public.heic", Kind::Heif), ("public.avif", Kind::Avif)] {
+        let Some(mut bytes) = sample(uti) else {
+            continue;
+        };
+        bytes.extend_from_slice(b"\x00\x00\x40\x00SEFHjunkjunkjunkjunk");
+        let img = decode(&bytes, kind, u64::MAX, None)
+            .unwrap_or_else(|e| panic!("{uti} 带尾巴解码失败：{e:?}"));
+        assert_eq!((img.width, img.height), (W, H));
+    }
+}
+
 /// 重新生成 Windows 冒烟测试内嵌的 `tests/data/tiny.avif`（8×6，左半红、右半蓝，sRGB）。
 /// 只在需要换样张时手动运行：
 /// `cargo test -p glance-syscodec --test roundtrip -- --ignored write_tiny_avif_fixture`
