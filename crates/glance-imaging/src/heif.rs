@@ -196,7 +196,8 @@ fn analyze_meta(meta_body: &[u8]) -> Option<MetaInfo> {
 
     let iprp = children(find(b"iprp")?)?;
     let props = children(iprp.iter().find(|(t, _)| t == b"ipco")?.1)?;
-    let mut assoc: Vec<(u32, usize)> = vec![];
+    // 边走 ipma 边处理关联，不把全部关联存下来（防止小文件放大成大内存）
+    let (mut dims, mut turns, mut depth, mut alpha) = (None, 0u8, None::<u8>, false);
     for (_, b) in iprp.iter().filter(|(t, _)| t == b"ipma") {
         let (v, flags, p) = full_body(b)?;
         let mut c = Cur::new(p);
@@ -219,42 +220,37 @@ fn analyze_meta(meta_body: &[u8]) -> Option<MetaInfo> {
                     c.u8().map(|x| usize::from(x & 0x7F))
                 };
                 let Some(idx) = idx else { break 'entries };
-                assoc.push((item, idx));
-            }
-        }
-    }
-
-    let (mut dims, mut turns, mut depth, mut alpha) = (None, 0u8, None::<u8>, false);
-    for &(item, idx) in &assoc {
-        let Some((kind, body)) = idx.checked_sub(1).and_then(|i| props.get(i)) else {
-            continue;
-        };
-        match kind {
-            b"auxC" => {
-                if let Some((_, _, p)) = full_body(body) {
-                    let urn = p.split(|&b| b == 0).next().unwrap_or(&[]);
-                    alpha |= ALPHA_URNS.iter().any(|u| u.as_bytes() == urn);
-                }
-            }
-            _ if item != primary => {}
-            b"ispe" if dims.is_none() => {
-                if let Some((_, _, p)) = full_body(body) {
-                    let mut c = Cur::new(p);
-                    if let (Some(w), Some(h)) = (c.u32(), c.u32()) {
-                        dims = Some((w, h));
+                let Some((kind, body)) = idx.checked_sub(1).and_then(|i| props.get(i)) else {
+                    continue;
+                };
+                match kind {
+                    b"auxC" => {
+                        if let Some((_, _, p)) = full_body(body) {
+                            let urn = p.split(|&b| b == 0).next().unwrap_or(&[]);
+                            alpha |= ALPHA_URNS.iter().any(|u| u.as_bytes() == urn);
+                        }
                     }
-                }
-            }
-            b"irot" => turns = body.first().map_or(0, |b| b & 3),
-            b"pixi" => {
-                if let Some((_, _, p)) = full_body(body) {
-                    let mut c = Cur::new(p);
-                    if let Some(n) = c.u8() {
-                        depth = c.take(n as usize).and_then(|d| d.iter().copied().max());
+                    _ if item != primary => {}
+                    b"ispe" if dims.is_none() => {
+                        if let Some((_, _, p)) = full_body(body) {
+                            let mut c = Cur::new(p);
+                            if let (Some(w), Some(h)) = (c.u32(), c.u32()) {
+                                dims = Some((w, h));
+                            }
+                        }
                     }
+                    b"irot" => turns = body.first().map_or(0, |b| b & 3),
+                    b"pixi" => {
+                        if let Some((_, _, p)) = full_body(body) {
+                            let mut c = Cur::new(p);
+                            if let Some(n) = c.u8() {
+                                depth = c.take(n as usize).and_then(|d| d.iter().copied().max());
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
-            _ => {}
         }
     }
     let (width, height) = dims?;
@@ -319,22 +315,19 @@ fn locate(iloc: &[u8], want: u32) -> Option<(u64, u64)> {
         let dref = c.u16()?;
         let base = c.uint(base_size)?;
         let extents = c.u16()?;
-        let mut first = None;
-        for i in 0..extents {
-            c.uint(index_size)?;
-            let off = c.uint(off_size)?;
-            let len = c.uint(len_size)?;
-            if i == 0 {
-                first = Some((base.checked_add(off)?, len));
-            }
+        if id != want {
+            // 一次越界检查跳过全部区段：各字段宽度可能为 0，逐个区段循环会被构造成数十亿次
+            let skip = u64::from(extents) * u64::from(index_size + off_size + len_size);
+            c.take(usize::try_from(skip).ok()?)?;
+            continue;
         }
-        if id == want {
-            return if method == 0 && dref == 0 && extents == 1 {
-                first
-            } else {
-                None
-            };
+        if method != 0 || dref != 0 || extents != 1 {
+            return None;
         }
+        c.uint(index_size)?;
+        let off = c.uint(off_size)?;
+        let len = c.uint(len_size)?;
+        return Some((base.checked_add(off)?, len));
     }
     None
 }
@@ -865,7 +858,7 @@ mod tests {
             ..Default::default()
         };
         let info = parse_bytes(&sample(&o));
-        assert!(info.is_none_or(|i| i.width == 4000));
+        assert_eq!(info.map(|i| i.width), Some(4000));
 
         // 盒子长度小于 8
         let mut bad = m.clone();
@@ -921,6 +914,50 @@ mod tests {
         assert!(
             started.elapsed() < Duration::from_secs(5),
             "解析用时异常：{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn hostile_iloc_with_zero_sized_fields_is_fast() {
+        // 各字段宽度全为 0、每个条目声称 65535 个区段、没有目标条目：逐区段循环会跑数十亿次
+        let items = 100_000u32;
+        let mut iloc = vec![0x00, 0x00];
+        iloc.extend_from_slice(&items.to_be_bytes());
+        for id in 0..items {
+            iloc.extend_from_slice(&(id + 100).to_be_bytes());
+            iloc.extend_from_slice(&[0, 0, 0, 0]);
+            iloc.extend_from_slice(&0xFFFFu16.to_be_bytes());
+        }
+        let mut infe = 4u16.to_be_bytes().to_vec();
+        infe.extend_from_slice(&[0, 0]);
+        infe.extend_from_slice(b"Exif\0");
+        let mut iinf = 1u16.to_be_bytes().to_vec();
+        iinf.extend(full(b"infe", 2, 0, &infe));
+        let mut ispe = 64u32.to_be_bytes().to_vec();
+        ispe.extend_from_slice(&48u32.to_be_bytes());
+        let ipma = [&1u32.to_be_bytes()[..], &[0, 1, 1, 1]].concat();
+        let kids = [
+            full(b"pitm", 0, 0, &1u16.to_be_bytes()),
+            full(b"iinf", 0, 0, &iinf),
+            full(b"iloc", 2, 0, &iloc),
+            bx(
+                b"iprp",
+                &[
+                    bx(b"ipco", &full(b"ispe", 0, 0, &ispe)),
+                    full(b"ipma", 0, 0, &ipma),
+                ]
+                .concat(),
+            ),
+        ]
+        .concat();
+        let file = [ftyp(b"heic", &[]), full(b"meta", 0, 0, &kids)].concat();
+        let started = Instant::now();
+        let info = parse_bytes(&file).unwrap();
+        assert_eq!((info.width, info.exif), (64, None));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "解析用时 {:?}",
             started.elapsed()
         );
     }
