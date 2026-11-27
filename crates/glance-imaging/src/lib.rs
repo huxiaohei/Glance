@@ -11,7 +11,7 @@ mod removebg;
 mod thumb;
 
 pub use encode::{
-    RgbaView, encode_jpeg, encode_png_fast, encode_png_lossless, encode_png_lossy, encode_png_stored,
+    MAX_JPEG_EXIF, RgbaView, encode_jpeg, encode_png_fast, encode_png_lossless, encode_png_lossy, encode_png_stored,
     encode_webp,
 };
 pub use edit::{

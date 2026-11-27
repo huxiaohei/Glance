@@ -6,8 +6,9 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 use glance_imaging::{
-    Decoded, EditParams, Encoded, ImagingError, OutFormat, RemoveBg, RgbaView, SrcFormat, apply,
-    downscale, encode_jpeg, encode_png_fast, normalize_exif, out_dims, pick, remove_bg,
+    Decoded, EditParams, Encoded, ImagingError, MAX_JPEG_EXIF, OutFormat, RemoveBg, RgbaView,
+    SrcFormat, apply, downscale, encode_jpeg, encode_png_fast, encode_png_stored, normalize_exif,
+    out_dims, pick, remove_bg,
 };
 use serde::Serialize;
 
@@ -251,16 +252,17 @@ impl Session {
         Ok(())
     }
 
-    /// 代理图（已转正、长边 ≤2048）的编码：有透明用快速 PNG，否则 JPEG q90。
+    /// 代理图（已转正、长边 ≤2048）的编码：有透明用不压缩的 PNG，否则 JPEG q90；都带上源图的 ICC，
+    /// 免得广色域的图（如 Display P3 的 HEIC）在裁剪页显得发灰。
     fn source_image(&self) -> Option<(Arc<Vec<u8>>, &'static str)> {
         if let Some(c) = self.source_cache.get() {
             return Some(c.clone());
         }
         let v = view(&self.proxy);
         let made = if self.has_alpha {
-            encode_png_fast(v).map(|b| (b, "image/png"))
+            encode_png_stored(v, self.icc()).map(|b| (b, "image/png"))
         } else {
-            encode_jpeg(v, 90, [255; 3], None, None).map(|b| (b, "image/jpeg"))
+            encode_jpeg(v, 90, [255; 3], self.icc(), None).map(|b| (b, "image/jpeg"))
         }
         .ok()?;
         Some(
@@ -371,12 +373,18 @@ impl Session {
         let fixed = self.icc.as_ref().map_or(0, Vec::len).min(enc.bytes.len()) as f64;
         let ratio =
             f64::from(width) * f64::from(height) / (f64::from(enc.width) * f64::from(enc.height));
+        // JPEG 的 APP1 放不下的 EXIF 编码器会丢掉，这里同样不算。
         let exif_len = match fmt {
             OutFormat::Png => 0,
             OutFormat::Jpeg | OutFormat::Webp => self
                 .exif()
                 .and_then(|t| normalize_exif(t, width, height))
                 .map_or(0, |t| t.len()),
+        };
+        let exif_len = if fmt == OutFormat::Jpeg && exif_len > MAX_JPEG_EXIF {
+            0
+        } else {
+            exif_len
         };
         let bytes =
             ((enc.bytes.len() as f64 - fixed) * ratio + fixed).round() as u64 + exif_len as u64;
@@ -1429,5 +1437,66 @@ mod tests {
         let diff = sizes[1] as i64 - sizes[0] as i64;
         assert!((diff - want).abs() <= 32, "diff {diff}, exif {want}");
         assert!(want > 0);
+    }
+
+    #[test]
+    fn approx_bytes_skip_exif_too_long_for_jpeg() {
+        use crate::catalog::details::testimg::{MAKE, V, png, png_with_exif, tiff};
+        // Make 是一段约 70 KB 的字符串：改写后仍超过 JPEG 放得下的 65527 字节，编码器会丢掉它。
+        let long: &'static str = Box::leak("x".repeat(70_000).into_boxed_str());
+        let blob = tiff(&[(MAKE, V::Ascii(long))], &[]);
+        let normalized = glance_imaging::normalize_exif(&blob, 320, 240).unwrap();
+        assert!(normalized.len() > 65527, "{}", normalized.len());
+        let dir = tempfile::tempdir().unwrap();
+        let reg = Registry::default();
+        let (plain, tagged) = (dir.path().join("p.png"), dir.path().join("t.png"));
+        std::fs::write(&plain, png(320, 240)).unwrap();
+        std::fs::write(&tagged, png_with_exif(320, 240, &blob)).unwrap();
+        let st = EditState::default();
+        let mut sizes = Vec::new();
+        for path in [&plain, &tagged] {
+            let s = st.open(&reg, reg.register(path)).unwrap().session;
+            let r = st.preview(s, 1, self::jpeg(85), false).unwrap().unwrap();
+            assert!(r.approx);
+            sizes.push(r.bytes);
+        }
+        let diff = sizes[1] as i64 - sizes[0] as i64;
+        assert!(diff.abs() <= 32, "diff {diff}");
+    }
+
+    fn icc_png(path: &Path, w: u32, h: u32, alpha: bool, icc: &[u8]) {
+        let data: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let a = if alpha && (i % w) >= w / 2 { 100 } else { 255 };
+                [(i % w) as u8, (i / w) as u8, 50, a]
+            })
+            .collect();
+        let view = RgbaView {
+            width: w,
+            height: h,
+            data: &data,
+        };
+        std::fs::write(path, encode_png_lossless(view, Some(icc)).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn source_image_keeps_icc() {
+        let mut icc = vec![7u8; 192];
+        icc[0..4].copy_from_slice(&192u32.to_be_bytes());
+        icc[36..40].copy_from_slice(b"acsp");
+        let dir = tempfile::tempdir().unwrap();
+        for (alpha, want_mime) in [(false, "image/jpeg"), (true, "image/png")] {
+            let reg = Registry::default();
+            let p = dir.path().join(format!("icc-{alpha}.png"));
+            icc_png(&p, 300, 100, alpha, &icc);
+            let st = EditState::default();
+            let o = st.open(&reg, reg.register(&p)).unwrap();
+            assert_eq!(o.has_alpha, alpha);
+            let (b, mime) = st.source_image(o.session).unwrap();
+            assert_eq!(mime, want_mime);
+            let d = glance_imaging::decode_rgba_icc(&b, u64::MAX).unwrap();
+            assert_eq!(d.icc.as_deref(), Some(&icc[..]), "{mime}");
+            assert_eq!((d.decoded.width, d.decoded.height), (300, 100));
+        }
     }
 }

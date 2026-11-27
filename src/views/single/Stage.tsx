@@ -22,10 +22,12 @@ export const useStageApi: UseBoundStore<StoreApi<{ api: StageApi | null }>> = cr
   api: null,
 }));
 
-/** 画面上当前图已解码原图的像素宽度（还没有时为 0）；信息条据此判断“已缩小显示”。 */
-export const useStageNatural: UseBoundStore<StoreApi<{ id: FileId | null; w: number }>> = create<{ id: FileId | null; w: number }>(
-  () => ({ id: null, w: 0 }),
-);
+/** 画面上当前图已解码原图的像素宽高（还没有时为 0）；信息条据此判断“已缩小显示”。 */
+export const useStageNatural: UseBoundStore<StoreApi<{ id: FileId | null; w: number; h: number }>> = create<{
+  id: FileId | null;
+  w: number;
+  h: number;
+}>(() => ({ id: null, w: 0, h: 0 }));
 
 /** 文件版本：修改时间与大小。缩略图的 v 用同样的写法。 */
 export const versionOf = (entry: Pick<ImageEntry, "mtimeMs" | "size">) => `${entry.mtimeMs}-${entry.size}`;
@@ -98,9 +100,9 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
   }, [full, hold, id, url, size]);
 
   useLayoutEffect(() => {
-    useStageNatural.setState({ id, w: full?.naturalWidth ?? 0 });
+    useStageNatural.setState({ id, w: full?.naturalWidth ?? 0, h: full?.naturalHeight ?? 0 });
   }, [id, full]);
-  useEffect(() => () => useStageNatural.setState({ id: null, w: 0 }), []);
+  useEffect(() => () => useStageNatural.setState({ id: null, w: 0, h: 0 }), []);
 
   // 解码好的元素由预加载器持有，直接放进画面（不经过 React 的子节点），换图只是一次替换
   useLayoutEffect(() => {

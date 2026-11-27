@@ -88,18 +88,24 @@ describe("信息条的格式标签", () => {
 });
 
 describe("信息条的“已缩小显示”", () => {
-  it("画面上的原图比条目宽度小时显示，一样大时不显示", async () => {
-    const d = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "naturalWidth")!;
-    Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { configurable: true, get: () => 8000 });
-    restore.push(() => Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", d));
+  it("HEIC 画面上的原图长边比条目小时显示，一样大时不显示；JPG 从不显示", async () => {
+    for (const [prop, v] of [["naturalWidth", 8000], ["naturalHeight", 6000]] as const) {
+      const d = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, prop)!;
+      Object.defineProperty(HTMLImageElement.prototype, prop, { configurable: true, get: () => v });
+      restore.push(() => Object.defineProperty(HTMLImageElement.prototype, prop, d));
+    }
     const c = setup([
       { id: 1, relPath: "big.heic", dims: [12000, 9000] },
       { id: 2, relPath: "ok.heic", dims: [8000, 6000] },
+      { id: 3, relPath: "big.jpg", dims: [12000, 9000] },
     ]);
     openAt(1);
     await act(async () => {});
     expect(q(c, ".single-infobar .info-scaled")?.textContent).toBe(t("single.scaled"));
     openAt(2);
+    await act(async () => {});
+    expect(q(c, ".single-infobar .info-scaled")).toBeNull();
+    openAt(3);
     await act(async () => {});
     expect(q(c, ".single-infobar .info-scaled")).toBeNull();
   });

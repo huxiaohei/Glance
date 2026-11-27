@@ -12,6 +12,7 @@ use super::reconcile::FsHint;
 use super::registry::Registry;
 use super::scan::{Stamp, is_image_path, scan};
 use super::watch::SessionMsg;
+use crate::decode::{CodecState, Decoder};
 
 #[derive(Debug, PartialEq)]
 pub struct OpenTarget {
@@ -197,10 +198,19 @@ struct Current {
 /// 管理“当前这一次打开”。
 pub struct Sessions {
     current: Mutex<Current>,
+    /// 每次打开时重置的系统解码组件状态；生产路径是进程内那一份。
+    codecs: &'static CodecState,
 }
 
 impl Default for Sessions {
     fn default() -> Self {
+        Self::with_codecs(Decoder::SYSTEM.codecs)
+    }
+}
+
+impl Sessions {
+    /// 测试用自己的一份解码组件状态。
+    pub(crate) fn with_codecs(codecs: &'static CodecState) -> Self {
         Self {
             current: Mutex::new(Current {
                 generation: 0,
@@ -209,11 +219,10 @@ impl Default for Sessions {
                 attached: None,
                 recursive: false,
             }),
+            codecs,
         }
     }
-}
 
-impl Sessions {
     /// 记下见过的最大序号，不取消任何会话。
     pub fn note(&self, seq: u64) {
         let mut cur = self.current.lock().unwrap();
@@ -235,7 +244,7 @@ impl Sessions {
         cur.generation += 1;
         // 每次打开（启动参数、拖入、最近目录、对话框、刷新）都重新探测系统解码组件：
         // 用户可能刚装好组件。
-        crate::decode::reset_codec_state();
+        self.codecs.reset();
         let cancel = Arc::new(AtomicBool::new(false));
         cur.cancel = Some(cancel.clone());
         Some((cur.generation, cancel))
@@ -555,12 +564,20 @@ mod tests {
     #[test]
     fn codec_state_resets_on_open() {
         use glance_syscodec::Kind;
-        // 进程内那一份状态别的测试也会动（其他测试里的 begin 会把它清掉），这里只断言 begin 之后的结果。
-        crate::decode::mark_codec_missing(Kind::Avif);
-        let s = Sessions::default();
+        // 用自己的一份状态，不碰进程内那一份（并行的测试也会动它）。
+        let codecs: &'static CodecState = Box::leak(Box::new(CodecState::new()));
+        codecs.record(Kind::Avif, true);
+        codecs.record(Kind::Heif, false);
+        let s = Sessions::with_codecs(codecs);
         s.note(1);
         s.begin(1).unwrap();
-        assert_eq!(crate::decode::codec_missing(Kind::Avif), None);
+        assert_eq!(codecs.missing(Kind::Avif), None);
+        assert_eq!(codecs.missing(Kind::Heif), None);
+        // 被拒的 begin（序号过旧）不重置。
+        codecs.record(Kind::Avif, true);
+        s.note(3);
+        assert!(s.begin(2).is_none());
+        assert_eq!(codecs.missing(Kind::Avif), Some(true));
     }
 
     #[test]

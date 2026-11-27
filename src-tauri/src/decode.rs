@@ -73,7 +73,7 @@ impl CodecState {
         }
     }
 
-    fn record(&self, kind: Kind, missing: bool) {
+    pub(crate) fn record(&self, kind: Kind, missing: bool) {
         let v = if missing { MISSING } else { AVAILABLE };
         self.slot(kind).store(v, Ordering::Relaxed);
     }
@@ -212,16 +212,6 @@ pub fn display_png(bytes: &[u8]) -> Result<Vec<u8>, DecodeError> {
 /// Some(true) 缺失，Some(false) 可用，None 还不知道。每次系统解码后更新。
 pub fn codec_missing(kind: Kind) -> Option<bool> {
     CODECS.missing(kind)
-}
-
-pub fn reset_codec_state() {
-    CODECS.reset()
-}
-
-/// 其他模块的测试用：把进程内那一份状态里的这种格式记为缺失。
-#[cfg(test)]
-pub fn mark_codec_missing(kind: Kind) {
-    CODECS.record(kind, true)
 }
 
 /// 解码并转正；宽 × 高超过 max_pixels → TooLarge。

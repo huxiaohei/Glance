@@ -38,7 +38,7 @@ fn encode_err(e: impl std::fmt::Display) -> ImagingError {
 }
 
 /// EXIF 的 TIFF 部分（不含 `Exif\0\0`）写进 JPEG APP1 的长度上限：段长 2 字节含自身与 6 字节标识。
-const MAX_JPEG_EXIF: usize = 65535 - 2 - 6;
+pub const MAX_JPEG_EXIF: usize = 65535 - 2 - 6;
 
 /// JPEG 没有透明通道：按 fill 颜色铺底后编码。
 /// icc 非空时写入 ICC 配置文件（APP2 标记）。

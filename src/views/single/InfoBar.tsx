@@ -31,9 +31,10 @@ export default function InfoBar({ id }: { id: FileId }) {
   const editing = useEditUi(isEditing);
   const batch = useEditUi((s) => s.batch !== null);
   const inBasket = useBasket((s) => s.order.includes(id));
-  // 显示通道把长边超过上限的图缩小后给出：画面上的图比原图窄
-  const natural = useStageNatural((s) => (s.id === id ? s.w : 0));
-  const scaled = entry ? isScaledDown(natural, entry.width) : false;
+  // 显示通道把长边超过上限的 HEIC / AVIF 缩小后给出：画面上的图长边比原图短
+  const naturalW = useStageNatural((s) => (s.id === id ? s.w : 0));
+  const naturalH = useStageNatural((s) => (s.id === id ? s.h : 0));
+  const scaled = entry ? isScaledDown(entry, naturalW, naturalH) : false;
 
   return (
     <div className="single-infobar">
