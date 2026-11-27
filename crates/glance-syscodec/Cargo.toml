@@ -6,12 +6,15 @@ publish = false
 license = "GPL-3.0-only"
 
 # 用操作系统自带的编解码器把内存里的 HEIC / HEIF / AVIF 解成 RGBA8。
-# macOS 走 ImageIO / CoreGraphics；其他目标（Windows 在接入 WIC 之前也算）编译 stub，恒返回 NoCodec。
+# macOS 走 ImageIO / CoreGraphics；Windows 走 WIC（Windows Imaging Component）；其他目标编译 stub，恒返回 NoCodec。
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFData", "CFDictionary", "CFNumber", "CFString"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
 objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageSource", "CGImageProperties", "objc2-core-graphics"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Imaging", "Win32_System_Com"] }
 
 # 测试在上面的基础上只多要编码：用 CGImageDestination 现编 HEIC / AVIF 样本。
 [target.'cfg(target_os = "macos")'.dev-dependencies]

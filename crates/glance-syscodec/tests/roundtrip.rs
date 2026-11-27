@@ -31,7 +31,19 @@ fn gradient() -> Vec<u8> {
 /// 把 `gradient()`（标为 `space` 色彩空间、带可选的 EXIF 方向）编成 `uti` 指定的格式；
 /// 编码器不可用时返回 Err(原因)。
 fn encode(uti: &str, space: &CFString, orientation: Option<i64>) -> Result<Vec<u8>, String> {
-    let mut px = gradient();
+    encode_pixels(uti, space, orientation, W, H, &mut gradient())
+}
+
+/// 把 `w` × `h` 的紧排 RGBA8（第 4 字节被忽略，按不透明编码）编成 `uti` 指定的格式。
+fn encode_pixels(
+    uti: &str,
+    space: &CFString,
+    orientation: Option<i64>,
+    w: u32,
+    h: u32,
+    px: &mut [u8],
+) -> Result<Vec<u8>, String> {
+    assert_eq!(px.len(), (w * h * 4) as usize);
     let uti = CFString::from_str(uti);
     // SAFETY: 位图上下文借用 `px` 的缓冲，宽高与行字节数与缓冲一致；
     // 上下文与由它生成的 CGImage（CoreGraphics 会复制像素）都在 `px` 释放前用完。
@@ -47,10 +59,10 @@ fn encode(uti: &str, space: &CFString, orientation: Option<i64>) -> Result<Vec<u
         let space = CGColorSpace::with_name(Some(space)).ok_or("没有该色彩空间")?;
         let ctx = CGBitmapContextCreate(
             px.as_mut_ptr() as *mut c_void,
-            W as usize,
-            H as usize,
+            w as usize,
+            h as usize,
             8,
-            (W * 4) as usize,
+            (w * 4) as usize,
             Some(&space),
             CGImageAlphaInfo::NoneSkipLast.0,
         )
@@ -272,4 +284,31 @@ fn truncated_files_are_decode_errors() {
         }
     }
     assert!(wrong.is_empty(), "这些截断没有返回 Decode：{wrong:?}");
+}
+
+/// 重新生成 Windows 冒烟测试内嵌的 `tests/data/tiny.avif`（8×6，左半红、右半蓝，sRGB）。
+/// 只在需要换样张时手动运行：
+/// `cargo test -p glance-syscodec --test roundtrip -- --ignored write_tiny_avif_fixture`
+#[test]
+#[ignore = "只在重新生成内嵌样张时手动运行"]
+fn write_tiny_avif_fixture() {
+    const TW: u32 = 8;
+    const TH: u32 = 6;
+    let mut px = Vec::with_capacity((TW * TH * 4) as usize);
+    for _ in 0..TH {
+        for x in 0..TW {
+            px.extend_from_slice(if x < TW / 2 {
+                &[220, 30, 30, 255]
+            } else {
+                &[30, 30, 220, 255]
+            });
+        }
+    }
+    // SAFETY: 读取 CoreGraphics 导出的常量字符串。
+    let srgb = unsafe { kCGColorSpaceSRGB };
+    let bytes = encode_pixels("public.avif", srgb, None, TW, TH, &mut px).expect("编码 AVIF");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/tiny.avif");
+    std::fs::create_dir_all(path.parent().unwrap()).expect("建目录");
+    std::fs::write(&path, &bytes).expect("写样张");
+    eprintln!("已写 {}（{} 字节）", path.display(), bytes.len());
 }
