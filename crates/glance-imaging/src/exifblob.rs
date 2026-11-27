@@ -150,9 +150,11 @@ fn set_inline(buf: &mut [u8], big: bool, e: &Entry, value: u32) -> Option<()> {
 /// 就地改写 EXIF 的 TIFF 结构（不含 `Exif\0\0` 前缀），返回改写后的副本：
 /// 方向改成 1，IFD0 的 ImageWidth / ImageLength 与 Exif 子目录的
 /// PixelXDimension / PixelYDimension 改成 `width` / `height`（存在才改，按原类型内联写回），
-/// 并解除 IFD1 的链接；缩略图数据若恰好在整块末尾且不与其他数据交叠，一并截掉。
+/// 并解除 IFD1 的链接；缩略图数据若恰好在整块末尾且不与其他数据交叠，一并截掉，
+/// 截不掉的就地清零（与仍被引用的数据交叠时返回 `None`）。IFD1 本身读不出时当作没有缩略图。
 /// 其余字节（MakerNote、GPS 等）原样保留。
-/// 结构有问题（越界、成环、超过 1 MB、字节序标记不对）或尺寸写不进字段时返回 `None`，
+/// IFD0 / Exif / GPS / 互操作目录结构有问题（越界、成环）、超过 1 MB、字节序标记不对，
+/// 或尺寸写不进字段时返回 `None`，
 /// 调用方应改为不带 EXIF 输出，而不是报错。
 pub fn normalize_exif(tiff: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     if tiff.len() < 8 || tiff.len() > MAX_EXIF {
@@ -183,24 +185,39 @@ pub fn normalize_exif(tiff: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
         scan_ifd(r, off, &mut visited, &mut refs)?;
     }
 
-    // IFD1 只用来判断缩略图能否一并截掉。
+    // IFD1 只用来找缩略图：能截掉就截掉，截不掉就清零。
+    // IFD1 本身读不出（偏移越界、成环）时当作没有缩略图，其余照常保留。
     let mut cut = None;
-    if ifd1_off != 0 {
-        let mut ifd1_refs = Vec::new();
-        let (ifd1, _) = scan_ifd(r, ifd1_off, &mut visited, &mut ifd1_refs)?;
-        if let (Some(o), Some(l)) = (find(&ifd1, TAG_THUMB_OFFSET), find(&ifd1, TAG_THUMB_LENGTH))
-            && o.typ == TYPE_LONG
-            && l.typ == TYPE_LONG
-            && o.count == 1
-            && l.count == 1
-        {
-            let (to, tl) = (r.u32(o.value_pos)? as usize, r.u32(l.value_pos)? as usize);
-            if to.checked_add(tl) == Some(tiff.len()) {
-                let at = ifd1_off.min(to);
-                if refs.iter().all(|&(_, end)| end <= at) {
-                    cut = Some(at);
-                }
+    let mut zero = None;
+    let ifd1 = if ifd1_off != 0 {
+        scan_ifd(r, ifd1_off, &mut visited, &mut Vec::new()).map(|(entries, _)| entries)
+    } else {
+        None
+    };
+    if let Some(ifd1) = ifd1
+        && let (Some(o), Some(l)) = (find(&ifd1, TAG_THUMB_OFFSET), find(&ifd1, TAG_THUMB_LENGTH))
+        && o.typ == TYPE_LONG
+        && l.typ == TYPE_LONG
+        && o.count == 1
+        && l.count == 1
+    {
+        let (to, tl) = (r.u32(o.value_pos)? as usize, r.u32(l.value_pos)? as usize);
+        let stop = to.checked_add(tl);
+        if stop == Some(tiff.len()) {
+            let at = ifd1_off.min(to);
+            if refs.iter().all(|&(_, end)| end <= at) {
+                cut = Some(at);
             }
+        }
+        if cut.is_none()
+            && let Some(stop) = stop.filter(|&s| s <= tiff.len())
+        {
+            // 与 TIFF 头或仍被引用的数据交叠：清零会弄坏它们，宁可整块不要。
+            let overlaps = |&(a, b): &(usize, usize)| a < stop && to < b;
+            if overlaps(&(0, 8)) || refs.iter().any(overlaps) {
+                return None;
+            }
+            zero = Some(to..stop);
         }
     }
 
@@ -220,6 +237,9 @@ pub fn normalize_exif(tiff: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     out[next_pos..next_pos + 4].fill(0);
     if let Some(at) = cut {
         out.truncate(at);
+    }
+    if let Some(range) = zero {
+        out[range].fill(0);
     }
     Some(out)
 }
@@ -570,13 +590,85 @@ mod tests {
                 .is_some()
         );
 
-        let b = build(false, ifd0(), vec![], vec![], Some((jpeg, false)));
+        let b = build(false, ifd0(), vec![], vec![], Some((jpeg.clone(), false)));
         let out = normalize_exif(&b, 10, 10).unwrap();
         assert_eq!(out.len(), b.len());
         assert!(
             !read(&out)
                 .fields()
                 .any(|f| f.ifd_num == exif::In::THUMBNAIL)
+        );
+        // 截不掉的缩略图字节清零。
+        let at = b.windows(jpeg.len()).position(|w| w == jpeg).unwrap();
+        assert!(out[at..at + jpeg.len()].iter().all(|&x| x == 0));
+    }
+
+    #[test]
+    fn thumbnail_that_cannot_be_truncated_is_zeroed() {
+        let be = false;
+        let jpeg = vec![0xFF, 0xD8, 9, 8, 7, 6, 5, 4, 0xFF, 0xD9];
+        let gps = vec![
+            ascii(1, "N"),
+            rationals(be, 2, &[(40, 1), (26, 1), (46, 1)]),
+        ];
+        let mut b = build(
+            be,
+            vec![ascii(0x010F, "Acme")],
+            vec![],
+            gps,
+            Some((jpeg.clone(), true)),
+        );
+        b.extend([0x5A; 16]);
+        let at = b.windows(jpeg.len()).position(|w| w == jpeg).unwrap();
+
+        let out = normalize_exif(&b, 10, 10).unwrap();
+        assert_eq!(out.len(), b.len());
+        assert!(out[at..at + jpeg.len()].iter().all(|&x| x == 0));
+        assert_eq!(&out[b.len() - 16..], &[0x5A; 16]);
+        let x = read(&out);
+        assert!(!x.fields().any(|f| f.ifd_num == exif::In::THUMBNAIL));
+        assert!(x.get_field(exif::Tag::Make, exif::In::PRIMARY).is_some());
+        assert!(
+            x.get_field(exif::Tag::GPSLatitude, exif::In::PRIMARY)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn thumbnail_overlapping_referenced_data_drops_exif() {
+        let maker: Vec<u8> = (0..64u8).collect();
+        let exif = vec![short(false, TAG_PIXEL_X, 100), undef(0x927C, maker.clone())];
+        let mut b = build(false, vec![ascii(0x010F, "Cam")], exif, vec![], None);
+        let maker_pos = b.windows(64).position(|w| w == maker).unwrap();
+        // IFD1 接在末尾，缩略图范围却指向 MakerNote 的后半段（不在末尾，截不掉）。
+        let ifd1_off = b.len();
+        let ifd1 = [
+            long(false, TAG_THUMB_OFFSET, (maker_pos + 32) as u32),
+            long(false, TAG_THUMB_LENGTH, 16),
+        ];
+        let mut none = Vec::new();
+        put_ifd(false, &mut b, &ifd1, 0, &mut none, 0);
+        let np = ifd0_next_pos(&b);
+        b[np..np + 4].copy_from_slice(&(ifd1_off as u32).to_le_bytes());
+        assert!(read(&b).fields().any(|f| f.ifd_num == exif::In::THUMBNAIL));
+
+        assert!(normalize_exif(&b, 10, 10).is_none());
+    }
+
+    #[test]
+    fn unreadable_ifd1_keeps_the_rest() {
+        let mut b = sample();
+        let np = ifd0_next_pos(&b);
+        b[np..np + 4].copy_from_slice(&0xFFF0u32.to_le_bytes());
+
+        let out = normalize_exif(&b, 10, 10).unwrap();
+        assert_eq!(out.len(), b.len());
+        assert_eq!(&out[np..np + 4], &[0, 0, 0, 0]);
+        let x = read(&out);
+        assert_eq!(uint(&x, exif::Tag::Orientation, exif::In::PRIMARY), Some(1));
+        assert!(
+            x.get_field(exif::Tag::GPSLatitude, exif::In::PRIMARY)
+                .is_some()
         );
     }
 
@@ -605,11 +697,12 @@ mod tests {
             None,
         );
         assert!(normalize_exif(&b, 1, 1).is_none());
-        // 下一个目录指回 IFD0。
+        // 下一个目录（IFD1）指回 IFD0：当作没有缩略图，链接清零，其余保留。
         let mut b = build(false, vec![ascii(0x010F, "Cam")], vec![], vec![], None);
         let np = 8 + ifd_size(1) - 4;
         b[np..np + 4].copy_from_slice(&8u32.to_le_bytes());
-        assert!(normalize_exif(&b, 1, 1).is_none());
+        let out = normalize_exif(&b, 1, 1).unwrap();
+        assert_eq!(&out[np..np + 4], &[0, 0, 0, 0]);
         // 外置数据越界。
         let mut b = build(false, vec![ascii(0x010F, "Camera")], vec![], vec![], None);
         let vp = 8 + 2 + 8;
