@@ -150,7 +150,8 @@ pub fn run() {
         lab::lab_register_dir,
         lab::lab_protocol_hits,
         lab::lab_trash,
-        lab::lab_restore
+        lab::lab_restore,
+        lab::lab_heic_probe
     ]);
 
     #[cfg(not(debug_assertions))]

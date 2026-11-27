@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import CacheLab from "./CacheLab";
 import DragLab from "./DragLab";
+import HeicLab from "./HeicLab";
 import HugeImageLab from "./HugeImageLab";
 import SwitchLab from "./SwitchLab";
 import TrashLab from "./TrashLab";
@@ -14,6 +15,7 @@ const tabs: { id: string; title: string; render: () => ReactNode }[] = [
   { id: "trash", title: "废纸篓", render: () => <TrashLab /> },
   { id: "drag", title: "拖拽", render: () => <DragLab /> },
   { id: "switch", title: "切图", render: () => <SwitchLab /> },
+  { id: "heic", title: "HEIC", render: () => <HeicLab /> },
 ];
 
 const styles = {
