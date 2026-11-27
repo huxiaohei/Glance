@@ -6,16 +6,16 @@ use std::collections::HashSet;
 /// EXIF 块上限（与读取侧一致）。
 const MAX_EXIF: usize = 1 << 20;
 
-const TAG_IMAGE_WIDTH: u16 = 0x0100;
-const TAG_IMAGE_LENGTH: u16 = 0x0101;
-const TAG_ORIENTATION: u16 = 0x0112;
-const TAG_EXIF_IFD: u16 = 0x8769;
-const TAG_GPS_IFD: u16 = 0x8825;
-const TAG_PIXEL_X: u16 = 0xA002;
-const TAG_PIXEL_Y: u16 = 0xA003;
+pub(crate) const TAG_IMAGE_WIDTH: u16 = 0x0100;
+pub(crate) const TAG_IMAGE_LENGTH: u16 = 0x0101;
+pub(crate) const TAG_ORIENTATION: u16 = 0x0112;
+pub(crate) const TAG_EXIF_IFD: u16 = 0x8769;
+pub(crate) const TAG_GPS_IFD: u16 = 0x8825;
+pub(crate) const TAG_PIXEL_X: u16 = 0xA002;
+pub(crate) const TAG_PIXEL_Y: u16 = 0xA003;
 const TAG_INTEROP_IFD: u16 = 0xA005;
-const TAG_THUMB_OFFSET: u16 = 0x0201;
-const TAG_THUMB_LENGTH: u16 = 0x0202;
+pub(crate) const TAG_THUMB_OFFSET: u16 = 0x0201;
+pub(crate) const TAG_THUMB_LENGTH: u16 = 0x0202;
 
 const TYPE_SHORT: u16 = 3;
 const TYPE_LONG: u16 = 4;
@@ -225,25 +225,27 @@ pub fn normalize_exif(tiff: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
 }
 
 #[cfg(test)]
-mod tests {
+/// 测试用的 EXIF 构造与读取，供本 crate 其他模块的测试共用。
+#[cfg(test)]
+pub(crate) mod fixtures {
     use super::*;
 
     /// 测试用条目：值已按字节序编码；超过 4 字节的放外置数据区。
-    struct E {
-        tag: u16,
-        typ: u16,
-        count: u32,
-        data: Vec<u8>,
+    pub(crate) struct E {
+        pub(crate) tag: u16,
+        pub(crate) typ: u16,
+        pub(crate) count: u32,
+        pub(crate) data: Vec<u8>,
     }
 
-    fn w16(be: bool, v: u16) -> [u8; 2] {
+    pub(crate) fn w16(be: bool, v: u16) -> [u8; 2] {
         if be { v.to_be_bytes() } else { v.to_le_bytes() }
     }
-    fn w32(be: bool, v: u32) -> [u8; 4] {
+    pub(crate) fn w32(be: bool, v: u32) -> [u8; 4] {
         if be { v.to_be_bytes() } else { v.to_le_bytes() }
     }
 
-    fn short(be: bool, tag: u16, v: u16) -> E {
+    pub(crate) fn short(be: bool, tag: u16, v: u16) -> E {
         E {
             tag,
             typ: 3,
@@ -251,7 +253,7 @@ mod tests {
             data: w16(be, v).to_vec(),
         }
     }
-    fn long(be: bool, tag: u16, v: u32) -> E {
+    pub(crate) fn long(be: bool, tag: u16, v: u32) -> E {
         E {
             tag,
             typ: 4,
@@ -259,7 +261,7 @@ mod tests {
             data: w32(be, v).to_vec(),
         }
     }
-    fn ascii(tag: u16, s: &str) -> E {
+    pub(crate) fn ascii(tag: u16, s: &str) -> E {
         let mut d = s.as_bytes().to_vec();
         d.push(0);
         E {
@@ -269,7 +271,7 @@ mod tests {
             data: d,
         }
     }
-    fn undef(tag: u16, d: Vec<u8>) -> E {
+    pub(crate) fn undef(tag: u16, d: Vec<u8>) -> E {
         E {
             tag,
             typ: 7,
@@ -277,7 +279,7 @@ mod tests {
             data: d,
         }
     }
-    fn rationals(be: bool, tag: u16, v: &[(u32, u32)]) -> E {
+    pub(crate) fn rationals(be: bool, tag: u16, v: &[(u32, u32)]) -> E {
         let mut d = Vec::new();
         for &(a, b) in v {
             d.extend(w32(be, a));
@@ -291,12 +293,12 @@ mod tests {
         }
     }
 
-    fn ifd_size(n: usize) -> usize {
+    pub(crate) fn ifd_size(n: usize) -> usize {
         2 + 12 * n + 4
     }
 
     /// 写一个目录；外置数据追加到 `data`，其偏移从 `data_base` 起算。
-    fn put_ifd(
+    pub(crate) fn put_ifd(
         be: bool,
         out: &mut Vec<u8>,
         entries: &[E],
@@ -325,7 +327,7 @@ mod tests {
     }
 
     /// 布局：头、IFD0、Exif、GPS、外置数据、IFD1、缩略图、（可选）尾部杂字节。
-    fn build(
+    pub(crate) fn build(
         be: bool,
         mut ifd0: Vec<E>,
         exif: Vec<E>,
@@ -395,13 +397,50 @@ mod tests {
         out
     }
 
-    fn read(b: &[u8]) -> exif::Exif {
+    pub(crate) fn read(b: &[u8]) -> exif::Exif {
         exif::Reader::new().read_raw(b.to_vec()).unwrap()
     }
 
-    fn uint(x: &exif::Exif, tag: exif::Tag, ifd: exif::In) -> Option<u32> {
+    pub(crate) fn uint(x: &exif::Exif, tag: exif::Tag, ifd: exif::In) -> Option<u32> {
         x.get_field(tag, ifd)?.value.get_uint(0)
     }
+
+    /// 从 JPEG 文件里读出 EXIF（没有或读不出则 panic）。
+    pub(crate) fn exif_of_jpeg(bytes: &[u8]) -> exif::Exif {
+        exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(bytes))
+            .unwrap()
+    }
+
+    /// 带 Make、方向 6、拍摄时间、GPS 纬度、像素尺寸 4000×3000 的小端 EXIF。
+    pub(crate) fn sample() -> Vec<u8> {
+        let be = false;
+        build(
+            be,
+            vec![
+                ascii(0x010F, "Acme"),
+                short(be, TAG_ORIENTATION, 6),
+                long(be, TAG_IMAGE_WIDTH, 4000),
+                long(be, TAG_IMAGE_LENGTH, 3000),
+            ],
+            vec![
+                ascii(0x9003, "2024:05:06 07:08:09"),
+                long(be, TAG_PIXEL_X, 4000),
+                long(be, TAG_PIXEL_Y, 3000),
+            ],
+            vec![
+                ascii(1, "N"),
+                rationals(be, 2, &[(40, 1), (26, 1), (46, 1)]),
+            ],
+            None,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixtures::*;
+    use super::*;
 
     #[test]
     fn orientation_becomes_1() {

@@ -82,6 +82,7 @@ fn bench_apply() {
             },
             src,
             None,
+            None,
             &p,
         )
         .unwrap();

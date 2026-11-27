@@ -41,6 +41,8 @@ pub fn make_thumbnail(bytes: &[u8], max_edge: u32) -> Result<Thumbnail, ImagingE
             data: &pixels,
         },
         THUMB_QUALITY,
+        None,
+        None,
     )?;
     Ok(Thumbnail {
         width: tw,

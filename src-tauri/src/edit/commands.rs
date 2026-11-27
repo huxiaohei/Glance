@@ -524,6 +524,7 @@ mod tests {
             90,
             [255; 3],
             None,
+            None,
         )
         .unwrap()
     }

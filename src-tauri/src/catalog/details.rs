@@ -75,6 +75,15 @@ pub fn display_size(path: &Path) -> Option<(u32, u32)> {
     Some(if turned { (h, w) } else { (w, h) })
 }
 
+/// 文件里嵌入的原始 EXIF：TIFF 结构（以 `II` / `MM` 开头，不含 JPEG 的 `Exif\0\0` 前缀）。
+/// 没有、读不出或不是 TIFF 结构时返回 None。只读文件头，不解码。
+pub fn exif_blob(path: &Path) -> Option<Vec<u8>> {
+    let mut r = BufReader::new(File::open(path).ok()?);
+    probe(&mut r)
+        .exif
+        .filter(|b| b.starts_with(b"II*\0") || b.starts_with(b"MM\0*"))
+}
+
 /// 文件不存在（或读不出元数据）返回 None；格式认不出时各项为 None。
 pub fn image_details(path: &Path) -> Option<ImageDetails> {
     let stamp = stamp_of(path)?;
@@ -655,7 +664,9 @@ pub(crate) mod testimg {
                 data: &opaque(w, h),
             },
             90,
-            [0, 0, 0], None,
+            [0, 0, 0],
+            None,
+            None,
         )
         .unwrap()
     }
@@ -671,11 +682,14 @@ pub(crate) mod testimg {
     }
 
     pub fn png(w: u32, h: u32) -> Vec<u8> {
-        encode_png_lossless(RgbaView {
-            width: w,
-            height: h,
-            data: &opaque(w, h),
-        }, None)
+        encode_png_lossless(
+            RgbaView {
+                width: w,
+                height: h,
+                data: &opaque(w, h),
+            },
+            None,
+        )
         .unwrap()
     }
 
@@ -691,11 +705,14 @@ pub(crate) mod testimg {
                 ]
             })
             .collect();
-        encode_png_lossless(RgbaView {
-            width: 32,
-            height: 32,
-            data: &data,
-        }, None)
+        encode_png_lossless(
+            RgbaView {
+                width: 32,
+                height: 32,
+                data: &data,
+            },
+            None,
+        )
         .unwrap()
     }
 
@@ -739,6 +756,8 @@ pub(crate) mod testimg {
                 data: &opaque(w, h),
             },
             80,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(&plain[12..16], b"VP8 ");
@@ -880,6 +899,24 @@ mod tests {
         assert_eq!(d.color.as_deref(), Some("RGB"));
         assert_eq!(d.has_alpha, Some(false));
         assert_eq!(d.bit_depth, Some(8));
+    }
+
+    #[test]
+    fn exif_blob_is_tiff_for_every_container() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = tiff(&[(MAKE, V::Ascii("Acme"))], &[]);
+        let cases = [
+            ("a.jpg", jpeg_with_exif(16, 16, &t)),
+            ("a.png", png_with_exif(16, 16, &t)),
+            ("a.webp", webp_with_exif(16, 16, &t)),
+        ];
+        for (name, bytes) in cases {
+            let p = write(dir.path(), name, &bytes);
+            assert_eq!(exif_blob(&p).as_deref(), Some(t.as_slice()), "{name}");
+        }
+        let plain = write(dir.path(), "plain.jpg", &jpeg(16, 16));
+        assert_eq!(exif_blob(&plain), None);
+        assert_eq!(exif_blob(&dir.path().join("missing.jpg")), None);
     }
 
     #[test]

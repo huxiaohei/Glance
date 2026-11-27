@@ -346,6 +346,7 @@ mod tests {
             view(8, 8, &big),
             SrcFormat::Png,
             None,
+            None,
             &EditParams::RemoveBg(color([255; 3], 5, 0, true)),
         )
         .unwrap();
@@ -399,8 +400,8 @@ mod tests {
         let p = color([255; 3], 5, 10, true);
         let expect = remove_bg(view(5, 5, &d), &p).unwrap();
         let params = EditParams::RemoveBg(p);
-        let a = apply(view(5, 5, &d), SrcFormat::Jpeg, None, &params).unwrap();
-        let b = apply(view(5, 5, &d), SrcFormat::Jpeg, None, &params).unwrap();
+        let a = apply(view(5, 5, &d), SrcFormat::Jpeg, None, None, &params).unwrap();
+        let b = apply(view(5, 5, &d), SrcFormat::Jpeg, None, None, &params).unwrap();
         assert_eq!(a.format, OutFormat::Png);
         assert_eq!((a.width, a.height), (5, 5));
         assert_eq!(decode(&a.bytes).2, expect);

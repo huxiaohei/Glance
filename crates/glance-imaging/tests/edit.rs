@@ -37,7 +37,7 @@ fn convert(format: OutFormat, q: u8, fill: [u8; 3]) -> EditParams {
 fn compress_gif_bmp_unsupported() {
     let d = gradient(8, 8);
     for f in [SrcFormat::Gif, SrcFormat::Bmp] {
-        let r = apply(view(8, 8, &d), f, None, &compress(80, None, PngMode::Lossy));
+        let r = apply(view(8, 8, &d), f, None, None, &compress(80, None, PngMode::Lossy));
         assert!(matches!(r, Err(ImagingError::Unsupported)), "{f:?}");
     }
 }
@@ -48,6 +48,7 @@ fn max_edge_never_upscales() {
     let e = apply(
         view(100, 50, &d),
         SrcFormat::Jpeg,
+        None,
         None,
         &compress(80, Some(200), PngMode::Lossy),
     )
@@ -62,6 +63,7 @@ fn max_edge_downscales() {
         let e = apply(
             view(400, 200, &d),
             f,
+            None,
             None,
             &compress(80, Some(100), PngMode::Lossless),
         )
@@ -78,6 +80,7 @@ fn convert_to_jpeg_fills_background() {
     let e = apply(
         view(2, 2, &d),
         SrcFormat::Png,
+        None,
         None,
         &convert(OutFormat::Jpeg, 95, [0, 0, 255]),
     )
@@ -99,6 +102,7 @@ fn convert_keeps_size() {
             view(37, 21, &d),
             SrcFormat::Gif,
             None,
+            None,
             &convert(f, 85, [255; 3]),
         )
         .unwrap();
@@ -116,12 +120,14 @@ fn quality_out_of_range_rejected() {
             view(8, 8, &d),
             SrcFormat::Jpeg,
             None,
+            None,
             &compress(q, None, PngMode::Lossy),
         );
         assert!(matches!(r, Err(ImagingError::InvalidQuality(_))));
         let r = apply(
             view(8, 8, &d),
             SrcFormat::Png,
+            None,
             None,
             &convert(OutFormat::Png, q, [255; 3]),
         );
@@ -142,8 +148,8 @@ fn apply_is_deterministic() {
         cases.push((SrcFormat::Bmp, convert(f, 85, [255; 3])));
     }
     for (src, p) in cases {
-        let a = apply(view(96, 64, &d), src, None, &p).unwrap();
-        let b = apply(view(96, 64, &d), src, None, &p).unwrap();
+        let a = apply(view(96, 64, &d), src, None, None, &p).unwrap();
+        let b = apply(view(96, 64, &d), src, None, None, &p).unwrap();
         assert_eq!(a.bytes, b.bytes, "{src:?} {p:?}");
     }
 }
@@ -153,8 +159,8 @@ fn src_format_sniffs_headers() {
     let d = gradient(4, 4);
     let v = || view(4, 4, &d);
     let png = glance_imaging::encode_png_lossless(v(), None).unwrap();
-    let jpg = glance_imaging::encode_jpeg(v(), 80, [255; 3], None).unwrap();
-    let webp = glance_imaging::encode_webp(v(), 80).unwrap();
+    let jpg = glance_imaging::encode_jpeg(v(), 80, [255; 3], None, None).unwrap();
+    let webp = glance_imaging::encode_webp(v(), 80, None, None).unwrap();
     assert_eq!(src_format_of(&png), Some(SrcFormat::Png));
     assert_eq!(src_format_of(&jpg), Some(SrcFormat::Jpeg));
     assert_eq!(src_format_of(&webp), Some(SrcFormat::Webp));
@@ -239,7 +245,7 @@ fn out_dims_matches_apply() {
         compress(80, Some(1000), PngMode::Lossy),
         convert(OutFormat::Webp, 80, [255; 3]),
     ] {
-        let e = apply(view(300, 100, &d), SrcFormat::Png, None, &p).unwrap();
+        let e = apply(view(300, 100, &d), SrcFormat::Png, None, None, &p).unwrap();
         assert_eq!(out_dims(300, 100, &p), (e.width, e.height), "{p:?}");
     }
 }
@@ -268,7 +274,7 @@ fn crop_output_format_follows_source() {
         (SrcFormat::Gif, OutFormat::Png),
         (SrcFormat::Bmp, OutFormat::Png),
     ] {
-        let e = apply(view(8, 6, &d), src, None, &crop((1, 1, 3, 2), 0)).unwrap();
+        let e = apply(view(8, 6, &d), src, None, None, &crop((1, 1, 3, 2), 0)).unwrap();
         assert_eq!(e.format, out);
         assert_eq!((e.width, e.height), (3, 2));
         assert_eq!(out_dims(8, 6, &crop((1, 1, 3, 2), 0)), (3, 2));
@@ -279,10 +285,10 @@ fn crop_output_format_follows_source() {
 fn crop_after_rotation_uses_rotated_frame() {
     let d = gradient(8, 6);
     // 转 1 圈后画面是 6×8，可取 6×8 的整幅
-    let e = apply(view(8, 6, &d), SrcFormat::Png, None, &crop((0, 0, 6, 8), 1)).unwrap();
+    let e = apply(view(8, 6, &d), SrcFormat::Png, None, None, &crop((0, 0, 6, 8), 1)).unwrap();
     assert_eq!((e.width, e.height), (6, 8));
     assert!(matches!(
-        apply(view(8, 6, &d), SrcFormat::Png, None, &crop((0, 0, 8, 6), 1)),
+        apply(view(8, 6, &d), SrcFormat::Png, None, None, &crop((0, 0, 8, 6), 1)),
         Err(ImagingError::InvalidParams(_))
     ));
 }
@@ -291,7 +297,7 @@ fn crop_after_rotation_uses_rotated_frame() {
 fn crop_rejects_bad_turns() {
     let d = gradient(8, 6);
     assert!(matches!(
-        apply(view(8, 6, &d), SrcFormat::Png, None, &crop((0, 0, 2, 2), 4)),
+        apply(view(8, 6, &d), SrcFormat::Png, None, None, &crop((0, 0, 2, 2), 4)),
         Err(ImagingError::InvalidParams(_))
     ));
 }
@@ -301,8 +307,8 @@ fn crop_is_deterministic() {
     let d = gradient(8, 6);
     for src in [SrcFormat::Jpeg, SrcFormat::Png, SrcFormat::Webp] {
         let p = crop((1, 0, 5, 4), 1);
-        let a = apply(view(8, 6, &d), src, None, &p).unwrap();
-        let b = apply(view(8, 6, &d), src, None, &p).unwrap();
+        let a = apply(view(8, 6, &d), src, None, None, &p).unwrap();
+        let b = apply(view(8, 6, &d), src, None, None, &p).unwrap();
         assert_eq!(a.bytes, b.bytes);
     }
 }
@@ -315,6 +321,7 @@ fn crop_keeps_png_icc() {
         view(8, 6, &d),
         SrcFormat::Png,
         Some(&icc),
+        None,
         &crop((0, 0, 4, 4), 0),
     )
     .unwrap();
@@ -336,7 +343,7 @@ fn crop_without_orientation_takes_pixels_straight_from_source() {
         flip_h: false,
         flip_v: false,
     };
-    let e = apply(view(8, 6, &d), SrcFormat::Png, None, &p).unwrap();
+    let e = apply(view(8, 6, &d), SrcFormat::Png, None, None, &p).unwrap();
     assert_eq!((e.width, e.height), (4, 3));
     let back = glance_imaging::decode_rgba_icc(&e.bytes, 1 << 20).unwrap();
     let exp: Vec<u8> = (1..4u8)

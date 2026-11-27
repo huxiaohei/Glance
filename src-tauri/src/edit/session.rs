@@ -7,7 +7,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 use glance_imaging::{
     Decoded, EditParams, Encoded, ImagingError, OutFormat, RemoveBg, RgbaView, SrcFormat, apply,
-    downscale, encode_jpeg, encode_png_fast, out_dims, pick, remove_bg,
+    downscale, encode_jpeg, encode_png_fast, normalize_exif, out_dims, pick, remove_bg,
 };
 use serde::Serialize;
 
@@ -174,6 +174,8 @@ pub(crate) struct Session {
     source: FileId,
     src_format: SrcFormat,
     icc: Option<Vec<u8>>,
+    /// 源图的原始 EXIF；全尺寸输出按输出尺寸改写后带上，代理估算只加它的长度。
+    exif: Option<Vec<u8>>,
     orig: Arc<Decoded>,
     proxy: Arc<Decoded>,
     /// 原图是否有半透明或透明像素（“按透明度去背景”只对它有意义）。
@@ -198,6 +200,10 @@ pub(crate) struct Session {
 impl Session {
     fn icc(&self) -> Option<&[u8]> {
         self.icc.as_deref()
+    }
+
+    fn exif(&self) -> Option<&[u8]> {
+        self.exif.as_deref()
     }
 
     fn drag_proxy(&self, edge: u32) -> Result<Arc<Decoded>, EditError> {
@@ -240,7 +246,7 @@ impl Session {
         let made = if self.has_alpha {
             encode_png_fast(v).map(|b| (b, "image/png"))
         } else {
-            encode_jpeg(v, 90, [255; 3], None).map(|b| (b, "image/jpeg"))
+            encode_jpeg(v, 90, [255; 3], None, None).map(|b| (b, "image/jpeg"))
         }
         .ok()?;
         Some(
@@ -278,7 +284,13 @@ impl Session {
             }
         }
         let out = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            apply(view(&self.orig), self.src_format, self.icc(), params)
+            apply(
+                view(&self.orig),
+                self.src_format,
+                self.icc(),
+                self.exif(),
+                params,
+            )
         }));
         let mut cache = lock(&self.full_cache);
         if let Some(i) = cache.inflight.iter().position(|p| p == params) {
@@ -329,18 +341,23 @@ impl Session {
                     height: src.height,
                 }
             }
-            _ => apply(view(&src), self.src_format, self.icc(), &p)?,
+            // 代理图上不带 EXIF：它的长度另算，不随像素数放大。
+            _ => apply(view(&src), self.src_format, self.icc(), None, &p)?,
         };
         let (width, height) = out_dims(self.orig.width, self.orig.height, params);
-        // ICC 是固定开销，不随像素数放大（WebP 输出不带 ICC）。
-        let fixed = match fmt {
-            OutFormat::Webp => 0,
-            _ => self.icc.as_ref().map_or(0, Vec::len),
-        }
-        .min(enc.bytes.len()) as f64;
+        // ICC 是固定开销，不随像素数放大；EXIF 也是固定的，但代理图没带它，缩放后另加。
+        let fixed = self.icc.as_ref().map_or(0, Vec::len).min(enc.bytes.len()) as f64;
         let ratio =
             f64::from(width) * f64::from(height) / (f64::from(enc.width) * f64::from(enc.height));
-        let bytes = ((enc.bytes.len() as f64 - fixed) * ratio + fixed).round() as u64;
+        let exif_len = match fmt {
+            OutFormat::Png => 0,
+            OutFormat::Jpeg | OutFormat::Webp => self
+                .exif()
+                .and_then(|t| normalize_exif(t, width, height))
+                .map_or(0, |t| t.len()),
+        };
+        let bytes =
+            ((enc.bytes.len() as f64 - fixed) * ratio + fixed).round() as u64 + exif_len as u64;
         Ok(Computed::Proxy {
             enc,
             bytes,
@@ -431,6 +448,7 @@ impl Session {
 struct Loaded {
     src_format: SrcFormat,
     icc: Option<Vec<u8>>,
+    exif: Option<Vec<u8>>,
     orig: Arc<Decoded>,
     proxy: Arc<Decoded>,
     file_size: u64,
@@ -450,6 +468,7 @@ fn load(registry: &Registry, id: FileId) -> Result<Loaded, EditError> {
     Ok(Loaded {
         src_format: src.src_format,
         icc: src.icc,
+        exif: src.exif,
         orig,
         proxy,
         file_size: src.file_size,
@@ -490,6 +509,7 @@ impl EditState {
             source: id,
             src_format: l.src_format,
             icc: l.icc,
+            exif: l.exif,
             orig: l.orig,
             proxy: l.proxy,
             has_alpha: l.has_alpha,
@@ -1299,6 +1319,7 @@ mod tests {
             95,
             [255; 3],
             None,
+            None,
         )
         .unwrap();
         let oriented = with_exif_orientation(&jpg, 6);
@@ -1329,5 +1350,37 @@ mod tests {
                 &c.rgba[..3]
             );
         }
+    }
+
+    #[test]
+    fn approx_bytes_include_exif() {
+        use crate::catalog::details::testimg::{MAKE, MODEL, V, jpeg, jpeg_with_exif, tiff};
+        let blob = tiff(
+            &[
+                (MAKE, V::Ascii("Acme Camera Company")),
+                (MODEL, V::Ascii("Model 9000 Deluxe")),
+            ],
+            &[(0xA002, V::Long(3000)), (0xA003, V::Long(2000))],
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let reg = Registry::default();
+        let (plain, tagged) = (dir.path().join("p.jpg"), dir.path().join("t.jpg"));
+        std::fs::write(&plain, jpeg(320, 240)).unwrap();
+        std::fs::write(&tagged, jpeg_with_exif(320, 240, &blob)).unwrap();
+        let st = EditState::default();
+        let mut sizes = Vec::new();
+        for (i, path) in [&plain, &tagged].into_iter().enumerate() {
+            let s = st.open(&reg, reg.register(path)).unwrap().session;
+            let r = st.preview(s, 1, self::jpeg(85), false).unwrap().unwrap();
+            assert!(r.approx);
+            assert_eq!((r.width, r.height), (320, 240), "{i}");
+            sizes.push(r.bytes);
+        }
+        let want = glance_imaging::normalize_exif(&blob, 320, 240)
+            .unwrap()
+            .len() as i64;
+        let diff = sizes[1] as i64 - sizes[0] as i64;
+        assert!((diff - want).abs() <= 32, "diff {diff}, exif {want}");
+        assert!(want > 0);
     }
 }

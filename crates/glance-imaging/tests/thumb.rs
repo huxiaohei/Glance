@@ -54,7 +54,7 @@ fn with_exif_orientation(jpeg: &[u8], orientation: u8) -> Vec<u8> {
 #[test]
 fn applies_exif_orientation() {
     let data = vec![200u8; 40 * 20 * 4];
-    let jpeg = encode_jpeg(RgbaView { width: 40, height: 20, data: &data }, 90, [0; 3], None).unwrap();
+    let jpeg = encode_jpeg(RgbaView { width: 40, height: 20, data: &data }, 90, [0; 3], None, None).unwrap();
     let t = make_thumbnail(&with_exif_orientation(&jpeg, 6), 320).unwrap(); // 6 = 顺时针 90°
     assert_eq!((t.width, t.height), (20, 40));
     let t = make_thumbnail(&jpeg, 320).unwrap();
@@ -74,7 +74,7 @@ fn bad_input_is_an_error_not_a_panic() {
 #[test]
 fn decode_rgba_applies_orientation() {
     let data = vec![200u8; 40 * 20 * 4];
-    let jpeg = encode_jpeg(RgbaView { width: 40, height: 20, data: &data }, 90, [0; 3], None).unwrap();
+    let jpeg = encode_jpeg(RgbaView { width: 40, height: 20, data: &data }, 90, [0; 3], None, None).unwrap();
     let d = decode_rgba(&with_exif_orientation(&jpeg, 6), u64::MAX).unwrap();
     assert_eq!((d.width, d.height), (20, 40));
     assert_eq!(d.rgba.len(), 20 * 40 * 4);

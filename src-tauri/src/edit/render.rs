@@ -9,12 +9,14 @@ use glance_imaging::{
 };
 
 use super::session::{EditError, MAX_PIXELS, out_format};
-use crate::catalog::details::image_details;
+use crate::catalog::details::{exif_blob, image_details};
 
 /// 解码好的源图（已按 EXIF 方向转正）。
 pub struct Source {
     pub src_format: SrcFormat,
     pub icc: Option<Vec<u8>>,
+    /// 源文件里的原始 EXIF（TIFF 结构）；输出 JPEG / WebP 时由 `apply` 按输出尺寸改写后带上。
+    pub exif: Option<Vec<u8>>,
     pub decoded: Decoded,
     pub file_size: u64,
 }
@@ -32,6 +34,7 @@ pub fn read_source(path: &Path) -> Result<Source, EditError> {
     Ok(Source {
         src_format,
         icc: d.icc,
+        exif: exif_blob(path),
         decoded: d.decoded,
         file_size: bytes.len() as u64,
     })
@@ -52,7 +55,13 @@ pub fn render_path(
         data: &src.decoded.rgba,
     };
     let out = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        apply(view, src.src_format, src.icc.as_deref(), params)
+        apply(
+            view,
+            src.src_format,
+            src.icc.as_deref(),
+            src.exif.as_deref(),
+            params,
+        )
     }));
     match out {
         Ok(Ok(enc)) => Ok((enc, src.src_format, src.file_size)),
@@ -67,29 +76,34 @@ mod tests {
     use crate::catalog::details::testimg::gif;
     use crate::catalog::registry::Registry;
     use crate::edit::EditState;
-    use glance_imaging::{OutFormat, PngMode, encode_png_lossless};
+    use glance_imaging::{OutFormat, PngMode};
 
-    fn write_png(path: &Path, w: u32, h: u32) {
-        let data: Vec<u8> = (0..w * h)
-            .flat_map(|i| [(i % w) as u8, (i / w) as u8, ((i * 7) % 251) as u8, 255])
-            .collect();
-        let bytes = encode_png_lossless(
-            RgbaView {
-                width: w,
-                height: h,
-                data: &data,
-            },
-            None,
+    /// 带拍摄信息（厂商、型号）的 JPEG 源图。
+    fn write_jpeg_with_exif(path: &Path, w: u32, h: u32) {
+        use crate::catalog::details::testimg::{MAKE, MODEL, V, jpeg_with_exif, tiff};
+        let blob = tiff(
+            &[(MAKE, V::Ascii("Acme")), (MODEL, V::Ascii("Model 9000"))],
+            &[(0xA002, V::Long(w)), (0xA003, V::Long(h))],
+        );
+        std::fs::write(path, jpeg_with_exif(w, h, &blob)).unwrap();
+    }
+
+    fn make_of(bytes: &[u8]) -> Option<String> {
+        let x = exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(bytes))
+            .ok()?;
+        Some(
+            x.get_field(exif::Tag::Make, exif::In::PRIMARY)?
+                .display_value()
+                .to_string(),
         )
-        .unwrap();
-        std::fs::write(path, bytes).unwrap();
     }
 
     #[test]
     fn render_matches_session_save() {
         let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("a.png");
-        write_png(&p, 64, 48);
+        let p = dir.path().join("a.jpg");
+        write_jpeg_with_exif(&p, 64, 48);
         let reg = Registry::default();
         let id = reg.register(&p);
         let st = EditState::default();
@@ -105,14 +119,28 @@ mod tests {
                 quality: 85,
                 fill: [255; 3],
             },
+            EditParams::Convert {
+                format: OutFormat::Png,
+                quality: 85,
+                fill: [255; 3],
+            },
         ];
         for params in cases {
             let a = st.compute_full(o.session, &params).unwrap();
             let (b, fmt, size) = render_path(&p, &params).unwrap();
             assert_eq!(a.bytes, b.bytes);
             assert_eq!(a.format, b.format);
-            assert_eq!(fmt, SrcFormat::Png);
+            assert_eq!(fmt, SrcFormat::Jpeg);
             assert_eq!(size, std::fs::metadata(&p).unwrap().len());
+            if b.format == OutFormat::Jpeg {
+                assert_eq!(make_of(&b.bytes).as_deref(), Some("\"Acme\""));
+            }
+            if b.format == OutFormat::Webp {
+                assert!(b.bytes.windows(4).any(|w| w == b"EXIF"));
+            }
+            if b.format == OutFormat::Png {
+                assert!(!b.bytes.windows(4).any(|w| w == b"eXIf"));
+            }
         }
     }
 
