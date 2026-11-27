@@ -233,6 +233,9 @@ impl Sessions {
         }
         cur.attached = None;
         cur.generation += 1;
+        // 每次打开（启动参数、拖入、最近目录、对话框、刷新）都重新探测系统解码组件：
+        // 用户可能刚装好组件。
+        crate::decode::reset_codec_state();
         let cancel = Arc::new(AtomicBool::new(false));
         cur.cancel = Some(cancel.clone());
         Some((cur.generation, cancel))
@@ -547,6 +550,17 @@ mod tests {
         assert_eq!(g2, g1 + 1);
         assert!(c1.load(Ordering::Relaxed));
         assert!(!c2.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn codec_state_resets_on_open() {
+        use glance_syscodec::Kind;
+        // 进程内那一份状态别的测试也会动（其他测试里的 begin 会把它清掉），这里只断言 begin 之后的结果。
+        crate::decode::mark_codec_missing(Kind::Avif);
+        let s = Sessions::default();
+        s.note(1);
+        s.begin(1).unwrap();
+        assert_eq!(crate::decode::codec_missing(Kind::Avif), None);
     }
 
     #[test]

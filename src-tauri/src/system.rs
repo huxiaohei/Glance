@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use glance_imaging::Decoded;
+use serde::Deserialize;
 use tauri::image::Image;
 use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -73,6 +74,43 @@ pub fn reveal(id: u32, registry: State<'_, Arc<Registry>>) -> Result<(), FsError
     tauri_plugin_opener::reveal_item_in_dir(path).map_err(|_| FsError::Other)
 }
 
+/// 缺少的系统解码组件属于哪一种格式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CodecKind {
+    Heif,
+    Avif,
+}
+
+// Microsoft Store 里两个组件的商品页。编号是凭记忆写的，尚未核对：
+// 发布前必须在 Windows 上实际打开确认（计划任务 9 的实验 E5），核对前不发布。
+/// “HEVC Video Extensions”。
+pub const HEVC_STORE_URL: &str = "ms-windows-store://pdp/?ProductId=9NMZLZ57R3T7";
+/// “AV1 Video Extension”。
+pub const AV1_STORE_URL: &str = "ms-windows-store://pdp/?ProductId=9MVZQVXJBQ9V";
+
+/// 种类对应的商店地址；地址只来自上面两个常量，前端传不进任何地址。
+fn store_url(kind: CodecKind) -> &'static str {
+    match kind {
+        CodecKind::Heif => HEVC_STORE_URL,
+        CodecKind::Avif => AV1_STORE_URL,
+    }
+}
+
+/// 打开 Microsoft Store 里对应组件的页面。只在 Windows 上有动作；其他平台返回 Err，什么也不做。
+#[tauri::command(async)]
+pub fn open_codec_help(kind: CodecKind) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        tauri_plugin_opener::open_url(store_url(kind), None::<&str>).map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = store_url(kind);
+        Err("only on Windows".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +130,35 @@ mod tests {
         assert_eq!(text, expected);
         assert_eq!(paths_text(&registry, &[999, 1000]), Err(FsError::NotFound));
         assert_eq!(paths_text(&registry, &[]), Err(FsError::NotFound));
+    }
+
+    #[test]
+    fn codec_help_urls_are_fixed() {
+        for url in [HEVC_STORE_URL, AV1_STORE_URL] {
+            assert!(
+                url.starts_with("ms-windows-store://pdp/?ProductId="),
+                "{url}"
+            );
+        }
+        assert_eq!(store_url(CodecKind::Heif), HEVC_STORE_URL);
+        assert_eq!(store_url(CodecKind::Avif), AV1_STORE_URL);
+        // 命令只收种类，没有字符串参数。
+        let _: fn(CodecKind) -> Result<(), String> = open_codec_help;
+        assert_eq!(
+            serde_json::from_value::<CodecKind>(serde_json::json!("heif")).unwrap(),
+            CodecKind::Heif
+        );
+        assert_eq!(
+            serde_json::from_value::<CodecKind>(serde_json::json!("avif")).unwrap(),
+            CodecKind::Avif
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn codec_help_is_an_error_off_windows() {
+        assert!(open_codec_help(CodecKind::Heif).is_err());
+        assert!(open_codec_help(CodecKind::Avif).is_err());
     }
 
     #[test]

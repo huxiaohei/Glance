@@ -3,7 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { t } from "../../i18n";
-import { appVersion, basketRestore, basketCheck, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
+import { appVersion, basketRestore, basketCheck, imageStatus, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
 import { switchStats } from "../../lib/perfMarks";
 import { useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
@@ -353,6 +353,23 @@ describe("单张视图切图", () => {
     expect(shown(c)).toEqual([]);
     await decodeOk(url2(2));
     expect(shown(c)).toEqual([url2(2)]);
+  });
+
+  it("读不出的 HEIC 缺系统解码组件：问过原因后显示说明，不显示“无法读取”", async () => {
+    vi.mocked(imageStatus).mockResolvedValue("noCodec");
+    const c = setup([1, 2]);
+    act(() => {
+      useCatalog.getState().apply({ type: "batch", generation: 1, entries: [{ id: 2, relPath: "02.heic", size: 1, mtimeMs: 1 }] });
+    });
+    openAt(2);
+    await decodeFail(2);
+    await act(async () => {});
+    expect(imageStatus).toHaveBeenCalledWith(2);
+    expect(c.querySelector(".stage-unreadable")).toBeNull();
+    // 测试里 IS_MAC 为真：HEIC 缺组件只给一般说明，没有按钮
+    expect(c.querySelector(".stage-codec-text")?.textContent).toBe(t("codec.thumbTip"));
+    expect(c.querySelector(".stage-codec button")).toBeNull();
+    expect(c.querySelector(".topbar-edit")?.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("正在看的图被改写且新版本读不出：显示占位", async () => {

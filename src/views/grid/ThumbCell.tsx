@@ -14,6 +14,7 @@ import { useNav } from "../../stores/nav";
 import { startRename, useRename } from "../../stores/rename";
 import { useSelection } from "../../stores/selection";
 import { useThumbs } from "../../stores/thumbs";
+import NoCodecMark from "../common/NoCodecMark";
 import RenameInput from "../common/RenameInput";
 
 interface Props { entry: ImageEntry; cell: number; selected: boolean; focused: boolean }
@@ -70,6 +71,7 @@ const nameBudget = (cell: number) => Math.max(8, Math.floor(cell / 6.5));
 function ThumbCell({ entry, cell, selected, focused }: Props) {
   const ready = useThumbs((s) => s.ready.get(entry.id));
   const broken = useThumbs((s) => s.broken.has(entry.id));
+  const noCodec = useThumbs((s) => s.noCodec.has(entry.id));
   // 只让正在重命名的那一格重新渲染
   const renaming = useRename((s) => s.id === entry.id);
   const inBasket = useBasket((s) => s.items.has(entry.id));
@@ -95,7 +97,9 @@ function ThumbCell({ entry, cell, selected, focused }: Props) {
       onContextMenu={onCellContextMenu}
     >
       <div className="thumb-box" style={{ width: cell, height: cell }}>
-        {broken ? (
+        {noCodec ? (
+          <NoCodecMark className="thumb-nocodec" />
+        ) : broken ? (
           <div className="thumb-broken">{t("grid.unreadable")}</div>
         ) : src && failedSrc !== src ? (
           <img

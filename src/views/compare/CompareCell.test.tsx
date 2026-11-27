@@ -33,6 +33,14 @@ describe("CompareCell", () => {
     expect(container.querySelector(".compare-original")).toBeNull();
   });
 
+  it("缺系统解码组件：不放图，显示专门的占位", () => {
+    useThumbs.getState().apply({ type: "noCodec", id: 1 });
+    const { container } = render(cell());
+    expect(container.querySelector(".compare-pic")).toBeNull();
+    expect(container.querySelector(".compare-nocodec")?.getAttribute("title")).toBe("需要系统解码组件");
+    useThumbs.getState().reset();
+  });
+
   it("有移出按钮，缺失的格也有", () => {
     const { container, rerender } = render(cell());
     expect(container.querySelector("button.compare-remove")?.getAttribute("aria-label")).toBe("移出对比");

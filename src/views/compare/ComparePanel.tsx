@@ -14,6 +14,7 @@ import { useListView } from "../../stores/listView";
 import { useThumbs } from "../../stores/thumbs";
 import { showToast } from "../../stores/toast";
 import { currentPanelIds, PANEL_COLUMNS, togglePanelItem } from "./compareActions";
+import NoCodecMark from "../common/NoCodecMark";
 
 const TIER = 320;
 const COLUMNS = PANEL_COLUMNS;
@@ -69,6 +70,7 @@ const PanelCell = memo(function PanelCell(
 ) {
   const ready = useThumbs((s) => s.ready.get(id));
   const broken = useThumbs((s) => s.broken.has(id));
+  const noCodec = useThumbs((s) => s.noCodec.has(id));
   const inBasket = useBasket((s) => s.items.has(id));
   const src = ready ? glanceUrl(`thumb/${id}/${ready.tier}?v=${ready.v}`) : null;
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
@@ -82,7 +84,8 @@ const PanelCell = memo(function PanelCell(
       style={{ top, left, width: CELL, height: CELL }}
       onMouseDown={keepFocus}
     >
-      {!broken && src && failedSrc !== src && (
+      {noCodec && <NoCodecMark className="compare-panel-nocodec" />}
+      {!broken && !noCodec && src && failedSrc !== src && (
         <img src={src} alt="" draggable={false} onError={() => setFailedSrc(src)} />
       )}
       {inBasket && <span className="compare-panel-badge" role="img" aria-label={t("basket.inBasket")} />}
@@ -171,14 +174,14 @@ export default function ComparePanel() {
   // 去抖 50ms 后登记可视格子的需求，跳过损坏的与已有当前版本（档位不低于 TIER）的；刷新后重新登记
   useEffect(() => {
     const timer = setTimeout(() => {
-      const { broken, ready } = useThumbs.getState();
+      const { broken, noCodec, ready } = useThumbs.getState();
       const entries = useCatalog.getState().entries;
       const have = (id: FileId) => {
         const r = ready.get(id);
         const e = byId.get(id) ?? entries.get(id);
         return !!r && !!e && r.tier >= TIER && r.v === `${e.mtimeMs}-${e.size}`;
       };
-      thumbsWant("comparePanel", shown.filter((id) => !broken.has(id) && !have(id)), TIER)
+      thumbsWant("comparePanel", shown.filter((id) => !broken.has(id) && !noCodec.has(id) && !have(id)), TIER)
         .then((got) => {
           if (got.length > 0) useThumbs.getState().markReady(got, TIER);
         })

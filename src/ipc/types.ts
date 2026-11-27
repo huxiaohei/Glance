@@ -41,6 +41,9 @@ export type ThumbEvent =
   | { type: "broken"; id: FileId }
   | { type: "noCodec"; id: FileId };
 
+/** 原图加载失败后问到的原因：ok 说明其实能读（之前的失败是一时的）。 */
+export type ImageStatus = "ok" | "noCodec" | "broken";
+
 export interface ExifItem {
   key: "make" | "model" | "lens" | "dateTime" | "exposure" | "fNumber" | "iso" | "focalLength";
   value: string;
@@ -118,7 +121,7 @@ export type SrcFormat = "png" | "jpeg" | "webp" | "gif" | "bmp" | "heif" | "avif
 export type OutFormat = "png" | "jpeg" | "webp";
 export type PngMode = "lossy" | "lossless";
 export type EditTab = "compress" | "crop" | "removeBg" | "convert";
-export type EditError = "notFound" | "animated" | "tooLarge" | "decode" | "unsupported" | "noSession" | "encode" | "invalid";
+export type EditError = "notFound" | "animated" | "tooLarge" | "decode" | "unsupported" | "noSession" | "encode" | "invalid" | "noCodec";
 export type EditParams =
   | { op: "compress"; quality: number; maxEdge: number | null; pngMode: PngMode }
   | { op: "convert"; format: OutFormat; quality: number; fill: [number, number, number] }
@@ -146,7 +149,7 @@ export interface EditParamsMemory {
 }
 
 export type BatchOp = "compress" | "convert";
-export type SkipReason = "unsupported" | "animated" | "inOutput" | "notFound";
+export type SkipReason = "unsupported" | "animated" | "inOutput" | "notFound" | "noCodec";
 
 export interface SkipItem {
   id: FileId;
@@ -159,7 +162,7 @@ export interface BatchPlan {
   skipped: SkipItem[];
 }
 
-export type FailReason = "notFound" | "decode" | "tooLarge" | "encode" | "readOnly" | "diskFull" | "denied" | "other";
+export type FailReason = "notFound" | "decode" | "tooLarge" | "encode" | "readOnly" | "diskFull" | "denied" | "noCodec" | "other";
 
 export interface Failure {
   id: FileId;

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::{Manager, State};
 
-use crate::catalog::details::{self, BasketEntry, ImageDetails};
+use crate::catalog::details::{self, BasketEntry, ImageDetails, ImageStatus};
 use crate::catalog::events::{CatalogEvent, OpenError, RootInfo};
 use crate::catalog::registry::FileId;
 use crate::catalog::registry::Registry;
@@ -15,6 +15,7 @@ use crate::catalog::session::{
     OpenTarget, Sessions, rel_path, resolve_open_target, root_display_name,
 };
 use crate::catalog::watch::{SessionMsg, serve};
+use crate::decode::Decoder;
 use crate::state::recents::{Note, RECENT_THUMBS, RecentEntry, RecentsState};
 use crate::state::settings::SortKey;
 use crate::thumbs::{ThumbCache, ThumbEvent, Thumbs, Tier};
@@ -280,6 +281,13 @@ pub fn thumbs_want(
 #[tauri::command(async)]
 pub fn image_details(id: u32, registry: State<'_, Arc<Registry>>) -> Result<ImageDetails, String> {
     details::details_by_id(&registry, FileId(id))
+}
+
+/// 原图加载失败后问原因：`noCodec`（缺系统解码组件）、`broken`（读不出来）或 `ok`（其实能读）。
+/// 未登记或文件读不了返回 Err。读文件与试解码，不上主线程。
+#[tauri::command(async)]
+pub fn image_status(id: u32, registry: State<'_, Arc<Registry>>) -> Result<ImageStatus, String> {
+    details::image_status_by_id(&registry, FileId(id), &Decoder::SYSTEM)
 }
 
 /// 按 ID 核对对比篮里的文件（可能在当前目录之外），顺序与 `ids` 一致；

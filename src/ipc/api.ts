@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { glanceUrl } from "../lib/glanceUrl";
+import type { CodecKind } from "../lib/codecKind";
 import type { SortKey } from "../lib/deriveList";
 import type {
   EditOpened,
@@ -22,6 +23,7 @@ import type {
   BrowseResult,
   RestoredItem,
   ImageDetails,
+  ImageStatus,
   OpReport,
   RecentEntry,
   RootInfo,
@@ -57,6 +59,10 @@ export function thumbsWant(consumer: string, ids: FileId[], tier: Tier): Promise
 
 export function imageDetails(id: FileId): Promise<ImageDetails> {
   return invoke<ImageDetails>("image_details", { id });
+}
+
+export function imageStatus(id: FileId): Promise<ImageStatus> {
+  return invoke<ImageStatus>("image_status", { id });
 }
 
 export function basketCheck(ids: FileId[]): Promise<(BasketEntry | null)[]> {
@@ -130,6 +136,11 @@ export function dragOut(ids: FileId[], onEnd: (r: DragEnd) => void): Promise<voi
 
 export function reveal(id: FileId): Promise<void> {
   return invoke<void>("reveal", { id });
+}
+
+/** 打开系统商店里缺少的解码组件的页面；只收种类，地址写死在后端。仅 Windows 有效，其他平台被拒绝。 */
+export function openCodecHelp(kind: CodecKind): Promise<void> {
+  return invoke<void>("open_codec_help", { kind });
 }
 
 export function settingsGet(): Promise<Settings> {

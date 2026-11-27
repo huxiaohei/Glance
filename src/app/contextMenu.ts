@@ -8,6 +8,7 @@ import { useCatalog } from "../stores/catalog";
 import { useCompareUi } from "../stores/compareUi";
 import { batchRunning } from "../stores/batch";
 import { topView } from "../stores/nav";
+import { allNoCodec, useThumbs } from "../stores/thumbs";
 import { activeView, allCommands } from "./commands";
 import { opTargets, pickAndTransfer, readTargets, transferTo, transferToNewChild, type TransferKind } from "./fileOps";
 import { popup } from "./nativeMenu";
@@ -34,6 +35,8 @@ export interface MenuCtx {
   batchBusy?: boolean;
   /** 操作对象的文件名（与 count 一一对应时才有意义）：全是 HEIC / HEIF / AVIF 时“批量压缩…”置灰。 */
   names?: string[];
+  /** 操作对象全都缺系统解码组件：编辑与批量项置灰。 */
+  noCodec?: boolean;
 }
 
 /** 命令表里的一条命令做成菜单项：标签与快捷键取自命令表，点击即命令的 run。命令未注册时没有这一项。 */
@@ -79,11 +82,14 @@ export function buildImageMenu(ctx: MenuCtx): MenuNode[] {
       ? [
           ...commandItem("grid.open", single),
           ...(ctx.count >= 2
-            ? [...commandItem("grid.batchCompress", !ctx.batchBusy && !allCodecNames(ctx.names ?? [])), ...commandItem("grid.batchConvert", !ctx.batchBusy)]
-            : commandItem("grid.edit", single && !ctx.animated)),
+            ? [
+              ...commandItem("grid.batchCompress", !ctx.batchBusy && !ctx.noCodec && !allCodecNames(ctx.names ?? [])),
+              ...commandItem("grid.batchConvert", !ctx.batchBusy && !ctx.noCodec),
+            ]
+            : commandItem("grid.edit", single && !ctx.animated && !ctx.noCodec)),
         ]
       : [],
-    ctx.view === "single" ? commandItem("edit.open", single && !ctx.animated) : [],
+    ctx.view === "single" ? commandItem("edit.open", single && !ctx.animated && !ctx.noCodec) : [],
     compare ? commandItem("compare.remove", true) : [],
     ctx.readOnly || compare || ctx.view === "edit" ? [] : [
       ...commandItem("file.rename", single),
@@ -118,7 +124,10 @@ export async function showImageMenu(): Promise<void> {
   const focus = useCompareUi.getState().focus;
   const removable = view === "compare" && focus !== null && useBasket.getState().order.includes(focus);
   const names = targets.map((id) => useCatalog.getState().entries.get(id)?.name ?? "");
-  const nodes = buildImageMenu({ view, count, recent, names, readOnly: singleSource() === "basket", removable, animated, batchBusy: batchRunning() });
+  const noCodec = allNoCodec(useThumbs.getState().noCodec, targets);
+  const nodes = buildImageMenu({
+    view, count, recent, names, readOnly: singleSource() === "basket", removable, animated, batchBusy: batchRunning(), noCodec,
+  });
   if (nodes.length === 0) return;
   try {
     await popup(nodes);

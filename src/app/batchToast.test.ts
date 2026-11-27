@@ -53,6 +53,20 @@ describe("summaryDetails", () => {
   });
 });
 
+describe("summaryDetails 缺系统解码组件", () => {
+  it("失败与跳过都有专门的原因文字", () => {
+    const s: BatchSummary = {
+      ...base,
+      failed: [{ id: 1, name: "a.heic", reason: "noCodec" }],
+      skipped: [{ id: 2, name: "b.avif", reason: "noCodec" }],
+    };
+    expect(summaryDetails(s)).toEqual([
+      t("batch.detailLine", { name: "a.heic", reason: t("batch.fail.noCodec") }),
+      t("batch.detailLine", { name: "b.avif", reason: t("batch.skip.noCodec") }),
+    ]);
+  });
+});
+
 describe("startBatchToast", () => {
   const finished = { kind: "finished" as const, ...base };
 

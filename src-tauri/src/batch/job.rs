@@ -16,6 +16,7 @@ use super::plan::{BatchOp, BatchPlan, SkipItem, plan};
 use crate::catalog::reconcile::FsHint;
 use crate::catalog::registry::{FileId, Registry};
 use crate::catalog::session::Sessions;
+use crate::decode::Decoder;
 use crate::edit::EditError;
 use crate::edit::commands::naming;
 use crate::edit::render::render_path;
@@ -39,6 +40,8 @@ pub enum FailReason {
     ReadOnly,
     DiskFull,
     Denied,
+    /// 计划之后本机系统解码组件的状态变了：开始时以为在，处理时才发现缺失。
+    NoCodec,
     Other,
 }
 
@@ -114,6 +117,7 @@ impl From<EditError> for FailReason {
             EditError::Decode => FailReason::Decode,
             EditError::TooLarge => FailReason::TooLarge,
             EditError::Encode => FailReason::Encode,
+            EditError::NoCodec => FailReason::NoCodec,
             _ => FailReason::Other,
         }
     }
@@ -283,8 +287,14 @@ impl Job {
     fn execute(self, ids: Vec<FileId>, op: BatchOp) {
         #[cfg(test)]
         self.ctx.env.before_plan();
-        let BatchPlan { process, skipped } =
-            plan(&self.ctx.registry, &self.root, &ids, op, &self.ctx.out_dir);
+        let BatchPlan { process, skipped } = plan(
+            &self.ctx.registry,
+            &self.root,
+            &ids,
+            op,
+            &self.ctx.out_dir,
+            &Decoder::SYSTEM,
+        );
         let total = process.len() as u32;
         let queue: Mutex<VecDeque<(usize, FileId)>> =
             Mutex::new(process.into_iter().map(FileId).enumerate().collect());

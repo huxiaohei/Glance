@@ -1,0 +1,15 @@
+/* 缺系统解码组件的占位：与损坏的占位不同，画一个图标；颜色取主题变量，浅色深色都跟随。 */
+.no-codec {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--text-dim);
+}
+.no-codec svg {
+  max-width: 40%;
+  max-height: 40%;
+}

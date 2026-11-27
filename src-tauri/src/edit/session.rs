@@ -32,6 +32,8 @@ pub enum EditError {
     Encode,
     /// 参数不合法（区域越界、取色位置超出图片等）。
     Invalid,
+    /// 本机缺少这种格式的系统解码组件（HEIC / AVIF）。
+    NoCodec,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

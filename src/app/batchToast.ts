@@ -26,6 +26,7 @@ const FAIL_KEYS = {
   readOnly: "batch.fail.readOnly",
   diskFull: "batch.fail.diskFull",
   denied: "batch.fail.denied",
+  noCodec: "batch.fail.noCodec",
   other: "batch.fail.other",
 } as const satisfies Record<FailReason, string>;
 
@@ -34,6 +35,7 @@ const SKIP_KEYS = {
   animated: "batch.skip.animated",
   inOutput: "batch.skip.inOutput",
   notFound: "batch.skip.notFound",
+  noCodec: "batch.skip.noCodec",
 } as const satisfies Record<SkipReason, string>;
 
 /** 跳过原因的文字（批量模式面板里的“这张会被跳过”也用它）。 */

@@ -6,6 +6,9 @@ import { editHints, singleHints } from "../../lib/keyHints";
 import { useBasket } from "../../stores/basket";
 import { isEditing, useEditUi } from "../../stores/editUi";
 import { useSettings } from "../../stores/settings";
+import { t } from "../../i18n";
+import { isScaledDown } from "../../lib/scaledDown";
+import { useStageNatural } from "./Stage";
 import KeyHints from "../common/KeyHints";
 
 /** 格式标签：扩展名大写，jpeg 显示为 JPG，heif 显示为 HEIC；没有扩展名返回 null。 */
@@ -17,7 +20,7 @@ function formatLabel(name: string): string | null {
   return ext === "HEIF" ? "HEIC" : ext;
 }
 
-/** 单张视图底部常驻信息条：文件名、宽 × 高、大小、格式，快捷键提示，右侧 序号 / 总数。 */
+/** 单张视图底部常驻信息条：文件名、宽 × 高（画面上的图被缩小时注明）、大小、格式，快捷键提示，右侧 序号 / 总数。 */
 export default function InfoBar({ id }: { id: FileId }) {
   const entry = useSingleEntry(id);
   const list = useSingleList();
@@ -28,6 +31,9 @@ export default function InfoBar({ id }: { id: FileId }) {
   const editing = useEditUi(isEditing);
   const batch = useEditUi((s) => s.batch !== null);
   const inBasket = useBasket((s) => s.order.includes(id));
+  // 显示通道把长边超过上限的图缩小后给出：画面上的图比原图窄
+  const natural = useStageNatural((s) => (s.id === id ? s.w : 0));
+  const scaled = entry ? isScaledDown(natural, entry.width) : false;
 
   return (
     <div className="single-infobar">
@@ -39,6 +45,7 @@ export default function InfoBar({ id }: { id: FileId }) {
           {hasSize(entry) && (
             <span className="info-dims">{`${entry.width} × ${entry.height}`}</span>
           )}
+          {scaled && <span className="info-scaled">{t("single.scaled")}</span>}
           <span className="info-size">{formatBytes(entry.size)}</span>
           {format && <span className="info-format">{format}</span>}
         </>

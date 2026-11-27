@@ -86,6 +86,29 @@ describe("Preloader", () => {
     expect(p.get(2, "u2")).toBeNull();
   });
 
+  it("retry：失败的一项以同一地址重新加载一次，第二次不再重试", async () => {
+    const { p, created, notified } = setup();
+    p.want([{ id: 1, url: "u1" }]);
+    expect(p.retry(1)).toBe(false);   // 还在加载，不重试
+    created[0].reject();
+    created[0].fire("error");
+    await tick();
+    expect(p.retry(1)).toBe(true);
+    expect(created).toHaveLength(2);
+    expect(created[1].src).toBe("u1");
+    expect(p.get(1, "u1")).toEqual({ state: "loading" });
+    expect(notified.filter((id) => id === 1)).toHaveLength(2);
+    // want 同一地址不会再建一个
+    p.want([{ id: 1, url: "u1" }]);
+    expect(created).toHaveLength(2);
+    created[1].reject();
+    created[1].fire("error");
+    await tick();
+    expect(p.get(1, "u1")).toEqual({ state: "error" });
+    expect(p.retry(1)).toBe(false);
+    expect(p.retry(9)).toBe(false);
+  });
+
   it("解码失败记为 error，不影响其他条目", async () => {
     const { p, created, notified } = setup();
     p.want([{ id: 1, url: "u1" }, { id: 2, url: "u2" }]);

@@ -89,6 +89,16 @@ describe("Filmstrip", () => {
     expect(thumbsWant).toHaveBeenLastCalledWith("strip", [], 320);
   });
 
+  it("缺系统解码组件的项显示专门的占位，也不再登记", async () => {
+    useThumbs.setState({ noCodec: new Set([2]) });
+    const { container } = render(<Filmstrip list={flat(5)} current={1} />);
+    const mark = container.querySelector('.strip-item[data-id="2"] .strip-nocodec');
+    expect(mark?.getAttribute("title")).toBe(t("codec.thumbTip"));
+    expect(container.querySelector(".strip-broken")).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    expect(thumbsWant).toHaveBeenCalledWith("strip", [1, 3, 4, 5], 320);
+  });
+
   it("已有当前版本、档位不低于 320 的缩略图的项不再登记", async () => {
     useCatalog.getState().begin({ generation: 1, path: "/r", name: "r", recursive: true, focus: null });
     useCatalog.getState().apply({

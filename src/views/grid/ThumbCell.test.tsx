@@ -25,6 +25,16 @@ describe("ThumbCell", () => {
     expect(container.querySelector("img")!.getAttribute("src")).toMatch(/thumb\/1\/320\?v=99-77$/);
   });
 
+  it("缺系统解码组件：显示专门的占位，提示文字是 codec.thumbTip，不是损坏样式", () => {
+    useThumbs.getState().apply({ type: "noCodec", id: 1 });
+    const { container } = render(<ThumbCell entry={{ ...entry, name: "a.heic" }} cell={160} selected={false} focused={false} />);
+    const mark = container.querySelector(".thumb-nocodec");
+    expect(mark?.getAttribute("title")).toBe(t("codec.thumbTip"));
+    expect(container.querySelector(".thumb-broken")).toBeNull();
+    expect(mark?.classList.contains("thumb-broken")).toBe(false);
+    expect(container.querySelector("img")).toBeNull();
+  });
+
   it("缩略图加载失败后改显占位", () => {
     useThumbs.setState({ ready: new Map([[1, { tier: 320, v: "5-10" }]]) });
     const { container } = render(<ThumbCell entry={entry} cell={160} selected={false} focused={false} />);

@@ -13,20 +13,24 @@ import { batchGoto } from "../../app/batchMode";
 import { editActive, inBatch } from "../../stores/editUi";
 import { useNav } from "../../stores/nav";
 import { useThumbs } from "../../stores/thumbs";
+import NoCodecMark from "../common/NoCodecMark";
 
 const TIER = 320;
 
-/** 一个方格：缩略图完整显示在方格内；未就绪显示占位，损坏显示标记。 */
+/** 一个方格：缩略图完整显示在方格内；未就绪显示占位，损坏、缺系统解码组件各有标记。 */
 const StripCell = memo(function StripCell({ id, left, current }: { id: FileId; left: number; current: boolean }) {
   const ready = useThumbs((s) => s.ready.get(id));
   const broken = useThumbs((s) => s.broken.has(id));
+  const noCodec = useThumbs((s) => s.noCodec.has(id));
   const inBasket = useBasket((s) => s.items.has(id));
   const src = ready ? glanceUrl(`thumb/${id}/${ready.tier}?v=${ready.v}`) : null;
   // 文件被改动或删除时协议返回 404：改显占位
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   return (
     <div className={`strip-item${current ? " strip-current" : ""}`} data-id={id} style={{ left }}>
-      {broken ? (
+      {noCodec ? (
+        <NoCodecMark className="strip-nocodec" />
+      ) : broken ? (
         <div className="strip-broken" title={t("grid.unreadable")} />
       ) : src && failedSrc !== src ? (
         <img className="strip-img" src={src} alt="" draggable={false} onError={() => setFailedSrc(src)} />
@@ -133,13 +137,13 @@ export default function Filmstrip({ list, current }: { list: ImageList; current:
   useEffect(() => {
     if (view <= 0) return;
     const timer = setTimeout(() => {
-      const { broken, ready } = useThumbs.getState();
+      const { broken, noCodec, ready } = useThumbs.getState();
       const have = (id: FileId) => {
         const r = ready.get(id);
         const e = getSingleEntry(id);
         return !!r && !!e && r.tier >= TIER && r.v === `${e.mtimeMs}-${e.size}`;
       };
-      thumbsWant("strip", shown.filter((id) => !broken.has(id) && !have(id)), TIER)
+      thumbsWant("strip", shown.filter((id) => !broken.has(id) && !noCodec.has(id) && !have(id)), TIER)
         .then((ready) => {
           if (ready.length > 0) useThumbs.getState().markReady(ready, TIER);
         })

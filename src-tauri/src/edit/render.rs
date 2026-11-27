@@ -8,7 +8,7 @@ use glance_imaging::{Decoded, EditParams, Encoded, RgbaView, SrcFormat, apply, s
 
 use super::session::{EditError, MAX_PIXELS, out_format};
 use crate::catalog::details::{exif_blob, image_details};
-use crate::decode::{self, DecodeError};
+use crate::decode::{DecodeError, Decoder};
 
 /// 解码好的源图（已按 EXIF 方向转正）。
 pub struct Source {
@@ -27,14 +27,19 @@ pub(super) fn any_transparent(d: &Decoded) -> bool {
     d.rgba.chunks_exact(4).any(|p| p[3] != 255)
 }
 
-/// 读文件并解码。动图是 `Animated`，读不到是 `NotFound`，认不出格式是 `Unsupported`。
+/// 读文件并解码。动图是 `Animated`，读不到是 `NotFound`，认不出格式是 `Unsupported`，
+/// 本机缺系统解码组件是 `NoCodec`。
 /// 读文件与解码在调用方线程上做，调用方不得是主线程。
 pub fn read_source(path: &Path) -> Result<Source, EditError> {
-    read_source_with(path, &mut |_| {})
+    read_source_with(path, &Decoder::SYSTEM, &mut |_| {})
 }
 
-/// after_read 在读完文件之后调用，测试借此在读完之后改写文件。
-fn read_source_with(path: &Path, after_read: &mut dyn FnMut(&Path)) -> Result<Source, EditError> {
+/// after_read 在读完文件之后调用，测试借此在读完之后改写文件；decoder 在测试里换成替身。
+fn read_source_with(
+    path: &Path,
+    decoder: &Decoder,
+    after_read: &mut dyn FnMut(&Path),
+) -> Result<Source, EditError> {
     let details = image_details(path).ok_or(EditError::NotFound)?;
     if details.animated {
         return Err(EditError::Animated);
@@ -42,10 +47,10 @@ fn read_source_with(path: &Path, after_read: &mut dyn FnMut(&Path)) -> Result<So
     let bytes = std::fs::read(path).map_err(|_| EditError::NotFound)?;
     after_read(path);
     let src_format = src_format_of(&bytes).ok_or(EditError::Unsupported)?;
-    let d = decode::decode(&bytes, MAX_PIXELS).map_err(|e| match e {
+    let d = decoder.decode(&bytes, MAX_PIXELS).map_err(|e| match e {
         DecodeError::TooLarge => EditError::TooLarge,
-        // 本机缺系统解码器暂且算解不出来，以后换成专门的错误。
-        DecodeError::NoCodec | DecodeError::Decode => EditError::Decode,
+        DecodeError::NoCodec => EditError::NoCodec,
+        DecodeError::Decode => EditError::Decode,
     })?;
     let has_alpha = any_transparent(&d.decoded);
     Ok(Source {
@@ -220,10 +225,30 @@ mod tests {
         write_jpeg_with_exif(&p, 64, 48);
         // 读完之后文件被换成另一张（尺寸、厂商都不同）：像素与 EXIF 都应来自读到的那一份。
         let other = jpeg_with_exif(32, 16, &tiff(&[(MAKE, V::Ascii("Other"))], &[]));
-        let src = read_source_with(&p, &mut |path| std::fs::write(path, &other).unwrap()).unwrap();
+        let src = read_source_with(&p, &Decoder::SYSTEM, &mut |path| {
+            std::fs::write(path, &other).unwrap()
+        })
+        .unwrap();
         assert_eq!((src.decoded.width, src.decoded.height), (64, 48));
         let exif = src.exif.expect("应带回 EXIF");
         assert_eq!(make_of_tiff(&exif).as_deref(), Some("\"Acme\""));
+    }
+
+    #[test]
+    fn read_source_maps_no_codec() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.heic");
+        std::fs::write(
+            &p,
+            glance_imaging::heif::testkit::sample(&Default::default()),
+        )
+        .unwrap();
+        let dec = crate::decode::no_codec_decoder();
+        assert!(matches!(
+            read_source_with(&p, &dec, &mut |_| {}),
+            Err(EditError::NoCodec)
+        ));
+        assert_eq!(serde_json::to_value(EditError::NoCodec).unwrap(), "noCodec");
     }
 
     #[test]

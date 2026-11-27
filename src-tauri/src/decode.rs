@@ -218,6 +218,12 @@ pub fn reset_codec_state() {
     CODECS.reset()
 }
 
+/// 其他模块的测试用：把进程内那一份状态里的这种格式记为缺失。
+#[cfg(test)]
+pub fn mark_codec_missing(kind: Kind) {
+    CODECS.record(kind, true)
+}
+
 /// 解码并转正；宽 × 高超过 max_pixels → TooLarge。
 pub fn decode_with(
     sys: SysDecode,

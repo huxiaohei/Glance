@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { showImageMenu } from "../../app/contextMenu";
-import { t } from "../../i18n";
 import type { FileId } from "../../ipc/types";
 import type { ImageEntry } from "../../lib/deriveList";
 import { glanceUrl } from "../../lib/glanceUrl";
@@ -12,6 +11,7 @@ import { useEditUi } from "../../stores/editUi";
 import { useThumbs } from "../../stores/thumbs";
 import CropStage from "../edit/CropStage";
 import EditLayer from "../edit/EditLayer";
+import StageFailure from "./StageFailure";
 import type { Loaded, Preloader } from "./preloader";
 import { useStageViewport, type StageApi } from "./useStageViewport";
 
@@ -21,6 +21,11 @@ export type { StageApi };
 export const useStageApi: UseBoundStore<StoreApi<{ api: StageApi | null }>> = create<{ api: StageApi | null }>(() => ({
   api: null,
 }));
+
+/** 画面上当前图已解码原图的像素宽度（还没有时为 0）；信息条据此判断“已缩小显示”。 */
+export const useStageNatural: UseBoundStore<StoreApi<{ id: FileId | null; w: number }>> = create<{ id: FileId | null; w: number }>(
+  () => ({ id: null, w: 0 }),
+);
 
 /** 文件版本：修改时间与大小。缩略图的 v 用同样的写法。 */
 export const versionOf = (entry: Pick<ImageEntry, "mtimeMs" | "size">) => `${entry.mtimeMs}-${entry.size}`;
@@ -47,7 +52,7 @@ function useLoaded(preloader: Preloader, id: FileId, url: string | null): Loaded
 /**
  * 单张视图的画面。显示规则：当前图已解码 → 直接把预加载器解码好的元素放进画面；否则先铺它已就绪、
  * 且与条目当前版本一致的缩略图（按原图像素尺寸、与原图同一变换，换上原图时不跳），没有这样的缩略图或
- * 尺寸未知时画面留空；解码失败 → “无法读取”占位。编辑模式中结果图层（EditLayer）叠在原图上、跟随同一视口。换了一张图时旧图不会留在画面上；同一张图被改写时，
+ * 尺寸未知时画面留空；解码失败 → 问过原因后显示“无法读取”或缺系统解码组件的说明（StageFailure）。编辑模式中结果图层（EditLayer）叠在原图上、跟随同一视口。换了一张图时旧图不会留在画面上；同一张图被改写时，
  * 新版本解码完成（或失败）前保留旧图，按旧尺寸与旧视口显示。左下角显示当前比例；children 叠在画面之上。
  */
 export default function Stage({ id, preloader, children }: { id: FileId; preloader: Preloader; children?: ReactNode }) {
@@ -91,6 +96,11 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
     if (full && url) lastFull.current = { id, url, img: full, size };
     else if (!hold) lastFull.current = null;
   }, [full, hold, id, url, size]);
+
+  useLayoutEffect(() => {
+    useStageNatural.setState({ id, w: full?.naturalWidth ?? 0 });
+  }, [id, full]);
+  useEffect(() => () => useStageNatural.setState({ id: null, w: 0 }), []);
 
   // 解码好的元素由预加载器持有，直接放进画面（不经过 React 的子节点），换图只是一次替换
   useLayoutEffect(() => {
@@ -177,7 +187,9 @@ export default function Stage({ id, preloader, children }: { id: FileId; preload
       {thumbUrl && (
         <img key={thumbUrl} ref={setUnder} className="stage-img stage-underlay" src={thumbUrl} alt="" draggable={false} />
       )}
-      {failed && <div className="stage-unreadable">{t("grid.unreadable")}</div>}
+      {failed && entry && url && (
+        <StageFailure id={id} url={url} name={entry.name} retry={() => preloader.retry(id)} />
+      )}
       {percent > 0 && shown && !cropping && <div className="stage-percent">{percent}%</div>}
       {cropping && <CropStage />}
       {children}

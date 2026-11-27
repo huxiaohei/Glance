@@ -8,12 +8,14 @@ import { useCatalog } from "../../stores/catalog";
 import { inBatch, useEditUi } from "../../stores/editUi";
 import { isSaveMenuOpen, setSaveMenuOpen } from "../../stores/saveMenu";
 import { topView, useNav } from "../../stores/nav";
+import { useThumbs } from "../../stores/thumbs";
 import { showToast } from "../../stores/toast";
 
 const ERROR_TEXT: Partial<Record<EditError, MessageKey>> = {
   animated: "edit.err.animated",
   tooLarge: "edit.err.tooLarge",
   notFound: "edit.err.notFound",
+  noCodec: "codec.editTip",
 };
 
 /** 打开失败时的提示文字；未单列的错误都按“无法读取”。 */
@@ -21,12 +23,14 @@ export function editErrorText(error: string): string {
   return t(ERROR_TEXT[error as EditError] ?? "edit.err.decode");
 }
 
-/** 对这张图进入编辑模式；不可编辑（动图、超大、读不了）时不进入，给提示条。 */
+/** 对这张图进入编辑模式；不可编辑（动图、超大、读不了、缺系统解码组件）时不进入，给提示条。 */
 export async function enterEdit(id: FileId, tab?: EditTab): Promise<void> {
   const outcome = await useEditUi.getState().open(id, tab ? { tab } : undefined);
   // 只看这一次打开自己的结果：被更新的打开取代时不提示
   if (outcome.kind === "failed") {
     if (outcome.error === "animated") noteAnimated(id, true);
+    // 记进缩略图状态：编辑按钮随之置灰，缩略图位置显示缺组件的占位
+    if (outcome.error === "noCodec") useThumbs.getState().apply({ type: "noCodec", id });
     showToast({ text: editErrorText(outcome.error) });
   }
 }

@@ -6,7 +6,14 @@ export interface PreloaderDeps { create(url: string): HTMLImageElement }   // �
 
 const defaultDeps: PreloaderDeps = { create: () => new Image() };
 
-interface Entry { url: string; img: HTMLImageElement; loaded: Loaded; cleanup: (() => void) | null }
+interface Entry {
+  url: string;
+  img: HTMLImageElement;
+  loaded: Loaded;
+  cleanup: (() => void) | null;
+  /** 这是失败后重试出来的条目：不再重试。 */
+  retried: boolean;
+}
 
 const LOADING: Loaded = { state: "loading" };
 const ERROR: Loaded = { state: "error" };
@@ -49,13 +56,26 @@ export class Preloader {
     };
   }
 
+  /**
+   * 失败的一项以同一地址重新加载一次（之前的失败是一时的，比如显示通道忙）；同一项只重试一次。
+   * 重试了返回 true，并通知订阅者（状态回到 loading）；没有这一项、它没失败或已重试过返回 false。
+   */
+  retry(id: FileId): boolean {
+    const e = this.entries.get(id);
+    if (!e || e.loaded.state !== "error" || e.retried) return false;
+    this.drop(id, e);
+    this.start(id, e.url, true);
+    for (const fn of [...this.listeners]) fn(id);
+    return true;
+  }
+
   clear(): void {
     for (const [id, e] of this.entries) this.drop(id, e);
   }
 
-  private start(id: FileId, url: string): void {
+  private start(id: FileId, url: string, retried = false): void {
     const img = this.deps.create(url);
-    const entry: Entry = { url, img, loaded: LOADING, cleanup: null };
+    const entry: Entry = { url, img, loaded: LOADING, cleanup: null, retried };
     this.entries.set(id, entry);
     img.src = url;
 

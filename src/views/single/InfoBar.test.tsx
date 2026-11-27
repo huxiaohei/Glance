@@ -2,6 +2,7 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
+import { t } from "../../i18n";
 import { appVersion, basketRestore, onOpenRequest, takeOpenRequest, thumbsSubscribe, thumbsWant, updateCheck } from "../../ipc/api";
 import { useCatalog } from "../../stores/catalog";
 import { useListView } from "../../stores/listView";
@@ -83,5 +84,23 @@ describe("信息条的格式标签", () => {
     expect(label(2)).toBe("HEIC");
     expect(label(3)).toBe("AVIF");
     expect(label(4)).toBe("JPG");
+  });
+});
+
+describe("信息条的“已缩小显示”", () => {
+  it("画面上的原图比条目宽度小时显示，一样大时不显示", async () => {
+    const d = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "naturalWidth")!;
+    Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { configurable: true, get: () => 8000 });
+    restore.push(() => Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", d));
+    const c = setup([
+      { id: 1, relPath: "big.heic", dims: [12000, 9000] },
+      { id: 2, relPath: "ok.heic", dims: [8000, 6000] },
+    ]);
+    openAt(1);
+    await act(async () => {});
+    expect(q(c, ".single-infobar .info-scaled")?.textContent).toBe(t("single.scaled"));
+    openAt(2);
+    await act(async () => {});
+    expect(q(c, ".single-infobar .info-scaled")).toBeNull();
   });
 });

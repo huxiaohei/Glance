@@ -7,6 +7,9 @@ import { useBatch } from "../../stores/batch";
 import { useGridCtx } from "../../stores/gridCtx";
 import { useNav } from "../../stores/nav";
 import { useSelection } from "../../stores/selection";
+import { allNoCodec, useThumbs } from "../../stores/thumbs";
+import { showToast } from "../../stores/toast";
+import { t } from "../../i18n";
 import type { EditTab } from "../../ipc/types";
 import { enterEdit } from "../edit/editCommands";
 
@@ -30,9 +33,14 @@ const navCommand = (move: Move, key: string): Command => ({
   run: (ctx) => navigate(move, ctx),
 });
 
-/** 选中 ≥ 2 张：批量（进行中不做事）；1 张：单张编辑（tab 为空时用上次的页签）。 */
+/** 选中 ≥ 2 张：批量（进行中不做事）；1 张：单张编辑（tab 为空时用上次的页签）。
+ *  操作对象全都缺系统解码组件时不进入，给提示条。 */
 function startEdit(tab: EditTab | undefined): void {
   const targets = opTargets();
+  if (allNoCodec(useThumbs.getState().noCodec, targets)) {
+    showToast({ text: t("codec.editTip") });
+    return;
+  }
   if (targets.length >= 2) {
     if (useBatch.getState().progress !== null) return;
     const { focus } = useSelection.getState();

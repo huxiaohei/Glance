@@ -242,6 +242,14 @@ describe("showImageMenu", () => {
       expect(m.some((n) => n.kind === "item" && n.label === T("cmd.grid.batchCompress"))).toBe(false);
     });
 
+    it("操作对象全缺系统解码组件：网格里批量两项与“编辑”都置灰", () => {
+      const multi = buildImageMenu({ view: "grid", count: 2, recent: [], names: ["a.heic", "b.heic"], noCodec: true });
+      expect((find(multi, T("cmd.grid.batchCompress")) as Item).enabled).toBe(false);
+      expect((find(multi, T("cmd.grid.batchConvert")) as Item).enabled).toBe(false);
+      const one = buildImageMenu({ view: "grid", count: 1, recent: [], names: ["a.heic"], noCodec: true });
+      expect((find(one, T("cmd.grid.edit")) as Item).enabled).toBe(false);
+    });
+
     it("多选全是 HEIC / AVIF：“批量压缩…”置灰，“批量转格式…”可用；混选仍可用", () => {
       const all = buildImageMenu({ view: "grid", count: 2, recent: [], names: ["a.heic", "b.avif"] });
       expect((find(all, T("cmd.grid.batchCompress")) as Item).enabled).toBe(false);

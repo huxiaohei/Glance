@@ -56,8 +56,8 @@ export function useCompareImages(
   const [visible, setVisible] = useState<ReadonlySet<FileId>>(() => new Set());
 
   useEffect(() => {
-    const { broken } = useThumbs.getState();
-    thumbsWant("compare", ids.filter((id) => !broken.has(id)), COMPARE_TIER)
+    const { broken, noCodec } = useThumbs.getState();
+    thumbsWant("compare", ids.filter((id) => !broken.has(id) && !noCodec.has(id)), COMPARE_TIER)
       .then((ready) => {
         if (ready.length > 0) useThumbs.getState().markReady(ready, COMPARE_TIER);
       })

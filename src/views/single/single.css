@@ -90,9 +90,13 @@
   color: var(--text);
 }
 .info-dims,
+.info-scaled,
 .info-size,
 .info-format {
   flex: none;
+}
+.info-scaled {
+  color: var(--text-dim);
 }
 .info-index {
   flex: none;
@@ -142,6 +146,28 @@
   justify-content: center;
   color: var(--text-dim);
   pointer-events: none;
+}
+/* 缺系统解码组件的说明：居中一段文字，Windows 上下面再有一个按钮 */
+.stage-codec {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 48px;
+  color: var(--text-dim);
+  text-align: center;
+  pointer-events: none;
+}
+.stage-codec-text {
+  margin: 0;
+  max-width: 420px;
+  line-height: 1.6;
+}
+.stage-codec button {
+  pointer-events: auto;
 }
 /* 左右边缘的箭头区域：指针进入该区域时显示 */
 .stage-arrow {

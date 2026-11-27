@@ -9,6 +9,7 @@ import { useThumbs } from "../../stores/thumbs";
 import { removeFromCompare } from "./compareActions";
 import { cellSources } from "./useCompareImages";
 import { picTransform } from "./useCompareViewport";
+import NoCodecMark from "../common/NoCodecMark";
 
 interface Props {
   id: FileId;
@@ -42,11 +43,12 @@ function imgStyle(vp: CompareViewport, img: Size | null, box: Size): CSSProperti
 
 /**
  * 对比视图的一格：图片区（缩略图垫底，原图到达后盖在上面）与下方一行说明“文件名 · 宽×高”。
- * 缺失的格显示“文件已不在”。右上角的移出按钮悬停或焦点时显示（缺失的格也有）。
+ * 缺失的格显示“文件已不在”，缺系统解码组件的格显示专门的占位。右上角的移出按钮悬停或焦点时显示（缺失的格也有）。
  * 缩放平移、单击、双击、右键由 useCompareViewport 在滚动区上统一处理；交互中的 transform 由它直接写进 DOM。
  */
 function CompareCell({ id, item, missing, odd, captions, focused, box, vp, full }: Props) {
   const ready = useThumbs((s) => s.ready.get(id));
+  const noCodec = useThumbs((s) => s.noCodec.has(id));
   const w = item?.width;
   const h = item?.height;
   const img = w && h ? { w, h } : null;
@@ -64,6 +66,8 @@ function CompareCell({ id, item, missing, odd, captions, focused, box, vp, full 
       <div className="compare-img">
         {missing ? (
           <div className="compare-missing">{t("compare.missing")}</div>
+        ) : noCodec ? (
+          <NoCodecMark className="compare-nocodec" />
         ) : (
           <>
             {thumb && <img className={imgClass} src={thumb} style={style} alt="" draggable={false} />}

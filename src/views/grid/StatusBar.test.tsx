@@ -16,6 +16,8 @@ import { enterBatch } from "../../app/batchMode";
 import { registerGridCommands } from "./gridCommands";
 import { useBatch } from "../../stores/batch";
 import { useGridCtx } from "../../stores/gridCtx";
+import { useThumbs } from "../../stores/thumbs";
+import { allCommands } from "../../app/commands";
 
 vi.mock("../../app/fileOps", () => ({ opTargets: () => [1, 2, 3].filter((id) => useSelection.getState().ids.has(id)), trashTargets: vi.fn(), undoLast: vi.fn(), pickAndTransfer: vi.fn(), transferToNewChild: vi.fn() }));
 vi.mock("../../app/batchMode", () => ({ enterBatch: vi.fn() }));
@@ -168,6 +170,22 @@ describe("StatusBar", () => {
       act(() => useSelection.getState().set({ ...selectOnly(1), ids: new Set([1, 3]), focus: 1 }));
       rerender(<StatusBar total={3} />);
       expect((screen.getByRole("button", { name: t("status.compress") }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("选中的全在缺组件集合里：压缩、转格式都禁用并提示；E 不进入批量；有一张不在就可用", () => {
+      useThumbs.setState({ noCodec: new Set([1, 2]) });
+      useSelection.getState().set({ ...selectOnly(1), ids: new Set([1, 2]), focus: 1 });
+      const { rerender } = render(<StatusBar total={3} />);
+      const convert = screen.getByRole("button", { name: t("status.convert") }) as HTMLButtonElement;
+      expect(convert.disabled).toBe(true);
+      expect(convert.getAttribute("title")).toBe(t("codec.editTip"));
+      expect((screen.getByRole("button", { name: t("status.compress") }) as HTMLButtonElement).disabled).toBe(true);
+      act(() => allCommands().find((c) => c.id === "grid.edit")!.run({ shift: false, repeat: false }));
+      expect(enterBatch).not.toHaveBeenCalled();
+      act(() => useSelection.getState().set({ ...selectOnly(1), ids: new Set([1, 3]), focus: 1 }));
+      rerender(<StatusBar total={3} />);
+      expect((screen.getByRole("button", { name: t("status.convert") }) as HTMLButtonElement).disabled).toBe(false);
+      useThumbs.getState().reset();
     });
 
     it("批量进行中按钮禁用并提示；任务结束后恢复", () => {

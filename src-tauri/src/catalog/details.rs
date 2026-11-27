@@ -10,8 +10,12 @@ use std::path::Path;
 use exif::{Exif, In, Tag, Value};
 use serde::Serialize;
 
+use glance_imaging::heif::HeifKind;
+use glance_syscodec::Kind;
+
 use super::registry::{FileId, Registry};
 use super::scan::stamp_of;
+use crate::decode::{DecodeError, Decoder};
 
 /// 单张图片的详情，供信息面板显示。
 ///
@@ -121,6 +125,54 @@ pub fn details_by_id(registry: &Registry, id: FileId) -> Result<ImageDetails, St
         .path(id)
         .ok_or_else(|| format!("unknown file id: {}", id.0))?;
     image_details(&path).ok_or_else(|| format!("file not readable: {}", id.0))
+}
+
+/// 一张图加载失败后的原因：系统解码组件缺失、确实读不出来，或者其实能读（之前的失败是一时的）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ImageStatus {
+    Ok,
+    NoCodec,
+    Broken,
+}
+
+/// 判断一张加载失败的图为什么失败。文件头不是 HEIF / AVIF → Broken；是，且组件已知缺失 → NoCodec；
+/// 否则试解一次（长边 64）：NoCodec → NoCodec（并记下缺失），其他错误 → Broken，成功 → Ok。
+/// 文件读不了 → Err。读文件与解码在调用方线程上，调用方不得是主线程。
+pub fn image_status(path: &Path, decoder: &Decoder) -> Result<ImageStatus, String> {
+    // ftyp 的兼容品牌可能较长，与批量的文件头读同样多。
+    let mut head = Vec::with_capacity(512);
+    File::open(path)
+        .and_then(|f| f.take(512).read_to_end(&mut head))
+        .map_err(|e| e.to_string())?;
+    let Some(kind) = glance_imaging::heif::sniff(&head) else {
+        return Ok(ImageStatus::Broken);
+    };
+    let kind = match kind {
+        HeifKind::Heic => Kind::Heif,
+        HeifKind::Avif => Kind::Avif,
+    };
+    if decoder.codecs.missing(kind) == Some(true) {
+        return Ok(ImageStatus::NoCodec);
+    }
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    Ok(match decoder.thumbnail(&bytes, 64) {
+        Ok(_) => ImageStatus::Ok,
+        Err(DecodeError::NoCodec) => ImageStatus::NoCodec,
+        Err(_) => ImageStatus::Broken,
+    })
+}
+
+/// 由 ID 经登记表换算路径后判断；ID 未登记或文件读不了返回 Err。
+pub fn image_status_by_id(
+    registry: &Registry,
+    id: FileId,
+    decoder: &Decoder,
+) -> Result<ImageStatus, String> {
+    let path = registry
+        .path(id)
+        .ok_or_else(|| format!("unknown file id: {}", id.0))?;
+    image_status(&path, decoder)
 }
 
 /// 对比篮里的一项：只有名字与所在目录的名字（最后一段），不含路径。
@@ -1181,6 +1233,75 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn image_status_cases() {
+        use crate::decode::{CodecState, Decoder, Gate, no_codec_decoder};
+        use glance_syscodec::{CodecError, Image, Kind};
+        fn ok(_: &[u8], _: Kind, _: u64, _: Option<u32>) -> Result<Image, CodecError> {
+            Ok(Image {
+                width: 1,
+                height: 1,
+                rgba: vec![0, 0, 0, 255],
+                icc: None,
+            })
+        }
+        fn bad(_: &[u8], _: Kind, _: u64, _: Option<u32>) -> Result<Image, CodecError> {
+            Err(CodecError::Decode("坏".into()))
+        }
+        fn fresh(sys: crate::decode::SysDecode) -> Decoder {
+            Decoder {
+                sys,
+                codecs: Box::leak(Box::new(CodecState::new())),
+                gate: Box::leak(Box::new(Gate::new(2))),
+            }
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let heic = write(
+            tmp.path(),
+            "a.heic",
+            &glance_imaging::heif::testkit::sample(&Default::default()),
+        );
+        // (a) 已知缺失：不再试解（换成能解的替身也仍是 noCodec）。
+        let d = no_codec_decoder();
+        let _ = d.thumbnail(&fs::read(&heic).unwrap(), 64);
+        assert_eq!(d.codecs.missing(Kind::Heif), Some(true));
+        let d = Decoder { sys: ok, ..d };
+        assert_eq!(image_status(&heic, &d), Ok(ImageStatus::NoCodec));
+        // (b) 状态未知、试解报 NoCodec：noCodec，状态记为缺失。
+        let d = no_codec_decoder();
+        assert_eq!(image_status(&heic, &d), Ok(ImageStatus::NoCodec));
+        assert_eq!(d.codecs.missing(Kind::Heif), Some(true));
+        // (c) 解码出错：broken。
+        assert_eq!(image_status(&heic, &fresh(bad)), Ok(ImageStatus::Broken));
+        // 试解成功：ok（之前的失败是一时的）。
+        assert_eq!(image_status(&heic, &fresh(ok)), Ok(ImageStatus::Ok));
+        // (d) 垃圾字节、不是 HEIF 的文件：broken，不调系统解码器。
+        let junk = write(tmp.path(), "junk.heic", b"not an image at all");
+        assert_eq!(
+            image_status(&junk, &no_codec_decoder()),
+            Ok(ImageStatus::Broken)
+        );
+        let png = write(tmp.path(), "b.png", &png(4, 4));
+        assert_eq!(
+            image_status(&png, &no_codec_decoder()),
+            Ok(ImageStatus::Broken)
+        );
+        // (e) 文件不在：Err。
+        assert!(image_status(&tmp.path().join("gone.heic"), &no_codec_decoder()).is_err());
+        assert_eq!(
+            serde_json::to_value(ImageStatus::NoCodec).unwrap(),
+            "noCodec"
+        );
+        assert_eq!(serde_json::to_value(ImageStatus::Ok).unwrap(), "ok");
+        assert_eq!(serde_json::to_value(ImageStatus::Broken).unwrap(), "broken");
+    }
+
+    #[test]
+    fn image_status_by_id_rejects_unknown_id() {
+        let reg = Registry::default();
+        assert!(image_status_by_id(&reg, FileId(99), &crate::decode::no_codec_decoder()).is_err());
     }
 
     fn heif_file(

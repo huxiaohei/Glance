@@ -9,6 +9,7 @@ import { basketItem, useBasket } from "../../stores/basket";
 import { useCatalog } from "../../stores/catalog";
 import { useCompareUi } from "../../stores/compareUi";
 import { useListView } from "../../stores/listView";
+import { useThumbs } from "../../stores/thumbs";
 import { useToast } from "../../stores/toast";
 import ComparePanel from "./ComparePanel";
 
@@ -51,6 +52,15 @@ describe("ComparePanel", () => {
     expect(labels[0]).toBe("当前文件夹 · 3 张");
     expect(labels.some((l) => l?.includes("魏国 · 1 张"))).toBe(true);
     expect(labels[labels.length - 1]).toBe("其他文件夹…");
+  });
+
+  it("缺系统解码组件的格显示专门的占位", () => {
+    openRoot(["a.heic", "b.png"]);
+    useThumbs.setState({ noCodec: new Set([1]) });
+    const { container } = render(<ComparePanel />);
+    expect(itemOf(container, 1).querySelector(".compare-panel-nocodec")?.getAttribute("title")).toBe("需要系统解码组件");
+    expect(itemOf(container, 2).querySelector(".compare-panel-nocodec")).toBeNull();
+    useThumbs.getState().reset();
   });
 
   it("点缩略图加入，再点移出；已在篮中的有琥珀点", () => {

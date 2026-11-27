@@ -16,8 +16,8 @@ export function useVisibleThumbs(layout: GridLayout, scrollTop: number, viewHeig
     const ids = wantedIds(layout, scrollTop, viewHeight, viewHeight);
     const timer = setTimeout(() => {
       // 已确认损坏的文件不再请求，免得每次都重新解码
-      const { broken } = useThumbs.getState();
-      thumbsWant("grid", ids.filter((id) => !broken.has(id)), tier)
+      const { broken, noCodec } = useThumbs.getState();
+      thumbsWant("grid", ids.filter((id) => !broken.has(id) && !noCodec.has(id)), tier)
         .then((ready) => {
           if (ready.length > 0) useThumbs.getState().markReady(ready, tier);
         })

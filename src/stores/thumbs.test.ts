@@ -43,18 +43,41 @@ describe("thumbs store", () => {
     useThumbs.getState().apply({ type: "broken", id: 5 });
     expect(useThumbs.getState().broken.has(5)).toBe(true);
   });
-  it("noCodec 暂按损坏处理，之后的 ready 仍可清除", () => {
+  it("noCodec 进独立集合，不算损坏；之后的 ready 移出", () => {
     const s = useThumbs.getState();
     s.applyMany([{ type: "noCodec", id: 7 }, { type: "ready", id: 8, tier: 320, v: "1-1" }, { type: "noCodec", id: 8 }]);
     let st = useThumbs.getState();
-    expect([st.broken.has(7), st.broken.has(8)]).toEqual([true, true]);
-    const before = st.broken;
+    expect([st.noCodec.has(7), st.noCodec.has(8)]).toEqual([true, true]);
+    expect([st.broken.has(7), st.broken.has(8)]).toEqual([false, false]);
+    const before = st.noCodec;
     s.apply({ type: "noCodec", id: 7 });
-    expect(useThumbs.getState().broken).toBe(before);
+    expect(useThumbs.getState().noCodec).toBe(before);
     s.apply({ type: "ready", id: 7, tier: 320, v: "2-2" });
     st = useThumbs.getState();
-    expect(st.broken.has(7)).toBe(false);
+    expect(st.noCodec.has(7)).toBe(false);
     expect(st.ready.get(7)).toEqual({ tier: 320, v: "2-2" });
+    s.markReady([{ id: 8, v: "1-1" }], 320);
+    expect(useThumbs.getState().noCodec.has(8)).toBe(false);
+  });
+  it("noCodec 之后的 broken 改记为损坏；损坏之后的 noCodec 改记为缺组件", () => {
+    const s = useThumbs.getState();
+    s.applyMany([{ type: "noCodec", id: 1 }, { type: "broken", id: 1 }]);
+    let st = useThumbs.getState();
+    expect([st.noCodec.has(1), st.broken.has(1)]).toEqual([false, true]);
+    s.apply({ type: "noCodec", id: 1 });
+    st = useThumbs.getState();
+    expect([st.noCodec.has(1), st.broken.has(1)]).toEqual([true, false]);
+  });
+  it("reset、clearBroken 与 forget 都清掉 noCodec", () => {
+    const s = useThumbs.getState();
+    s.applyMany([{ type: "noCodec", id: 1 }, { type: "noCodec", id: 2 }, { type: "noCodec", id: 3 }]);
+    s.forget([1]);
+    expect([...useThumbs.getState().noCodec]).toEqual([2, 3]);
+    s.clearBroken();
+    expect(useThumbs.getState().noCodec.size).toBe(0);
+    s.apply({ type: "noCodec", id: 4 });
+    s.reset();
+    expect(useThumbs.getState().noCodec.size).toBe(0);
   });
   it("ready 清除损坏标记", () => {
     const s = useThumbs.getState();
